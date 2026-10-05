@@ -3,6 +3,7 @@ import "dotenv/config";
 import {
   randomBytes,
   scrypt as scryptCallback,
+  timingSafeEqual,
 } from "node:crypto";
 
 import {
@@ -19,6 +20,16 @@ import {
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_LENGTH = 128;
 
+const SCRYPT_OPTIONS = {
+  N: 16_384,
+  r: 8,
+  p: 1,
+  maxmem: 32 * 1024 * 1024,
+};
+
+const SALT_BYTES = 16;
+const KEY_LENGTH = 64;
+
 /*
 |--------------------------------------------------------------------------
 | Types
@@ -28,6 +39,8 @@ const MAX_PASSWORD_LENGTH = 128;
 type RoleRow = {
   id: number;
   code: string;
+  isActive: number;
+  isSystem: number;
 };
 
 type ExistingUserRow = {
@@ -38,15 +51,18 @@ type ExistingUserRow = {
   role: string;
 };
 
+type ProcessResult = {
+  operation: "created" | "synchronized";
+  userId: number;
+};
+
 /*
 |--------------------------------------------------------------------------
 | Environment Helpers
 |--------------------------------------------------------------------------
 */
 
-function getRequiredEnv(
-  key: string,
-): string {
+function getRequiredEnv(key: string): string {
   const value = process.env[key];
 
   if (
@@ -67,17 +83,13 @@ function getRequiredEnv(
 |--------------------------------------------------------------------------
 */
 
-function normalizeEmail(
-  value: string,
-): string {
+function normalizeEmail(value: string): string {
   return value
     .trim()
     .toLowerCase();
 }
 
-function normalizeName(
-  value: string,
-): string {
+function normalizeName(value: string): string {
   return value
     .trim()
     .replace(/\s+/g, " ");
@@ -89,61 +101,43 @@ function normalizeName(
 |--------------------------------------------------------------------------
 */
 
-function isValidEmail(
-  email: string,
-): boolean {
+function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
     email,
   );
 }
 
-function isValidPassword(
-  password: string,
-): boolean {
+function isValidPassword(password: string): boolean {
   return (
-    password.length >=
-      MIN_PASSWORD_LENGTH &&
-    password.length <=
-      MAX_PASSWORD_LENGTH
+    password.length >= MIN_PASSWORD_LENGTH &&
+    password.length <= MAX_PASSWORD_LENGTH
   );
 }
 
-function validateCredentials(
-  credentials: {
-    name: string;
-    email: string;
-    password: string;
-  },
-): void {
-  if (
-    credentials.name.length < 2
-  ) {
+function validateCredentials(credentials: {
+  name: string;
+  email: string;
+  password: string;
+}): void {
+  if (credentials.name.length < 2) {
     throw new Error(
       "SUPER_ADMIN_NAME must contain at least 2 characters.",
     );
   }
 
-  if (
-    credentials.name.length > 150
-  ) {
+  if (credentials.name.length > 150) {
     throw new Error(
       "SUPER_ADMIN_NAME cannot exceed 150 characters.",
     );
   }
 
-  if (
-    !isValidEmail(credentials.email)
-  ) {
+  if (!isValidEmail(credentials.email)) {
     throw new Error(
       "SUPER_ADMIN_EMAIL is not a valid email address.",
     );
   }
 
-  if (
-    !isValidPassword(
-      credentials.password,
-    )
-  ) {
+  if (!isValidPassword(credentials.password)) {
     throw new Error(
       `SUPER_ADMIN_PASSWORD must be between ${MIN_PASSWORD_LENGTH} and ${MAX_PASSWORD_LENGTH} characters.`,
     );
@@ -155,7 +149,13 @@ function validateCredentials(
 | Password Hashing
 |--------------------------------------------------------------------------
 |
-| MUST remain compatible with server/routes/auth.ts
+| Compatible with server/routes/auth.ts
+|
+| Stored format:
+|
+|   <32 hex chars>:<128 hex chars>
+|
+| 16-byte salt + 64-byte derived key
 |--------------------------------------------------------------------------
 */
 
@@ -170,13 +170,7 @@ function deriveKey(
         password,
         salt,
         keyLength,
-        {
-          N: 16384,
-          r: 8,
-          p: 1,
-          maxmem:
-            32 * 1024 * 1024,
-        },
+        SCRYPT_OPTIONS,
         (
           error,
           derivedKey,
@@ -186,23 +180,16 @@ function deriveKey(
             return;
           }
 
-          if (
-            !Buffer.isBuffer(
-              derivedKey,
-            )
-          ) {
+          if (!Buffer.isBuffer(derivedKey)) {
             reject(
               new Error(
                 "Password derivation failed.",
               ),
             );
-
             return;
           }
 
-          resolve(
-            derivedKey,
-          );
+          resolve(derivedKey);
         },
       );
     },
@@ -212,20 +199,106 @@ function deriveKey(
 async function hashPassword(
   password: string,
 ): Promise<string> {
-  const salt =
-    randomBytes(16);
+  const salt = randomBytes(
+    SALT_BYTES,
+  );
 
   const derivedKey =
     await deriveKey(
       password,
       salt,
-      64,
+      KEY_LENGTH,
     );
 
-  return [
-    salt.toString("hex"),
-    derivedKey.toString("hex"),
-  ].join(":");
+  return `${salt.toString("hex")}:${derivedKey.toString("hex")}`;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Password Hash Verification
+|--------------------------------------------------------------------------
+*/
+
+function isValidStoredHash(
+  passwordHash: string,
+): boolean {
+  return /^[0-9a-f]{32}:[0-9a-f]{128}$/i.test(
+    passwordHash,
+  );
+}
+
+async function verifyPasswordHash(
+  password: string,
+  passwordHash: string,
+): Promise<boolean> {
+  if (
+    !isValidStoredHash(
+      passwordHash,
+    )
+  ) {
+    return false;
+  }
+
+  const parts =
+    passwordHash.split(":");
+
+  if (parts.length !== 2) {
+    return false;
+  }
+
+  const saltHex = parts[0];
+  const hashHex = parts[1];
+
+  if (
+    !saltHex ||
+    !hashHex
+  ) {
+    return false;
+  }
+
+  try {
+    const salt =
+      Buffer.from(
+        saltHex,
+        "hex",
+      );
+
+    const expectedHash =
+      Buffer.from(
+        hashHex,
+        "hex",
+      );
+
+    if (
+      salt.length !==
+        SALT_BYTES ||
+      expectedHash.length !==
+        KEY_LENGTH
+    ) {
+      return false;
+    }
+
+    const actualHash =
+      await deriveKey(
+        password,
+        salt,
+        expectedHash.length,
+      );
+
+    if (
+      actualHash.length !==
+      expectedHash.length
+    ) {
+      return false;
+    }
+
+    return timingSafeEqual(
+      actualHash,
+      expectedHash,
+    );
+  } catch {
+    return false;
+  }
 }
 
 /*
@@ -241,7 +314,9 @@ function getSuperAdminRole(): RoleRow {
         `
         SELECT
           id,
-          code
+          code,
+          is_active AS isActive,
+          is_system AS isSystem
         FROM roles
         WHERE code = 'super_admin'
         LIMIT 1
@@ -253,7 +328,34 @@ function getSuperAdminRole(): RoleRow {
 
   if (!role) {
     throw new Error(
-      'Database role "super_admin" was not found. Make sure schema.sql has been initialized correctly.',
+      'Database role "super_admin" was not found. Make sure the v4 schema is initialized.',
+    );
+  }
+
+  if (
+    role.code !==
+    "super_admin"
+  ) {
+    throw new Error(
+      "Invalid Super Admin role configuration.",
+    );
+  }
+
+  if (
+    role.isActive !==
+    1
+  ) {
+    throw new Error(
+      'Database role "super_admin" is inactive.',
+    );
+  }
+
+  if (
+    role.isSystem !==
+    1
+  ) {
+    throw new Error(
+      'Database role "super_admin" is not marked as a system role.',
     );
   }
 
@@ -281,7 +383,7 @@ function findUserByEmail(
       FROM users u
       INNER JOIN roles r
         ON r.id = u.role_id
-      WHERE LOWER(u.email) = LOWER(?)
+      WHERE LOWER(TRIM(u.email)) = LOWER(?)
       LIMIT 1
       `,
     )
@@ -296,22 +398,22 @@ function findUserByEmail(
 |--------------------------------------------------------------------------
 */
 
-function createAuditLog(
-  params: {
-    userId: number;
-    action: string;
-    entityType: string;
-    entityId: number;
-    newData: Record<
-      string,
-      unknown
-    >;
-  },
-): void {
+function createAuditLog(params: {
+  userId: number;
+  action: string;
+  entityType: string;
+  entityId: number;
+  newData: Record<
+    string,
+    unknown
+  >;
+}): void {
   db.prepare(
     `
     INSERT INTO audit_logs (
       user_id,
+      request_id,
+      actor_type,
       action,
       entity_type,
       entity_id,
@@ -323,6 +425,8 @@ function createAuditLog(
     )
     VALUES (
       ?,
+      NULL,
+      'system',
       ?,
       ?,
       ?,
@@ -356,29 +460,23 @@ function getEnvironmentCredentials(): {
   email: string;
   password: string;
 } {
-  const name =
-    normalizeName(
+  return {
+    name: normalizeName(
       getRequiredEnv(
         "SUPER_ADMIN_NAME",
       ),
-    );
+    ),
 
-  const email =
-    normalizeEmail(
+    email: normalizeEmail(
       getRequiredEnv(
         "SUPER_ADMIN_EMAIL",
       ),
-    );
+    ),
 
-  const password =
-    getRequiredEnv(
-      "SUPER_ADMIN_PASSWORD",
-    );
-
-  return {
-    name,
-    email,
-    password,
+    password:
+      getRequiredEnv(
+        "SUPER_ADMIN_PASSWORD",
+      ),
   };
 }
 
@@ -400,9 +498,6 @@ async function createOrSyncSuperAdmin(): Promise<void> {
     "==============================================",
   );
   console.log(
-    "Mode     : Environment Variables",
-  );
-  console.log(
     "Database : SQLite",
   );
   console.log(
@@ -417,23 +512,20 @@ async function createOrSyncSuperAdmin(): Promise<void> {
   console.log("");
 
   /*
-   * Verify role.
-   */
+  |--------------------------------------------------------------------------
+  | Validate role
+  |--------------------------------------------------------------------------
+  */
+
   const role =
     getSuperAdminRole();
 
-  if (
-    role.code !==
-    "super_admin"
-  ) {
-    throw new Error(
-      'Database role configuration is invalid. Expected "super_admin".',
-    );
-  }
-
   /*
-   * Load and validate environment credentials.
-   */
+  |--------------------------------------------------------------------------
+  | Load credentials
+  |--------------------------------------------------------------------------
+  */
+
   const credentials =
     getEnvironmentCredentials();
 
@@ -442,17 +534,32 @@ async function createOrSyncSuperAdmin(): Promise<void> {
   );
 
   /*
-   * Check current account.
-   */
+  |--------------------------------------------------------------------------
+  | Existing account check
+  |--------------------------------------------------------------------------
+  */
+
   const existingUser =
     findUserByEmail(
       credentials.email,
     );
 
+  if (
+    existingUser &&
+    existingUser.role !==
+      "super_admin"
+  ) {
+    throw new Error(
+      `The email "${existingUser.email}" is already registered with role "${existingUser.role}". Use a different email for the Super Admin account.`,
+    );
+  }
+
   /*
-   * Hash password regardless of whether
-   * this is a create or synchronization.
-   */
+  |--------------------------------------------------------------------------
+  | Create password hash
+  |--------------------------------------------------------------------------
+  */
+
   console.log(
     "Creating secure password hash...",
   );
@@ -463,15 +570,20 @@ async function createOrSyncSuperAdmin(): Promise<void> {
     );
 
   /*
-   * Create or update atomically.
-   */
+  |--------------------------------------------------------------------------
+  | Create / Synchronize account atomically
+  |--------------------------------------------------------------------------
+  */
+
   const result =
     db.transaction(
-      () => {
+      (): ProcessResult => {
         /*
-         * CASE 1:
-         * No account exists.
-         */
+        |--------------------------------------------------------------------------
+        | CASE 1: Create
+        |--------------------------------------------------------------------------
+        */
+
         if (!existingUser) {
           const insertResult =
             db
@@ -530,47 +642,37 @@ async function createOrSyncSuperAdmin(): Promise<void> {
             newData: {
               role:
                 "super_admin",
+
               status:
                 "active",
+
               email:
                 credentials.email,
+
               source:
                 "create-super-admin.ts",
+
               operation:
                 "created",
             },
           });
 
           return {
-            operation: "created",
+            operation:
+              "created",
             userId,
           };
         }
 
         /*
-         * CASE 2:
-         * Email already belongs to another role.
-         */
-        if (
-          existingUser.role !==
-          "super_admin"
-        ) {
-          throw new Error(
-            `The email "${existingUser.email}" is already registered with role "${existingUser.role}". Use a different email for the Super Admin account.`,
-          );
-        }
+        |--------------------------------------------------------------------------
+        | CASE 2: Existing Super Admin
+        |--------------------------------------------------------------------------
+        |
+        | Synchronize the account with .env credentials.
+        |--------------------------------------------------------------------------
+        */
 
-        /*
-         * CASE 3:
-         * Existing Super Admin.
-         *
-         * Synchronize:
-         * - name
-         * - password
-         * - role_id
-         * - status
-         * - email verification
-         */
         db.prepare(
           `
           UPDATE users
@@ -594,12 +696,11 @@ async function createOrSyncSuperAdmin(): Promise<void> {
         );
 
         /*
-         * Invalidate old sessions.
-         *
-         * This ensures every login after a password
-         * synchronization starts with the new
-         * credentials.
-         */
+        |--------------------------------------------------------------------------
+        | Invalidate old sessions
+        |--------------------------------------------------------------------------
+        */
+
         db.prepare(
           `
           DELETE FROM sessions
@@ -612,28 +713,41 @@ async function createOrSyncSuperAdmin(): Promise<void> {
         createAuditLog({
           userId:
             existingUser.id,
+
           action:
             "system.super_admin_bootstrap_sync",
+
           entityType:
             "user",
+
           entityId:
             existingUser.id,
+
           newData: {
             role:
               "super_admin",
+
             status:
               "active",
+
             email:
               credentials.email,
+
             source:
               "create-super-admin.ts",
+
             operation:
               "synchronized",
+
+            sessionsInvalidated:
+              true,
           },
         });
 
         return {
-          operation: "synchronized",
+          operation:
+            "synchronized",
+
           userId:
             existingUser.id,
         };
@@ -641,8 +755,11 @@ async function createOrSyncSuperAdmin(): Promise<void> {
     )();
 
   /*
-   * Verify final account.
-   */
+  |--------------------------------------------------------------------------
+  | Verify final database record
+  |--------------------------------------------------------------------------
+  */
+
   const created =
     db
       .prepare(
@@ -652,8 +769,8 @@ async function createOrSyncSuperAdmin(): Promise<void> {
           u.name,
           u.email,
           u.status,
-          r.code AS role,
-          length(u.password_hash) AS password_hash_length
+          u.password_hash,
+          r.code AS role
         FROM users u
         INNER JOIN roles r
           ON r.id = u.role_id
@@ -665,7 +782,7 @@ async function createOrSyncSuperAdmin(): Promise<void> {
         result.userId,
       ) as
       | (ExistingUserRow & {
-          password_hash_length: number;
+          password_hash: string;
         })
       | undefined;
 
@@ -693,59 +810,100 @@ async function createOrSyncSuperAdmin(): Promise<void> {
     );
   }
 
+  /*
+  |--------------------------------------------------------------------------
+  | Verify hash format
+  |--------------------------------------------------------------------------
+  */
+
   if (
-    created.password_hash_length <
-    100
+    !isValidStoredHash(
+      created.password_hash,
+    )
   ) {
     throw new Error(
-      "Password hash verification failed.",
+      "Final Super Admin password hash has an invalid format.",
     );
   }
 
   /*
-   * Success.
-   */
+  |--------------------------------------------------------------------------
+  | Verify password actually works
+  |--------------------------------------------------------------------------
+  */
+
+  const passwordVerified =
+    await verifyPasswordHash(
+      credentials.password,
+      created.password_hash,
+    );
+
+  if (!passwordVerified) {
+    throw new Error(
+      "Final Super Admin password hash verification failed.",
+    );
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | Success
+  |--------------------------------------------------------------------------
+  */
+
   console.log("");
   console.log(
     "==============================================",
   );
+
   console.log(
     result.operation ===
       "created"
-      ? "   SUPER ADMIN CREATED"
-      : "   SUPER ADMIN SYNCHRONIZED",
+      ? "        SUPER ADMIN CREATED"
+      : "    SUPER ADMIN SYNCHRONIZED",
   );
+
   console.log(
     "==============================================",
   );
+
   console.log(
     `User ID : ${created.id}`,
   );
+
   console.log(
     `Name    : ${created.name}`,
   );
+
   console.log(
     `Email   : ${created.email}`,
   );
+
   console.log(
     `Role    : ${created.role}`,
   );
+
   console.log(
     `Status  : ${created.status}`,
   );
+
   console.log(
-    `Hash OK : yes`,
+    "Hash OK : yes",
   );
+
   console.log(
     "Password: hidden",
   );
+
   console.log(
     "==============================================",
   );
+
   console.log("");
+
   console.log(
     "Use the normal DivyaDhara /login page to sign in.",
   );
+
   console.log("");
 }
 
@@ -763,14 +921,17 @@ async function main(): Promise<void> {
       0;
   } catch (error) {
     console.error("");
+
     console.error(
       "Super Admin setup failed:",
     );
+
     console.error(
       error instanceof Error
         ? error.message
         : String(error),
     );
+
     console.error("");
 
     process.exitCode =

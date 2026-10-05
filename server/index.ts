@@ -9,12 +9,102 @@ import express, {
 
 import {
   closeDatabase,
-  isDatabaseConnected,
   databasePath,
+  getDatabaseStats,
+  isDatabaseConnected,
 } from "./db/database.ts";
 
 import authRoutes from "./routes/auth.ts";
 import adminRoutes from "./routes/admin.ts";
+import panditRoutes from "./routes/pandit.ts";
+import templeRoutes from "./routes/temples.ts";
+import leadRoutes from "./routes/leads.ts";
+import analyticsRoutes from "./routes/analytics.ts";
+import salesRoutes from "./routes/sales.ts";
+import subscriptionRoutes from "./routes/subscriptions.ts";
+import paymentRoutes from "./routes/payments.ts";
+
+/*
+|--------------------------------------------------------------------------
+| Future / catalogue / operations routers
+|--------------------------------------------------------------------------
+|
+| These routers are intentionally kept as separate business modules.
+| Create them one-by-one before enabling their imports/mounts below:
+|
+|   ashrams.ts
+|   bookings.ts
+|   puja-services.ts
+|   yatra.ts
+|   events.ts
+|   courses.ts
+|   spiritual-places.ts
+|   seo.ts
+|
+| Business ownership remains:
+|   auth.ts            -> identity / RBAC / sessions
+|   admin.ts            -> Super Admin control plane
+|   pandit.ts           -> Pandit self-service
+|   temples.ts          -> Temple catalogue + manager operations
+|   leads.ts            -> public enquiry intake + lead lifecycle
+|   sales.ts            -> Sales CRM / pipeline / renewals
+|   subscriptions.ts    -> subscription lifecycle / entitlements
+|   payments.ts         -> Razorpay + financial ledger
+|   analytics.ts        -> visitor / session / conversion analytics
+|
+| The new modules are NOT imported dynamically. Once each route is created,
+| add its import and mount here. This avoids hiding missing modules at build
+| time and keeps the backend dependency graph explicit.
+|--------------------------------------------------------------------------
+*/
+
+/*
+ * IMPORTANT:
+ * The following imports are intentionally commented until each route file
+ * is created. Uncomment one block at a time as the corresponding route is
+ * implemented.
+ *
+ * import ashramRoutes from "./routes/ashrams.ts";
+ * import bookingRoutes from "./routes/bookings.ts";
+ * import pujaServiceRoutes from "./routes/puja-services.ts";
+ * import yatraRoutes from "./routes/yatra.ts";
+ * import eventRoutes from "./routes/events.ts";
+ * import courseRoutes from "./routes/courses.ts";
+ * import spiritualPlaceRoutes from "./routes/spiritual-places.ts";
+ * import seoRoutes from "./routes/seo.ts";
+ */
+
+/*
+|--------------------------------------------------------------------------
+| DivyaDhara API Server
+|--------------------------------------------------------------------------
+|
+| Platform responsibilities
+| -------------------------
+| - Express + SQLite bootstrap
+| - CORS and secure request handling
+| - Razorpay raw webhook verification support
+| - request IDs / structured request logging
+| - authenticated business routers
+| - explicit public vs protected route boundaries
+| - health / diagnostics
+| - final API 404 + global error handling
+| - graceful HTTP + SQLite shutdown
+|
+| Core business principles
+| ------------------------
+| 1. SQLite is the canonical persistence layer.
+| 2. Payments are authoritative only through payments.ts + verified gateway
+|    webhooks; Sales/Analytics never fabricate payment state.
+| 3. Lead creation/lifecycle belongs to leads.ts.
+| 4. Subscription lifecycle belongs to subscriptions.ts.
+| 5. Analytics never becomes the CRM lead system.
+| 6. New catalogue modules must not duplicate existing business ownership.
+| 7. Protected routers enforce their own RBAC in addition to authentication.
+|--------------------------------------------------------------------------
+*/
+
+const app = express();
 
 /*
 |--------------------------------------------------------------------------
@@ -22,48 +112,65 @@ import adminRoutes from "./routes/admin.ts";
 |--------------------------------------------------------------------------
 */
 
-const PORT =
-  Number(
-    process.env.PORT ||
-      3001,
-  );
+const rawPort = process.env.PORT?.trim() || "3001";
+const PORT = Number(rawPort);
 
-const HOST =
-  process.env.HOST ||
-  "0.0.0.0";
+const HOST = process.env.HOST?.trim() || "0.0.0.0";
 
 const NODE_ENV =
-  process.env.NODE_ENV ||
-  "development";
+  process.env.NODE_ENV?.trim().toLowerCase() || "development";
 
-const IS_PRODUCTION =
-  NODE_ENV ===
-  "production";
+const IS_PRODUCTION = NODE_ENV === "production";
+
+const API_VERSION = process.env.API_VERSION?.trim() || "1.0.0";
+
+const BODY_LIMIT =
+  process.env.API_BODY_LIMIT?.trim() || "1mb";
+
+const WEBHOOK_BODY_LIMIT =
+  process.env.RAZORPAY_WEBHOOK_BODY_LIMIT?.trim() || "1mb";
+
+const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 /*
 |--------------------------------------------------------------------------
-| CORS Configuration
+| Runtime hardening
 |--------------------------------------------------------------------------
 */
 
+app.disable("x-powered-by");
+
+/*
+ * Only trust the first reverse-proxy hop in production. In development we
+ * leave Express at its default so local forwarded headers cannot spoof req.ip.
+ */
+if (IS_PRODUCTION) {
+  app.set("trust proxy", 1);
+}
+
+/*
+|--------------------------------------------------------------------------
+| CORS
+|--------------------------------------------------------------------------
+|
+| Credentials are used because authentication/session cookies are part of the
+| application flow. Origins must therefore be explicit rather than '*'.
+|--------------------------------------------------------------------------
+*/
+
+function normalizeOrigin(value: string): string {
+  return value.trim().replace(/\/$/, "");
+}
+
 function getAllowedOrigins(): Set<string> {
-  const configuredOrigins =
+  const configured =
     process.env.CORS_ORIGINS
       ?.split(",")
-      .map(
-        (origin) =>
-          origin.trim(),
-      )
-      .filter(Boolean);
+      .map(normalizeOrigin)
+      .filter(Boolean) ?? [];
 
-  if (
-    configuredOrigins &&
-    configuredOrigins.length >
-      0
-  ) {
-    return new Set(
-      configuredOrigins,
-    );
+  if (configured.length > 0) {
+    return new Set(configured);
   }
 
   return new Set([
@@ -74,52 +181,7 @@ function getAllowedOrigins(): Set<string> {
   ]);
 }
 
-const ALLOWED_ORIGINS =
-  getAllowedOrigins();
-
-/*
-|--------------------------------------------------------------------------
-| Express Application
-|--------------------------------------------------------------------------
-*/
-
-const app =
-  express();
-
-/*
-|--------------------------------------------------------------------------
-| Basic Application Settings
-|--------------------------------------------------------------------------
-*/
-
-app.disable(
-  "x-powered-by",
-);
-
-/*
-|--------------------------------------------------------------------------
-| Body Parsing
-|--------------------------------------------------------------------------
-*/
-
-app.use(
-  express.json({
-    limit: "1mb",
-  }),
-);
-
-app.use(
-  express.urlencoded({
-    extended: true,
-    limit: "1mb",
-  }),
-);
-
-/*
-|--------------------------------------------------------------------------
-| CORS Middleware
-|--------------------------------------------------------------------------
-*/
+const ALLOWED_ORIGINS = getAllowedOrigins();
 
 app.use(
   (
@@ -127,34 +189,26 @@ app.use(
     res: Response,
     next: NextFunction,
   ) => {
+    const originHeader = req.headers.origin;
     const origin =
-      req.headers.origin;
+      typeof originHeader === "string"
+        ? normalizeOrigin(originHeader)
+        : null;
 
-    if (
-      origin &&
-      ALLOWED_ORIGINS.has(
-        origin,
-      )
-    ) {
-      res.setHeader(
-        "Access-Control-Allow-Origin",
-        origin,
-      );
-
-      res.setHeader(
-        "Access-Control-Allow-Credentials",
-        "true",
-      );
-
-      res.setHeader(
-        "Vary",
-        "Origin",
-      );
+    if (origin && ALLOWED_ORIGINS.has(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.setHeader("Vary", "Origin");
     }
 
     res.setHeader(
       "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, X-Requested-With",
+      [
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "X-Request-ID",
+      ].join(", "),
     );
 
     res.setHeader(
@@ -162,14 +216,13 @@ app.use(
       "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
     );
 
-    if (
-      req.method ===
-      "OPTIONS"
-    ) {
-      res
-        .status(204)
-        .end();
+    if (req.method === "OPTIONS") {
+      if (origin && !ALLOWED_ORIGINS.has(origin)) {
+        res.status(403).end();
+        return;
+      }
 
+      res.status(204).end();
       return;
     }
 
@@ -179,30 +232,40 @@ app.use(
 
 /*
 |--------------------------------------------------------------------------
-| Security Headers
+| Request ID + request logger
 |--------------------------------------------------------------------------
 */
 
+function makeRequestId(): string {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).slice(2, 10);
+  return `${timestamp}-${random}`;
+}
+
 app.use(
   (
-    _req: Request,
+    req: Request,
     res: Response,
     next: NextFunction,
   ) => {
-    res.setHeader(
-      "X-Content-Type-Options",
-      "nosniff",
-    );
+    const suppliedRequestId = req.get("x-request-id");
 
-    res.setHeader(
-      "X-Frame-Options",
-      "SAMEORIGIN",
-    );
+    const requestId =
+      suppliedRequestId?.trim().slice(0, 200) || makeRequestId();
 
-    res.setHeader(
-      "Referrer-Policy",
-      "strict-origin-when-cross-origin",
-    );
+    res.setHeader("X-Request-ID", requestId);
+    res.locals.requestId = requestId;
+
+    const startedAt = process.hrtime.bigint();
+
+    res.on("finish", () => {
+      const elapsedNs = process.hrtime.bigint() - startedAt;
+      const durationMs = Number(elapsedNs) / 1_000_000;
+
+      console.log(
+        `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} ${durationMs.toFixed(1)}ms requestId=${requestId}`,
+      );
+    });
 
     next();
   },
@@ -210,7 +273,49 @@ app.use(
 
 /*
 |--------------------------------------------------------------------------
-| Request Logger
+| Razorpay webhook raw-body middleware
+|--------------------------------------------------------------------------
+|
+| MUST run before express.json(). Razorpay signatures are calculated against
+| the exact raw request body.
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  "/api/payments/webhooks/razorpay",
+  express.raw({
+    type: [
+      "application/json",
+      "application/*+json",
+      "text/json",
+    ],
+    limit: WEBHOOK_BODY_LIMIT,
+  }),
+);
+
+/*
+|--------------------------------------------------------------------------
+| Ordinary request body parsing
+|--------------------------------------------------------------------------
+*/
+
+app.use(
+  express.json({
+    limit: BODY_LIMIT,
+    strict: true,
+  }),
+);
+
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: BODY_LIMIT,
+  }),
+);
+
+/*
+|--------------------------------------------------------------------------
+| Security + cache headers
 |--------------------------------------------------------------------------
 */
 
@@ -220,21 +325,35 @@ app.use(
     res: Response,
     next: NextFunction,
   ) => {
-    const startedAt =
-      Date.now();
-
-    res.on(
-      "finish",
-      () => {
-        const duration =
-          Date.now() -
-          startedAt;
-
-        console.log(
-          `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`,
-        );
-      },
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader(
+      "Referrer-Policy",
+      "strict-origin-when-cross-origin",
     );
+    res.setHeader(
+      "Permissions-Policy",
+      "camera=(), microphone=(), geolocation=()",
+    );
+
+    if (IS_PRODUCTION) {
+      res.setHeader(
+        "Strict-Transport-Security",
+        "max-age=31536000; includeSubDomains",
+      );
+    }
+
+    /*
+     * Auth, CRM, payment and analytics responses must not be cached by the
+     * browser or an intermediary. Public catalogue routes can explicitly
+     * opt into caching later when that is implemented.
+     */
+    if (
+      !req.path.startsWith("/api/dev") &&
+      !req.path.startsWith("/api/health")
+    ) {
+      res.setHeader("Cache-Control", "no-store");
+    }
 
     next();
   },
@@ -242,101 +361,130 @@ app.use(
 
 /*
 |--------------------------------------------------------------------------
-| Root API
+| Root API metadata
 |--------------------------------------------------------------------------
 */
 
 app.get(
   "/api",
-  (
-    _req: Request,
-    res: Response,
-  ) => {
+  (_req: Request, res: Response) => {
     res.json({
       success: true,
       name: "DivyaDhara API",
-      version: "1.0.0",
-      environment:
-        NODE_ENV,
-      message:
-        "DivyaDhara backend is running.",
+      version: API_VERSION,
+      environment: NODE_ENV,
+      database: "SQLite",
+      modules: {
+        auth: "/api/auth",
+        admin: "/api/admin",
+        pandit: "/api/pandit",
+        temples: "/api/temples",
+        leads: "/api/leads",
+        analytics: "/api/analytics",
+        sales: "/api/sales",
+        subscriptions: "/api/subscriptions",
+        payments: "/api/payments",
+        ashrams: "/api/ashrams",
+        bookings: "/api/bookings",
+        pujaServices: "/api/puja-services",
+        yatra: "/api/yatra",
+        events: "/api/events",
+        courses: "/api/courses",
+        spiritualPlaces: "/api/spiritual-places",
+        seo: "/api/seo",
+      },
+      notes: {
+        paymentAuthority: "payments",
+        leadAuthority: "leads",
+        subscriptionAuthority: "subscriptions",
+        analyticsAuthority: "analytics",
+      },
+      message: "DivyaDhara backend is running.",
     });
   },
 );
 
 /*
 |--------------------------------------------------------------------------
-| Health Check
+| Health check
 |--------------------------------------------------------------------------
 */
 
 app.get(
   "/api/health",
-  (
-    _req: Request,
-    res: Response,
-  ) => {
-    const databaseConnected =
-      isDatabaseConnected();
+  (_req: Request, res: Response) => {
+    const connected = isDatabaseConnected();
+    const stats = connected ? getDatabaseStats() : null;
 
     const healthy =
-      databaseConnected;
+      connected &&
+      Number.isInteger(PORT) &&
+      PORT >= 1 &&
+      PORT <= 65_535 &&
+      (!stats || stats.connected);
 
-    res
-      .status(
-        healthy
-          ? 200
-          : 503,
-      )
-      .json({
-        success:
-          healthy,
-
-        service:
-          "divyadhara-api",
-
-        status:
-          healthy
-            ? "healthy"
-            : "degraded",
-
-        environment:
-          NODE_ENV,
-
-        timestamp:
-          new Date().toISOString(),
-
-        database: {
-          connected:
-            databaseConnected,
-        },
-      });
+    res.status(healthy ? 200 : 503).json({
+      success: healthy,
+      service: "divyadhara-api",
+      status: healthy ? "healthy" : "degraded",
+      environment: NODE_ENV,
+      version: API_VERSION,
+      timestamp: new Date().toISOString(),
+      requestId: res.locals.requestId ?? null,
+      database: {
+        engine: "SQLite",
+        connected,
+        ...(stats
+          ? {
+              migrationVersion: stats.migrationVersion,
+              activePlans: stats.activePlans,
+            }
+          : {}),
+      },
+      routes: {
+        auth: "/api/auth",
+        admin: "/api/admin",
+        pandit: "/api/pandit",
+        temples: "/api/temples",
+        leads: "/api/leads",
+        analytics: "/api/analytics",
+        sales: "/api/sales",
+        subscriptions: "/api/subscriptions",
+        payments: "/api/payments",
+        ashrams: "/api/ashrams",
+        bookings: "/api/bookings",
+        pujaServices: "/api/puja-services",
+        yatra: "/api/yatra",
+        events: "/api/events",
+        courses: "/api/courses",
+        spiritualPlaces: "/api/spiritual-places",
+        seo: "/api/seo",
+      },
+    });
   },
 );
 
 /*
 |--------------------------------------------------------------------------
-| Development Database Information
+| Development diagnostics
+|--------------------------------------------------------------------------
+|
+| Database internals are never exposed in production.
 |--------------------------------------------------------------------------
 */
 
 if (!IS_PRODUCTION) {
   app.get(
     "/api/dev/database",
-    (
-      _req: Request,
-      res: Response,
-    ) => {
+    (_req: Request, res: Response) => {
+      const stats = getDatabaseStats();
+
       res.json({
         success: true,
-        database:
-          "SQLite",
-
-        connected:
-          isDatabaseConnected(),
-
-        path:
-          databasePath,
+        database: "SQLite",
+        connected: isDatabaseConnected(),
+        path: databasePath,
+        stats,
       });
     },
   );
@@ -344,95 +492,85 @@ if (!IS_PRODUCTION) {
 
 /*
 |--------------------------------------------------------------------------
-| Authentication Routes
+| Core route mounts
 |--------------------------------------------------------------------------
 |
-| POST /api/auth/register
-| POST /api/auth/login
-| POST /api/auth/logout
-| GET  /api/auth/me
-| GET  /api/auth/role
-| PATCH /api/auth/profile
-| POST /api/auth/forgot-password
-| POST /api/auth/reset-password
-| POST /api/auth/verify-email
-|
+| Route order matters for payment webhooks only at middleware level. By the
+| time execution reaches this section, raw-body parsing and normal body parsing
+| have already been configured correctly.
 |--------------------------------------------------------------------------
 */
 
-app.use(
-  "/api/auth",
-  authRoutes,
-);
+/* Identity / account */
+app.use("/api/auth", authRoutes);
+
+/* Super Admin control plane */
+app.use("/api/admin", adminRoutes);
+
+/* Pandit self-service */
+app.use("/api/pandit", panditRoutes);
+
+/* Public + Temple Manager operations */
+app.use("/api/temples", templeRoutes);
+
+/* Public form intake + normalized CRM lead lifecycle */
+app.use("/api/leads", leadRoutes);
+
+/* Visitor/session/page/event/conversion analytics */
+app.use("/api/analytics", analyticsRoutes);
+
+/* Sales CRM / pipeline / renewals / operational visibility */
+app.use("/api/sales", salesRoutes);
+
+/* Pandit / Temple / Ashram subscription lifecycle */
+app.use("/api/subscriptions", subscriptionRoutes);
+
+/* Razorpay checkout / payment ledger / verification / refunds / webhooks */
+app.use("/api/payments", paymentRoutes);
 
 /*
 |--------------------------------------------------------------------------
-| Super Admin Routes
+| Future route mounts — enable one module at a time
 |--------------------------------------------------------------------------
 |
-| Every route inside adminRoutes is protected by:
-|
-| requireAuth
-| requireRole("super_admin")
-|
-| Therefore frontend users cannot access these APIs merely by
-| knowing the endpoint URL.
-|
+| Uncomment each pair only after its route file has been implemented and
+| TypeScript-checked against the canonical SQLite schema.
 |--------------------------------------------------------------------------
 */
 
-app.use(
-  "/api/admin",
-  adminRoutes,
-);
+// app.use("/api/ashrams", ashramRoutes);
+// app.use("/api/bookings", bookingRoutes);
+// app.use("/api/puja-services", pujaServiceRoutes);
+// app.use("/api/yatra", yatraRoutes);
+// app.use("/api/events", eventRoutes);
+// app.use("/api/courses", courseRoutes);
+// app.use("/api/spiritual-places", spiritualPlaceRoutes);
+// app.use("/api/seo", seoRoutes);
 
 /*
 |--------------------------------------------------------------------------
-| Future API Routes
+| API 404
 |--------------------------------------------------------------------------
 |
-| These will be added as the backend modules are implemented.
-|
-| app.use("/api/pandits", panditRoutes);
-| app.use("/api/subscriptions", subscriptionRoutes);
-| app.use("/api/leads", leadRoutes);
-| app.use("/api/temples", templeRoutes);
-| app.use("/api/sales", salesRoutes);
-| app.use("/api/temple-managers", templeManagerRoutes);
-|
-|--------------------------------------------------------------------------
-*/
-
-/*
-|--------------------------------------------------------------------------
-| API 404 Handler
-|--------------------------------------------------------------------------
-|
-| This must remain AFTER all /api routes.
+| Must remain after every mounted /api router.
 |--------------------------------------------------------------------------
 */
 
 app.use(
   "/api",
-  (
-    req: Request,
-    res: Response,
-  ) => {
-    res
-      .status(404)
-      .json({
-        success: false,
-        error:
-          "API route not found",
-        path:
-          req.originalUrl,
-      });
+  (req: Request, res: Response) => {
+    res.status(404).json({
+      success: false,
+      error: "API route not found",
+      path: req.originalUrl,
+      requestId: res.locals.requestId ?? null,
+    });
   },
 );
 
 /*
 |--------------------------------------------------------------------------
-| Global Error Handler
+| Global error handler
 |--------------------------------------------------------------------------
 */
 
@@ -443,6 +581,28 @@ type ApiError = {
   type?: string;
 };
 
+function statusFromError(error: unknown): number {
+  const apiError = error as ApiError;
+
+  if (typeof apiError.statusCode === "number") {
+    return apiError.statusCode;
+  }
+
+  if (typeof apiError.status === "number") {
+    return apiError.status;
+  }
+
+  if (apiError.type === "entity.parse.failed") {
+    return 400;
+  }
+
+  if (apiError.type === "entity.too.large") {
+    return 413;
+  }
+
+  return 500;
+}
+
 app.use(
   (
     error: unknown,
@@ -450,371 +610,182 @@ app.use(
     res: Response,
     _next: NextFunction,
   ) => {
-    console.error(
-      "Unhandled API error:",
-      error,
-    );
+    console.error("Unhandled API error:", error);
 
-    const apiError =
-      error as ApiError;
-
-    const errorStatus =
-      typeof apiError.statusCode ===
-      "number"
-        ? apiError.statusCode
-        : typeof apiError.status ===
-            "number"
-          ? apiError.status
-          : apiError.type ===
-              "entity.parse.failed"
-            ? 400
-            : 500;
-
+    const apiError = error as ApiError;
+    const candidateStatus = statusFromError(error);
     const status =
-      errorStatus >=
-        400 &&
-      errorStatus <
-        600
-        ? errorStatus
+      candidateStatus >= 400 && candidateStatus < 600
+        ? candidateStatus
         : 500;
 
-    const message =
-      IS_PRODUCTION
-        ? status ===
-          400
-          ? "Invalid request body."
-          : "Internal server error."
-        : typeof apiError.message ===
-            "string"
-          ? apiError.message
-          : "Unknown server error.";
+    let message = "Internal server error.";
 
-    res
-      .status(status)
-      .json({
-        success: false,
-        error: message,
-      });
+    if (status === 400) {
+      message = "Invalid request body.";
+    } else if (status === 413) {
+      message = "Request body is too large.";
+    } else if (
+      !IS_PRODUCTION &&
+      typeof apiError.message === "string" &&
+      apiError.message.trim()
+    ) {
+      message = apiError.message;
+    }
+
+    res.status(status).json({
+      success: false,
+      error: message,
+      requestId: res.locals.requestId ?? null,
+    });
   },
 );
 
 /*
 |--------------------------------------------------------------------------
-| Server State
+| Server lifecycle
 |--------------------------------------------------------------------------
 */
 
-let httpServer:
-  | ReturnType<
-      typeof app.listen
-    >
-  | undefined;
+let httpServer: ReturnType<typeof app.listen> | undefined;
+let shuttingDown = false;
 
-let shuttingDown =
-  false;
-
-/*
-|--------------------------------------------------------------------------
-| Graceful Shutdown
-|--------------------------------------------------------------------------
-*/
-
-function shutdown(
-  signal: string,
-): void {
+function shutdown(signal: string): void {
   if (shuttingDown) {
     return;
   }
 
-  shuttingDown =
-    true;
+  shuttingDown = true;
 
-  console.log(
-    `\nReceived ${signal}. Shutting down...`,
-  );
+  console.log(`\nReceived ${signal}. Shutting down...`);
 
-  /*
-   * Server not started.
-   */
-  if (!httpServer) {
+  const closeDatabaseSafely = (): void => {
     try {
       closeDatabase();
-
-      console.log(
-        "SQLite connection closed.",
-      );
+      console.log("SQLite connection closed.");
     } catch (error) {
-      console.error(
-        "Error while closing SQLite:",
-        error,
-      );
+      console.error("Error while closing SQLite:", error);
+    }
+  };
+
+  if (!httpServer) {
+    closeDatabaseSafely();
+    process.exit(0);
+    return;
+  }
+
+  httpServer.close((error?: Error) => {
+    if (error) {
+      console.error("Error while stopping HTTP server:", error);
     }
 
-    process.exit(0);
+    closeDatabaseSafely();
+    process.exit(error ? 1 : 0);
+  });
 
-    return;
-  }
+  setTimeout(() => {
+    console.error("Forced shutdown after timeout.");
 
-  /*
-   * Stop accepting new connections.
-   */
-  httpServer.close(
-    (
-      error?: Error,
-    ) => {
-      if (error) {
-        console.error(
-          "Error while stopping HTTP server:",
-          error,
-        );
-      }
-
-      try {
-        closeDatabase();
-
-        console.log(
-          "SQLite connection closed.",
-        );
-      } catch (dbError) {
-        console.error(
-          "Error while closing SQLite:",
-          dbError,
-        );
-      }
-
-      process.exit(
-        error
-          ? 1
-          : 0,
-      );
-    },
-  );
-
-  /*
-   * Safety timeout.
-   */
-  setTimeout(
-    () => {
-      console.error(
-        "Forced shutdown after timeout.",
-      );
-
-      try {
-        closeDatabase();
-      } catch {
-        // Ignore final cleanup error.
-      }
-
-      process.exit(1);
-    },
-    10_000,
-  ).unref();
-}
-
-/*
-|--------------------------------------------------------------------------
-| Start Server
-|--------------------------------------------------------------------------
-*/
-
-function startServer(): void {
-  /*
-   * Verify SQLite before starting HTTP.
-   */
-  if (
-    !isDatabaseConnected()
-  ) {
-    console.error(
-      "❌ SQLite database connection failed.",
-    );
+    try {
+      closeDatabase();
+    } catch {
+      // Best-effort final cleanup.
+    }
 
     process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS).unref();
+}
 
+function startServer(): void {
+  if (!isDatabaseConnected()) {
+    console.error("❌ SQLite database connection failed.");
+    process.exit(1);
     return;
   }
 
-  /*
-   * Validate port.
-   */
   if (
-    !Number.isInteger(
-      PORT,
-    ) ||
+    !Number.isInteger(PORT) ||
     PORT < 1 ||
     PORT > 65_535
   ) {
-    console.error(
-      `❌ Invalid PORT value: ${process.env.PORT}`,
-    );
-
+    console.error(`❌ Invalid PORT value: ${rawPort}`);
     process.exit(1);
-
     return;
   }
 
-  httpServer =
-    app.listen(
-      PORT,
-      HOST,
-      () => {
-        console.log("");
+  httpServer = app.listen(PORT, HOST, () => {
+    const stats = getDatabaseStats();
 
-        console.log(
-          "==============================================",
-        );
+    console.log("");
+    console.log("==============================================");
+    console.log("          DIVYADHARA API SERVER");
+    console.log("==============================================");
+    console.log(`Environment     : ${NODE_ENV}`);
+    console.log(`Host            : ${HOST}`);
+    console.log(`Port            : ${PORT}`);
+    console.log(`API             : http://localhost:${PORT}/api`);
+    console.log(`Health          : http://localhost:${PORT}/api/health`);
+    console.log(`Auth            : http://localhost:${PORT}/api/auth`);
+    console.log(`Admin           : http://localhost:${PORT}/api/admin`);
+    console.log(`Pandit          : http://localhost:${PORT}/api/pandit`);
+    console.log(`Temples         : http://localhost:${PORT}/api/temples`);
+    console.log(`Leads           : http://localhost:${PORT}/api/leads`);
+    console.log(`Analytics       : http://localhost:${PORT}/api/analytics`);
+    console.log(`Sales           : http://localhost:${PORT}/api/sales`);
+    console.log(`Subscriptions   : http://localhost:${PORT}/api/subscriptions`);
+    console.log(`Payments        : http://localhost:${PORT}/api/payments`);
+    console.log(`Webhook         : http://localhost:${PORT}/api/payments/webhooks/razorpay`);
+    console.log("Future modules  : Ashram / Booking / Puja / Yatra / Events / Courses / Spiritual Places / SEO");
+    console.log("Database        : SQLite");
+    console.log(`Database OK     : ${stats.connected ? "true" : "false"}`);
+    console.log(`Migration       : ${stats.migrationVersion ?? "unknown"}`);
+    console.log(`Active Plans    : ${stats.activePlans ?? "unknown"}`);
+    console.log("Webhook RawBody : enabled");
+    console.log("==============================================");
+    console.log("");
+  });
 
-        console.log(
-          "        DIVYADHARA API SERVER",
-        );
+  httpServer.on("error", (error: NodeJS.ErrnoException) => {
+    console.error("HTTP server error:", error);
 
-        console.log(
-          "==============================================",
-        );
+    if (error.code === "EADDRINUSE") {
+      console.error(`❌ Port ${PORT} is already in use.`);
+    }
 
-        console.log(
-          `Environment : ${NODE_ENV}`,
-        );
-
-        console.log(
-          `Host        : ${HOST}`,
-        );
-
-        console.log(
-          `Port        : ${PORT}`,
-        );
-
-        console.log(
-          `API         : http://localhost:${PORT}/api`,
-        );
-
-        console.log(
-          `Health      : http://localhost:${PORT}/api/health`,
-        );
-
-        console.log(
-          `Auth        : http://localhost:${PORT}/api/auth`,
-        );
-
-        console.log(
-          `Admin       : http://localhost:${PORT}/api/admin`,
-        );
-
-        console.log(
-          `Database    : SQLite`,
-        );
-
-        console.log(
-          "Database OK : true",
-        );
-
-        console.log(
-          "==============================================",
-        );
-
-        console.log("");
-      },
-    );
-
-  /*
-   * HTTP server-level errors.
-   */
-  httpServer.on(
-    "error",
-    (
-      error: NodeJS.ErrnoException,
-    ) => {
-      console.error(
-        "HTTP server error:",
-        error,
-      );
-
-      if (
-        error.code ===
-        "EADDRINUSE"
-      ) {
-        console.error(
-          `❌ Port ${PORT} is already in use.`,
-        );
-      }
-
-      shutdown(
-        "server-error",
-      );
-    },
-  );
+    shutdown("server-error");
+  });
 }
 
 /*
 |--------------------------------------------------------------------------
-| Process Signals
+| Process signals / fatal error handling
 |--------------------------------------------------------------------------
 */
 
-process.on(
-  "SIGINT",
-  () => {
-    shutdown(
-      "SIGINT",
-    );
-  },
-);
+process.on("SIGINT", () => {
+  shutdown("SIGINT");
+});
 
-process.on(
-  "SIGTERM",
-  () => {
-    shutdown(
-      "SIGTERM",
-    );
-  },
-);
+process.on("SIGTERM", () => {
+  shutdown("SIGTERM");
+});
 
-/*
-|--------------------------------------------------------------------------
-| Fatal Runtime Errors
-|--------------------------------------------------------------------------
-*/
+process.on("uncaughtException", (error: Error) => {
+  console.error("Uncaught exception:", error);
+  shutdown("uncaughtException");
+});
 
-process.on(
-  "uncaughtException",
-  (
-    error,
-  ) => {
-    console.error(
-      "Uncaught exception:",
-      error,
-    );
-
-    shutdown(
-      "uncaughtException",
-    );
-  },
-);
-
-process.on(
-  "unhandledRejection",
-  (
-    reason,
-  ) => {
-    console.error(
-      "Unhandled promise rejection:",
-      reason,
-    );
-  },
-);
+process.on("unhandledRejection", (reason: unknown) => {
+  console.error("Unhandled promise rejection:", reason);
+});
 
 /*
 |--------------------------------------------------------------------------
-| Start Application
+| Start application
 |--------------------------------------------------------------------------
 */
 
 startServer();
-
-/*
-|--------------------------------------------------------------------------
-| Export
-|--------------------------------------------------------------------------
-*/
 
 export {
   app,
