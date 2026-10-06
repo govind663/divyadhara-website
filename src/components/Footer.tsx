@@ -1,35 +1,51 @@
-import { useState } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-
 import {
-  Facebook,
-  Instagram,
-  Youtube,
-  Twitter,
-  MapPin,
-  Phone,
-  Mail,
-  MessageCircle,
-  Flame,
-  Send,
   CalendarDays,
   Clock3,
-  Sparkles,
-  MoonStar,
-  MapPinned,
-  Landmark,
-  Images,
-  PlayCircle,
   Compass,
+  Flame,
   Heart,
+  Landmark,
+  Mail,
+  MapPin,
+  MapPinned,
+  MessageCircle,
+  MoonStar,
+  Phone,
+  PlayCircle,
+  Send,
   ShieldCheck,
+  Sparkles,
+  Users,
+  Images,
+  BookOpen,
 } from "lucide-react";
+
+import {
+  getDashboardPathForRole,
+  useApp,
+} from "../context/AppContext";
 
 import {
   waLink,
   DISPLAY_PHONE,
   CONTACT_EMAIL,
+  SITE_URL,
 } from "../lib/utils";
+
+/* =========================================================
+   BUSINESS CONTACT
+========================================================= */
+
+const OFFICE_ADDRESS =
+  "Nav Durga Niwas, Plot No. 473, Sector 4, Ghansoli, Navi Mumbai – 400701, Maharashtra, India";
+
+const OFFICE_MAP_URL =
+  "https://www.google.com/maps/search/?api=1&query=Nav+Durga+Niwas,+Plot+No.+473,+Sector+4,+Ghansoli,+Navi+Mumbai+400701,+Maharashtra,+India";
+
+const PHONE_HREF = `tel:${DISPLAY_PHONE.replace(/[^\d+]/g, "")}`;
+const EMAIL_HREF = `mailto:${CONTACT_EMAIL}`;
 
 /* =========================================================
    FOOTER NAVIGATION TYPES
@@ -38,7 +54,7 @@ import {
 type FooterLink = {
   label: string;
   href: string;
-  icon?: React.ReactNode;
+  icon?: ReactNode;
 };
 
 type FooterColumn = {
@@ -54,70 +70,122 @@ const FOOTER_COLUMNS: FooterColumn[] = [
   {
     heading: "Explore",
     links: [
-      { label: "Temples of India", href: "/temples", icon: <Landmark size={14} /> },
-      { label: "Spiritual Places", href: "/spiritual-places", icon: <MapPinned size={14} /> },
-      { label: "Yatra Packages", href: "/packages", icon: <Compass size={14} /> },
-      { label: "Ashrams", href: "/ashrams", icon: <Heart size={14} /> },
-      { label: "Events & Kathas", href: "/events", icon: <Flame size={14} /> },
-      { label: "Gallery", href: "/gallery", icon: <Images size={14} /> },
-      { label: "Videos", href: "/videos", icon: <PlayCircle size={14} /> },
+      {
+        label: "Temples of India",
+        href: "/temples",
+        icon: <Landmark size={14} />,
+      },
+      {
+        label: "Spiritual Places",
+        href: "/spiritual-places",
+        icon: <MapPinned size={14} />,
+      },
+      {
+        label: "Yatra Packages",
+        href: "/packages",
+        icon: <Compass size={14} />,
+      },
+      {
+        label: "Ashrams",
+        href: "/ashrams",
+        icon: <Heart size={14} />,
+      },
+      {
+        label: "Events & Kathas",
+        href: "/events",
+        icon: <Flame size={14} />,
+      },
+      {
+        label: "Gallery",
+        href: "/gallery",
+        icon: <Images size={14} />,
+      },
+      {
+        label: "Videos",
+        href: "/videos",
+        icon: <PlayCircle size={14} />,
+      },
     ],
   },
   {
     heading: "Puja & Seva",
     links: [
-      { label: "Puja Services", href: "/services", icon: <Sparkles size={14} /> },
-      { label: "Book a Pandit", href: "/pandits", icon: <ShieldCheck size={14} /> },
-      { label: "Cultural Courses", href: "/courses", icon: <Heart size={14} /> },
-      { label: "Contact for Guidance", href: "/contact", icon: <MessageCircle size={14} /> },
+      {
+        label: "Puja Services",
+        href: "/services",
+        icon: <Sparkles size={14} />,
+      },
+      {
+        label: "Book a Pandit",
+        href: "/pandits",
+        icon: <ShieldCheck size={14} />,
+      },
+      {
+        label: "Cultural Courses",
+        href: "/courses",
+        icon: <BookOpen size={14} />,
+      },
+      {
+        label: "Contact for Guidance",
+        href: "/contact",
+        icon: <MessageCircle size={14} />,
+      },
     ],
   },
   {
     heading: "Panchang & Jyotish",
     links: [
-      { label: "Today's Panchang", href: "/panchang", icon: <CalendarDays size={14} /> },
-      { label: "Festival Calendar", href: "/calendar", icon: <CalendarDays size={14} /> },
-      { label: "Today's Rashifal", href: "/rashifal", icon: <Sparkles size={14} /> },
-      { label: "Kundli", href: "/kundli", icon: <MoonStar size={14} /> },
-      { label: "Gochar", href: "/gochar", icon: <Clock3 size={14} /> },
+      {
+        label: "Today's Panchang",
+        href: "/panchang",
+        icon: <CalendarDays size={14} />,
+      },
+      {
+        label: "Festival Calendar",
+        href: "/calendar",
+        icon: <CalendarDays size={14} />,
+      },
+      {
+        label: "Today's Rashifal",
+        href: "/rashifal",
+        icon: <Sparkles size={14} />,
+      },
+      {
+        label: "Kundli",
+        href: "/kundli",
+        icon: <MoonStar size={14} />,
+      },
+      {
+        label: "Gochar",
+        href: "/gochar",
+        icon: <Clock3 size={14} />,
+      },
     ],
   },
   {
-    heading: "Quick Links",
+    heading: "Trust & Support",
     links: [
-      { label: "About DharmYatra", href: "/about" },
-      { label: "Contact Us", href: "/contact" },
-      { label: "Login / Register", href: "/login" },
-      { label: "My Dashboard", href: "/dashboard" },
-      { label: "Trust & Mission", href: "/about", icon: <ShieldCheck size={14} /> },
+      {
+        label: "About DivyaDhara",
+        href: "/about",
+        icon: <Heart size={14} />,
+      },
+      {
+        label: "Contact & Grievance",
+        href: "/contact",
+        icon: <MessageCircle size={14} />,
+      },
+      {
+        label: "Login / Register",
+        href: "/login",
+        icon: <Users size={14} />,
+      },
+      {
+        label: "Trust & Mission",
+        href: "/about",
+        icon: <ShieldCheck size={14} />,
+      },
     ],
-  },
-];
-
-/* =========================================================
-   SOCIAL LINKS
-========================================================= */
-
-const SOCIAL_LINKS = [
-  {
-    label: "Instagram",
-    href: "https://www.instagram.com/",
-    icon: Instagram,
-  },
-  {
-    label: "Facebook",
-    href: "https://www.facebook.com/",
-    icon: Facebook,
-  },
-  {
-    label: "YouTube",
-    href: "https://www.youtube.com/",
-    icon: Youtube,
-  },
-  {
-    label: "Twitter",
-    href: "https://x.com/",
-    icon: Twitter,
   },
 ];
 
@@ -126,34 +194,27 @@ const SOCIAL_LINKS = [
 ========================================================= */
 
 export default function Footer() {
-  const [email, setEmail] =
-    useState("");
+  const { user } = useApp();
 
-  const [subscribed, setSubscribed] =
+  const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [emailRequested, setEmailRequested] =
     useState(false);
 
-  const [emailError, setEmailError] =
-    useState("");
+  const dashboardPath = user
+    ? getDashboardPathForRole(user.role)
+    : "/login";
 
-  /* =======================================================
-     NEWSLETTER
-  ======================================================= */
+  const dashboardLabel = user
+    ? "My Dashboard"
+    : "Login / Register";
 
   const handleNewsletterSubmit = (
-    event: React.FormEvent<HTMLFormElement>,
+    event: FormEvent<HTMLFormElement>,
   ) => {
     event.preventDefault();
 
-    const trimmedEmail =
-      email.trim();
-
-    if (!trimmedEmail) {
-      setEmailError(
-        "Please enter your email address.",
-      );
-
-      return;
-    }
+    const trimmedEmail = email.trim();
 
     if (
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
@@ -163,18 +224,45 @@ export default function Footer() {
       setEmailError(
         "Please enter a valid email address.",
       );
-
+      setEmailRequested(false);
       return;
     }
 
     setEmailError("");
-    setSubscribed(true);
+
+    /*
+     * There is no newsletter persistence route in the current application
+     * contract. Do not claim that a subscription was saved. Instead, open a
+     * pre-filled email request to the official DivyaDhara contact address.
+     */
+    const subject = encodeURIComponent(
+      "Request to join Divya Patra — DivyaDhara",
+    );
+
+    const body = encodeURIComponent(
+      `Namaste DivyaDhara Team,
+
+Please add this email to the Divya Patra weekly wisdom mailing list:
+
+${trimmedEmail}
+
+Dhanyavaad.`,
+    );
+
+    window.location.href =
+      `mailto:${CONTACT_EMAIL}?subject=${subject}&body=${body}`;
+
+    setEmailRequested(true);
   };
+
+  const whatsappHref = waLink(
+    "Namaste DivyaDhara! 🙏 I need guidance for darshan, puja, pandit, Ashram, yatra or spiritual learning.",
+  );
 
   return (
     <footer className="relative overflow-hidden bg-char-900 text-stone-300">
       {/* ===================================================
-          TOP GOLD DIVIDER
+          TOP DIVIDER
       ==================================================== */}
 
       <div className="h-1.5 bg-linear-to-r from-amber-500 via-orange-600 to-amber-500" />
@@ -185,7 +273,7 @@ export default function Footer() {
       />
 
       {/* ===================================================
-          NEWSLETTER
+          DIVYA PATRA / CONTACT CTA
       ==================================================== */}
 
       <div className="relative mx-auto max-w-7xl px-4 pt-12 md:px-6 lg:px-8">
@@ -194,97 +282,96 @@ export default function Footer() {
             <div className="pointer-events-none absolute right-0 top-0 h-40 w-40 rounded-full bg-amber-500/10 blur-3xl" />
 
             <div className="relative flex flex-col items-start justify-between gap-7 lg:flex-row lg:items-center">
-              {/* Newsletter copy */}
-
               <div className="max-w-2xl">
                 <p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.25em] text-amber-400">
-                  <Flame size={13} />
-
+                  <Flame
+                    size={13}
+                    aria-hidden="true"
+                  />
                   Divya Patra — Weekly Wisdom
                 </p>
 
                 <h3 className="font-display mt-2 text-2xl font-semibold leading-tight text-amber-50 md:text-3xl">
-                  Panchang, festivals & katha
+                  Panchang, festivals & sacred
                   <br className="hidden sm:block" />
-                  in your inbox.
+                  inspiration in your inbox.
                 </h3>
 
                 <p className="mt-2 max-w-xl text-sm leading-6 text-stone-400">
-                  One thoughtful email every Monday
-                  with spiritual insights, upcoming
-                  festivals, Panchang highlights and
-                  sacred travel inspiration.
+                  Request the Divya Patra weekly update for
+                  Panchang highlights, festival notes, spiritual
+                  insights and sacred travel inspiration.
                 </p>
 
                 <p className="mt-2 text-xs font-medium text-amber-400/70">
-                  No spam. Unsubscribe anytime.
+                  Email requests are sent to the DivyaDhara
+                  seva desk. You can opt out anytime.
                 </p>
               </div>
 
-              {/* Newsletter form */}
+              <form
+                onSubmit={handleNewsletterSubmit}
+                className="w-full max-w-md"
+                aria-label="Request Divya Patra by email"
+              >
+                <div className="flex w-full gap-2">
+                  <label
+                    htmlFor="footer-newsletter-email"
+                    className="sr-only"
+                  >
+                    Email address
+                  </label>
 
-              {subscribed ? (
-                <div className="w-full max-w-md rounded-2xl border border-emerald-400/20 bg-emerald-900/40 px-6 py-5">
-                  <p className="text-sm font-bold text-emerald-200">
-                    Thank you. You are subscribed.
-                  </p>
+                  <input
+                    id="footer-newsletter-email"
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    value={email}
+                    required
+                    onChange={(event) => {
+                      setEmail(event.target.value);
 
-                  <p className="mt-1 text-xs leading-relaxed text-emerald-300/80">
-                    Weekly Divya Patra updates will be
-                    sent to your email.
-                  </p>
+                      if (emailError) {
+                        setEmailError("");
+                      }
+
+                      if (emailRequested) {
+                        setEmailRequested(false);
+                      }
+                    }}
+                    placeholder="you@example.com"
+                    className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none transition placeholder:text-stone-500 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20"
+                  />
+
+                  <button
+                    type="submit"
+                    className="btn-gold flex shrink-0 items-center gap-1.5 rounded-2xl px-5 py-3 text-sm font-bold text-white transition hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                  >
+                    <Send size={15} />
+                    Request
+                  </button>
                 </div>
-              ) : (
-                <form
-                  onSubmit={
-                    handleNewsletterSubmit
-                  }
-                  className="w-full max-w-md"
-                >
-                  <div className="flex w-full gap-2">
-                    <label
-                      htmlFor="footer-newsletter-email"
-                      className="sr-only"
-                    >
-                      Email address
-                    </label>
 
-                    <input
-                      id="footer-newsletter-email"
-                      type="email"
-                      value={email}
-                      required
-                      onChange={(
-                        event,
-                      ) => {
-                        setEmail(
-                          event.target.value,
-                        );
+                {emailError && (
+                  <p
+                    className="mt-2 px-1 text-xs font-medium text-red-300"
+                    role="alert"
+                  >
+                    {emailError}
+                  </p>
+                )}
 
-                        if (emailError) {
-                          setEmailError("");
-                        }
-                      }}
-                      placeholder="you@example.com"
-                      className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none transition placeholder:text-stone-500 focus:border-amber-500"
-                    />
-
-                    <button
-                      type="submit"
-                      className="btn-gold flex shrink-0 items-center gap-1.5 rounded-2xl px-5 py-3 text-sm font-bold text-white transition hover:scale-[1.02]"
-                    >
-                      <Send size={15} />
-                      Join
-                    </button>
-                  </div>
-
-                  {emailError && (
-                    <p className="mt-2 px-1 text-xs font-medium text-red-300">
-                      {emailError}
-                    </p>
-                  )}
-                </form>
-              )}
+                {emailRequested && !emailError && (
+                  <p
+                    className="mt-2 px-1 text-xs font-medium text-emerald-300"
+                    role="status"
+                  >
+                    Your email request has been prepared. Complete
+                    the email message to contact the seva desk.
+                  </p>
+                )}
+              </form>
             </div>
           </div>
         </div>
@@ -300,24 +387,25 @@ export default function Footer() {
         ================================================== */}
 
         <div>
-          {/* Brand */}
-
           <Link
             to="/"
-            className="group inline-flex items-center gap-2.5"
-            aria-label="DharmYatra home"
+            className="group inline-flex items-center gap-2.5 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 focus-visible:ring-offset-char-900"
+            aria-label="DivyaDhara home"
           >
             <span className="relative grid h-11 w-11 place-items-center overflow-hidden rounded-2xl bg-linear-to-br from-orange-500 to-saffron-900 shadow-lg shadow-orange-900/20">
               <span className="font-sanskrit text-2xl leading-none text-amber-100">
                 ॐ
               </span>
 
-              <span className="absolute inset-0 rounded-2xl ring-1 ring-inset ring-amber-300/30" />
+              <span
+                className="absolute inset-0 rounded-2xl ring-1 ring-inset ring-amber-300/30"
+                aria-hidden="true"
+              />
             </span>
 
             <span>
-              <span className="font-display text-[20px] block text-xl font-bold text-amber-50">
-                दिव्य &nbsp;
+              <span className="font-display block text-xl font-bold text-amber-50">
+                दिव्य{" "}
                 <span className="text-gradient-saffron">
                   धारा
                 </span>
@@ -328,8 +416,6 @@ export default function Footer() {
               </span>
             </span>
           </Link>
-
-          {/* Description */}
 
           <p className="mt-4 max-w-sm text-sm leading-7 text-stone-400">
             Discover temples, connect with pandits,
@@ -342,136 +428,118 @@ export default function Footer() {
             ॥ तमसो मा ज्योतिर्गमय ॥
           </p>
 
-          {/* Contact */}
-
           <div className="mt-5 space-y-3 text-sm">
-            <p className="flex items-start gap-2.5">
+            <a
+              href={OFFICE_MAP_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-start gap-2.5 transition hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+            >
               <MapPin
                 size={15}
                 className="mt-0.5 shrink-0 text-orange-500"
+                aria-hidden="true"
               />
 
               <span className="leading-5">
-                Assi Ghat Road,
-                <br />
-                Varanasi, UP 221005
+                {OFFICE_ADDRESS}
               </span>
-            </p>
+            </a>
 
             <a
-              href={`tel:${DISPLAY_PHONE}`}
-              className="flex items-center gap-2.5 transition hover:text-amber-300"
+              href={PHONE_HREF}
+              className="flex items-center gap-2.5 transition hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
             >
               <Phone
                 size={14}
                 className="shrink-0 text-orange-500"
+                aria-hidden="true"
               />
-
               {DISPLAY_PHONE}
             </a>
 
             <a
-              href={`mailto:${CONTACT_EMAIL}`}
-              className="flex items-center gap-2.5 break-all transition hover:text-amber-300"
+              href={EMAIL_HREF}
+              className="flex items-center gap-2.5 break-all transition hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
             >
               <Mail
                 size={14}
                 className="shrink-0 text-orange-500"
+                aria-hidden="true"
               />
-
               {CONTACT_EMAIL}
             </a>
           </div>
 
-          {/* Social */}
+          {/* Direct support actions */}
 
-          <div className="mt-6">
-            <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.24em] text-stone-500">
-              Follow DharmYatra
-            </p>
+          <div className="mt-6 grid gap-2 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2">
+            <a
+              href={whatsappHref}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-center gap-2 rounded-xl bg-[#25D366] px-4 py-2.5 text-xs font-bold text-white transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+            >
+              <MessageCircle size={15} />
+              WhatsApp Seva Desk
+            </a>
 
-            <div className="flex gap-2">
-              {SOCIAL_LINKS.map(
-                ({
-                  label,
-                  href,
-                  icon: Icon,
-                }) => (
-                  <a
-                    key={label}
-                    href={href}
-                    aria-label={label}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="grid h-10 w-10 place-items-center rounded-full border border-white/10 bg-white/5 text-stone-400 transition hover:border-orange-500 hover:bg-orange-600 hover:text-white"
-                  >
-                    <Icon
-                      size={16}
-                    />
-                  </a>
-                ),
-              )}
-            </div>
+            <a
+              href={OFFICE_MAP_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-stone-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+            >
+              <MapPinned size={15} />
+              Open Map
+            </a>
           </div>
+
+          <p className="mt-5 text-[11px] leading-5 text-stone-500">
+            DivyaDhara Seva Desk · 7 AM – 10 PM IST
+            <br />
+            For bookings, enquiries, grievances and partnership
+            support.
+          </p>
         </div>
 
         {/* =================================================
             FOOTER COLUMNS
         ================================================== */}
 
-        {FOOTER_COLUMNS.map(
-          (column) => (
-            <nav
-              key={
-                column.heading
-              }
-              aria-label={
-                column.heading
-              }
-            >
-              <h4 className="text-[11px] font-bold uppercase tracking-[0.25em] text-amber-400">
-                {column.heading}
-              </h4>
+        {FOOTER_COLUMNS.map((column) => (
+          <nav
+            key={column.heading}
+            aria-label={column.heading}
+          >
+            <h4 className="text-[11px] font-bold uppercase tracking-[0.25em] text-amber-400">
+              {column.heading}
+            </h4>
 
-              <ul className="mt-4 space-y-2.5">
-                {column.links.map(
-                  (link) => (
-                    <li
-                      key={
-                        link.label
-                      }
-                    >
-                      <Link
-                        to={
-                          link.href
-                        }
-                        className="group flex items-center gap-2 text-sm text-stone-400 transition hover:text-amber-300"
-                      >
-                        {link.icon && (
-                          <span className="shrink-0 text-orange-500/80 transition group-hover:text-orange-400">
-                            {
-                              link.icon
-                            }
-                          </span>
-                        )}
+            <ul className="mt-4 space-y-2.5">
+              {column.links.map((link) => (
+                <li key={link.label}>
+                  <Link
+                    to={link.href}
+                    className="group flex items-center gap-2 rounded-md text-sm text-stone-400 transition hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+                  >
+                    {link.icon && (
+                      <span className="shrink-0 text-orange-500/80 transition group-hover:text-orange-400">
+                        {link.icon}
+                      </span>
+                    )}
 
-                        <span>
-                          {
-                            link.label
-                          }
-                        </span>
-                      </Link>
-                    </li>
-                  ),
-                )}
-              </ul>
-            </nav>
-          ),
-        )}
+                    <span>{link.label}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))}
       </div>
 
       {/* ===================================================
-          QUICK YATRA / PANCHANG CTA BAND
+          BUSINESS CTA BAND
       ==================================================== */}
 
       <div className="relative border-y border-white/10 bg-black/10">
@@ -481,41 +549,42 @@ export default function Footer() {
               <Compass
                 size={16}
                 className="text-orange-400"
+                aria-hidden="true"
               />
-
               Planning a sacred journey?
             </p>
 
             <p className="mt-1 text-xs text-stone-500">
-              Explore Yatra packages, sacred places,
-              Panchang and spiritual services.
+              Explore Yatra packages, sacred places, Panchang
+              and spiritual services.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
             <Link
               to="/packages"
-              className="rounded-xl bg-orange-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-orange-700"
+              className="rounded-xl bg-orange-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
             >
               Explore Yatras
             </Link>
 
             <Link
               to="/panchang"
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-amber-200 transition hover:bg-white/10"
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-amber-200 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
             >
               Today's Panchang
             </Link>
 
             <Link
               to="/services"
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-stone-300 transition hover:bg-white/10 hover:text-white"
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-stone-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
             >
               Puja Services
             </Link>
+
             <Link
               to="/rashifal"
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-stone-300 transition hover:bg-white/10 hover:text-white"
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-stone-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
             >
               Rashifal
             </Link>
@@ -529,40 +598,45 @@ export default function Footer() {
 
       <div className="relative border-t border-white/10">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 text-xs text-stone-500 md:flex-row md:items-center md:justify-between md:px-6 lg:px-8">
-          <p className="leading-5">
-            © 2026 DharmYatra · Crafted with devotion
-            in Bharat. Panchang values are
-            guidance-grade.
-          </p>
+          <div>
+            <p className="leading-5">
+              © {new Date().getFullYear()} DivyaDhara ·
+              Crafted with devotion in Bharat.
+            </p>
+
+            <p className="mt-1 leading-5 text-stone-600">
+              {SITE_URL.replace(/^https?:\/\//, "")}
+            </p>
+          </div>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <Link
               to="/about"
-              className="transition hover:text-amber-300"
+              className="transition hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
             >
               Trust & Mission
             </Link>
 
             <Link
               to="/contact"
-              className="transition hover:text-amber-300"
+              className="transition hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
             >
               Grievance
             </Link>
 
             <Link
               to="/contact"
-              className="transition hover:text-amber-300"
+              className="transition hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
             >
               Contact
             </Link>
 
-            <a
-              href="/sitemap.xml"
-              className="transition hover:text-amber-300"
+            <Link
+              to={dashboardPath}
+              className="transition hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
             >
-              Sitemap
-            </a>
+              {dashboardLabel}
+            </Link>
           </div>
         </div>
       </div>
@@ -572,18 +646,17 @@ export default function Footer() {
       ==================================================== */}
 
       <a
-        href={waLink(
-          "Namaste DharmYatra! I need guidance for darshan, puja or yatra.",
-        )}
+        href={whatsappHref}
         target="_blank"
         rel="noreferrer"
-        aria-label="Chat with DharmYatra on WhatsApp"
-        className="fixed bottom-5 right-5 z-50 grid h-14 w-14 place-items-center rounded-full bg-[#25D366] text-white shadow-[0_12px_30px_-6px_rgba(37,211,102,0.7)] transition hover:scale-110 active:scale-95"
+        aria-label="Chat with DivyaDhara on WhatsApp"
+        className="fixed bottom-5 right-5 z-50 grid h-14 w-14 place-items-center rounded-full bg-[#25D366] text-white shadow-[0_12px_30px_-6px_rgba(37,211,102,0.7)] transition hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2"
       >
         <MessageCircle
           size={26}
           fill="currentColor"
           strokeWidth={0}
+          aria-hidden="true"
         />
 
         <span
