@@ -4,23 +4,87 @@
  * Centralized frontend API layer for:
  * - Authentication
  * - Super Admin
- * - Future Pandit / Temple Manager / Sales APIs
+ * - Pandit
+ * - Temple Manager
+ * - Ashram Manager
+ * - Sales
  *
  * Backend:
  *   Express + SQLite
  *
  * Frontend:
  *   React + TypeScript + Vite
+ *
+ * API contract:
+ *   Backend base     = http://localhost:3001
+ *   Canonical prefix = /api
+ *
+ * Supported VITE_API_URL values:
+ *   http://localhost:3001
+ *   http://localhost:3001/api
+ *   /api
+ *   ""
+ *
+ * The client guarantees that `/api` appears exactly once in the final URL.
+ * ========================================================================== */
+
+/* ============================================================================
+ * API URL Configuration
  * ========================================================================== */
 
 const DEFAULT_API_URL = "http://localhost:3001";
 
-const API_URL = (
-  import.meta.env.VITE_API_URL ||
-  DEFAULT_API_URL
-).replace(/\/+$/, "");
+function resolveApiOrigin(): string {
+  const configured =
+    typeof import.meta.env.VITE_API_URL === "string"
+      ? import.meta.env.VITE_API_URL.trim()
+      : "";
+
+  if (!configured) {
+    /*
+     * Development:
+     *   React/Vite = 5173
+     *   Express   = 3001
+     */
+    if (import.meta.env.DEV) {
+      return DEFAULT_API_URL;
+    }
+
+    /*
+     * Production:
+     * Use same-origin API when no explicit API origin is configured.
+     */
+    if (typeof window !== "undefined") {
+      return window.location.origin;
+    }
+
+    return "";
+  }
+
+  const normalized =
+    configured.replace(/\/+$/, "");
+
+  /*
+   * If somebody configures:
+   *
+   *   VITE_API_URL=http://localhost:3001/api
+   *
+   * store only the origin/base here.
+   *
+   * Endpoint methods below already know about `/api`.
+   */
+  return normalized.replace(
+    /\/api$/i,
+    "",
+  );
+}
+
+const API_ORIGIN =
+  resolveApiOrigin();
 
 const DEFAULT_TIMEOUT_MS = 20_000;
+
+const API_PREFIX = "/api";
 
 /* ============================================================================
  * Types
@@ -39,9 +103,12 @@ export type ApiJsonValue =
       [key: string]: ApiJsonValue;
     };
 
-export type ApiObject = Record<string, ApiJsonValue>;
+export type ApiObject =
+  Record<string, ApiJsonValue>;
 
-export type ApiResponse<T = unknown> = {
+export type ApiResponse<
+  T = unknown,
+> = {
   success: boolean;
   message?: string;
   error?: string;
@@ -49,10 +116,11 @@ export type ApiResponse<T = unknown> = {
   [key: string]: unknown;
 };
 
-export type ApiRequestOptions = RequestInit & {
-  timeoutMs?: number;
-  skipJsonHeaders?: boolean;
-};
+export type ApiRequestOptions =
+  RequestInit & {
+    timeoutMs?: number;
+    skipJsonHeaders?: boolean;
+  };
 
 export type QueryValue =
   | string
@@ -81,9 +149,12 @@ export class ApiError extends Error {
     super(message);
 
     this.name = "ApiError";
-    this.status = options.status ?? 0;
-    this.code = options.code ?? "API_ERROR";
-    this.details = options.details;
+    this.status =
+      options.status ?? 0;
+    this.code =
+      options.code ?? "API_ERROR";
+    this.details =
+      options.details;
 
     Object.setPrototypeOf(
       this,
@@ -93,12 +164,15 @@ export class ApiError extends Error {
 }
 
 /* ============================================================================
- * Helpers
+ * Runtime Helpers
  * ========================================================================== */
 
 function isPlainObject(
   value: unknown,
-): value is Record<string, unknown> {
+): value is Record<
+  string,
+  unknown
+> {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -110,23 +184,34 @@ function isJsonResponse(
   response: Response,
 ): boolean {
   const contentType =
-    response.headers.get("content-type") || "";
+    response.headers.get(
+      "content-type",
+    ) || "";
 
   return contentType
     .toLowerCase()
-    .includes("application/json");
+    .includes(
+      "application/json",
+    );
 }
 
 function getErrorMessage(
   payload: unknown,
   fallback: string,
 ): string {
-  if (!payload || typeof payload !== "object") {
+  if (
+    !payload ||
+    typeof payload !==
+      "object"
+  ) {
     return fallback;
   }
 
   const data =
-    payload as Record<string, unknown>;
+    payload as Record<
+      string,
+      unknown
+    >;
 
   const candidates = [
     data.error,
@@ -136,7 +221,8 @@ function getErrorMessage(
 
   for (const candidate of candidates) {
     if (
-      typeof candidate === "string" &&
+      typeof candidate ===
+        "string" &&
       candidate.trim()
     ) {
       return candidate.trim();
@@ -149,15 +235,23 @@ function getErrorMessage(
 function getApiErrorCode(
   payload: unknown,
 ): string {
-  if (!payload || typeof payload !== "object") {
+  if (
+    !payload ||
+    typeof payload !==
+      "object"
+  ) {
     return "API_ERROR";
   }
 
   const data =
-    payload as Record<string, unknown>;
+    payload as Record<
+      string,
+      unknown
+    >;
 
   if (
-    typeof data.code === "string" &&
+    typeof data.code ===
+      "string" &&
     data.code.trim()
   ) {
     return data.code.trim();
@@ -166,27 +260,110 @@ function getApiErrorCode(
   return "API_ERROR";
 }
 
-function normalizePath(
+/* ============================================================================
+ * Path Helpers
+ * ========================================================================== */
+
+/**
+ * Normalize an arbitrary endpoint so the API prefix appears exactly once.
+ *
+ * Examples:
+ *
+ *   "/api/admin/users"
+ *        -> "/api/admin/users"
+ *
+ *   "api/admin/users"
+ *        -> "/api/admin/users"
+ *
+ *   "/admin/users"
+ *        -> "/api/admin/users"
+ *
+ *   "admin/users"
+ *        -> "/api/admin/users"
+ *
+ *   "/api"
+ *        -> "/api"
+ */
+function normalizeApiPath(
   path: string,
 ): string {
-  if (!path) {
-    return "";
+  const trimmed =
+    path.trim();
+
+  if (!trimmed) {
+    return API_PREFIX;
   }
 
-  return path.startsWith("/")
-    ? path
-    : `/${path}`;
+  let normalized =
+    trimmed.startsWith("/")
+      ? trimmed
+      : `/${trimmed}`;
+
+  /*
+   * Collapse repeated slashes at the beginning.
+   */
+  normalized =
+    normalized.replace(
+      /^\/+/,
+      "/",
+    );
+
+  /*
+   * Remove repeated API prefixes.
+   *
+   * `/api/api/admin/users`
+   * becomes
+   * `/api/admin/users`
+   */
+  normalized =
+    normalized.replace(
+      /^\/api(?:\/api)+/i,
+      "/api",
+    );
+
+  /*
+   * If the endpoint already has /api, keep it.
+   */
+  if (
+    normalized ===
+      API_PREFIX ||
+    normalized
+      .toLowerCase()
+      .startsWith(
+        `${API_PREFIX}/`,
+      )
+  ) {
+    return normalized;
+  }
+
+  return `${API_PREFIX}${normalized}`;
 }
 
+/**
+ * Build a complete API URL.
+ *
+ * The API origin never contains a trailing `/api`.
+ * The path always contains exactly one `/api`.
+ */
 export function buildApiUrl(
   path: string,
 ): string {
-  return `${API_URL}${normalizePath(path)}`;
+  const apiPath =
+    normalizeApiPath(path);
+
+  return `${API_ORIGIN}${apiPath}`;
 }
+
+/* ============================================================================
+ * Query String
+ * ========================================================================== */
 
 export function buildQueryString(
   params:
-    | Record<string, QueryValue>
+    | Record<
+        string,
+        QueryValue
+      >
     | URLSearchParams
     | undefined,
 ): string {
@@ -195,16 +372,28 @@ export function buildQueryString(
   }
 
   const search =
-    params instanceof URLSearchParams
-      ? new URLSearchParams(params)
+    params instanceof
+    URLSearchParams
+      ? new URLSearchParams(
+          params,
+        )
       : new URLSearchParams();
 
-  if (!(params instanceof URLSearchParams)) {
-    for (const [key, value] of Object.entries(
+  if (
+    !(
+      params instanceof
+      URLSearchParams
+    )
+  ) {
+    for (const [
+      key,
+      value,
+    ] of Object.entries(
       params,
     )) {
       if (
-        value === undefined ||
+        value ===
+          undefined ||
         value === null ||
         value === ""
       ) {
@@ -218,26 +407,39 @@ export function buildQueryString(
     }
   }
 
-  const query = search.toString();
+  const query =
+    search.toString();
 
-  return query ? `?${query}` : "";
+  return query
+    ? `?${query}`
+    : "";
 }
+
+/* ============================================================================
+ * Abort Signal Helpers
+ * ========================================================================== */
 
 function mergeSignals(
   externalSignal:
     | AbortSignal
     | null
     | undefined,
-  timeoutController: AbortController,
+  timeoutController:
+    AbortController,
 ): AbortSignal {
   if (!externalSignal) {
     return timeoutController.signal;
   }
 
+  /*
+   * Modern browsers.
+   */
   if (
-    typeof AbortSignal !== "undefined" &&
+    typeof AbortSignal !==
+      "undefined" &&
     "any" in AbortSignal &&
-    typeof AbortSignal.any === "function"
+    typeof AbortSignal.any ===
+      "function"
   ) {
     return AbortSignal.any([
       externalSignal,
@@ -245,16 +447,24 @@ function mergeSignals(
     ]);
   }
 
+  /*
+   * Compatibility fallback.
+   */
   const controller =
     new AbortController();
 
   const abort = () => {
-    if (!controller.signal.aborted) {
+    if (
+      !controller.signal
+        .aborted
+    ) {
       controller.abort();
     }
   };
 
-  if (externalSignal.aborted) {
+  if (
+    externalSignal.aborted
+  ) {
     abort();
   }
 
@@ -273,9 +483,23 @@ function mergeSignals(
   return controller.signal;
 }
 
+/* ============================================================================
+ * Request Body Preparation
+ * ========================================================================== */
+
 function prepareBody(
-  body: BodyInit | Record<string, unknown> | null | undefined,
-): BodyInit | null | undefined {
+  body:
+    | BodyInit
+    | Record<
+        string,
+        unknown
+      >
+    | null
+    | undefined,
+):
+  | BodyInit
+  | null
+  | undefined {
   if (
     body === null ||
     body === undefined
@@ -283,21 +507,34 @@ function prepareBody(
     return body;
   }
 
+  /*
+   * Already-prepared request bodies.
+   */
   if (
     typeof body === "string" ||
-    body instanceof FormData ||
-    body instanceof URLSearchParams ||
+    body instanceof
+      FormData ||
+    body instanceof
+      URLSearchParams ||
     body instanceof Blob ||
-    body instanceof ArrayBuffer
+    body instanceof
+      ArrayBuffer
   ) {
     return body;
   }
 
+  /*
+   * JSON objects.
+   */
   if (
-    typeof body === "object" &&
-    !(body instanceof ReadableStream)
+    typeof body ===
+      "object" &&
+    !(body instanceof
+      ReadableStream)
   ) {
-    return JSON.stringify(body);
+    return JSON.stringify(
+      body,
+    );
   }
 
   return body;
@@ -314,9 +551,11 @@ export async function apiRequest<
   options: ApiRequestOptions = {},
 ): Promise<ApiResponse<T>> {
   const {
-    timeoutMs = DEFAULT_TIMEOUT_MS,
+    timeoutMs =
+      DEFAULT_TIMEOUT_MS,
     skipJsonHeaders = false,
-    signal: externalSignal,
+    signal:
+      externalSignal,
     headers,
     body,
     ...requestInit
@@ -325,17 +564,19 @@ export async function apiRequest<
   const controller =
     new AbortController();
 
-  const timeoutId = window.setTimeout(
-    () => {
-      controller.abort();
-    },
-    timeoutMs,
-  );
+  const timeoutId =
+    window.setTimeout(
+      () => {
+        controller.abort();
+      },
+      timeoutMs,
+    );
 
-  const signal = mergeSignals(
-    externalSignal,
-    controller,
-  );
+  const signal =
+    mergeSignals(
+      externalSignal,
+      controller,
+    );
 
   const preparedBody =
     prepareBody(body);
@@ -356,9 +597,12 @@ export async function apiRequest<
     }
 
     const canSendJson =
-      preparedBody !== undefined &&
-      preparedBody !== null &&
-      typeof preparedBody === "string";
+      preparedBody !==
+        undefined &&
+      preparedBody !==
+        null &&
+      typeof preparedBody ===
+        "string";
 
     if (
       canSendJson &&
@@ -373,22 +617,38 @@ export async function apiRequest<
     }
   }
 
+  const url =
+    buildApiUrl(path);
+
   try {
-    const response = await fetch(
-      buildApiUrl(path),
-      {
-        ...requestInit,
-        headers: finalHeaders,
-        body: preparedBody,
-        credentials: "include",
-        signal,
-      },
-    );
+    const response =
+      await fetch(
+        url,
+        {
+          ...requestInit,
+          headers:
+            finalHeaders,
+          body:
+            preparedBody,
+          credentials:
+            "include",
+          cache: "no-store",
+          signal,
+        },
+      );
 
-    let payload: unknown = null;
+    let payload: unknown =
+      null;
 
-    if (response.status !== 204) {
-      if (isJsonResponse(response)) {
+    if (
+      response.status !==
+      204
+    ) {
+      if (
+        isJsonResponse(
+          response,
+        )
+      ) {
         try {
           payload =
             await response.json();
@@ -400,17 +660,22 @@ export async function apiRequest<
           const text =
             await response.text();
 
-          payload = text
-            ? {
-                message: text,
-              }
-            : null;
+          payload =
+            text.trim()
+              ? {
+                  message:
+                    text,
+                }
+              : null;
         } catch {
           payload = null;
         }
       }
     }
 
+    /*
+     * HTTP-level error.
+     */
     if (!response.ok) {
       const fallback =
         `API request failed with status ${response.status}.`;
@@ -421,21 +686,28 @@ export async function apiRequest<
           fallback,
         ),
         {
-          status: response.status,
+          status:
+            response.status,
           code:
             getApiErrorCode(
               payload,
             ),
-          details: payload,
+          details:
+            payload,
         },
       );
     }
 
+    /*
+     * Application-level API error.
+     */
     if (
       payload &&
-      isPlainObject(payload) &&
-      "success" in payload &&
-      payload.success === false
+      isPlainObject(
+        payload,
+      ) &&
+      payload.success ===
+        false
     ) {
       throw new ApiError(
         getErrorMessage(
@@ -443,52 +715,88 @@ export async function apiRequest<
           "The API reported an error.",
         ),
         {
-          status: response.status,
+          status:
+            response.status,
           code:
             getApiErrorCode(
               payload,
             ),
-          details: payload,
+          details:
+            payload,
         },
       );
     }
 
+    /*
+     * Standard JSON API envelope.
+     */
     if (
       payload &&
-      isPlainObject(payload)
+      isPlainObject(
+        payload,
+      )
     ) {
       return payload as ApiResponse<T>;
     }
 
+    /*
+     * Non-object successful response.
+     */
     return {
       success: true,
       data: payload as T,
     };
   } catch (error) {
-    if (error instanceof ApiError) {
+    /*
+     * Preserve typed API errors.
+     */
+    if (
+      error instanceof ApiError
+    ) {
       throw error;
     }
 
+    /*
+     * Timeout / abort.
+     */
     if (
-      error instanceof DOMException &&
-      error.name === "AbortError"
+      error instanceof
+        DOMException &&
+      error.name ===
+        "AbortError"
     ) {
       throw new ApiError(
         `Request timed out after ${timeoutMs}ms.`,
         {
-          code: "REQUEST_TIMEOUT",
+          code:
+            "REQUEST_TIMEOUT",
+          details:
+            {
+              url,
+              timeoutMs,
+            },
         },
       );
     }
 
+    /*
+     * Network / CORS / server unavailable.
+     */
     if (
-      error instanceof TypeError
+      error instanceof
+      TypeError
     ) {
       throw new ApiError(
-        "Unable to connect to the DivyaDhara server. Please check that the backend is running.",
+        `Unable to connect to the DivyaDhara API at ${API_ORIGIN || "the current application origin"}. Please check that the backend server is running on port 3001 and that CORS is configured for the frontend.`,
         {
-          code: "NETWORK_ERROR",
-          details: error,
+          code:
+            "NETWORK_ERROR",
+          details:
+            {
+              url,
+              originalError:
+                error,
+            },
         },
       );
     }
@@ -496,12 +804,15 @@ export async function apiRequest<
     throw new ApiError(
       "An unexpected API error occurred.",
       {
-        code: "UNKNOWN_ERROR",
+        code:
+          "UNKNOWN_ERROR",
         details: error,
       },
     );
   } finally {
-    window.clearTimeout(timeoutId);
+    window.clearTimeout(
+      timeoutId,
+    );
   }
 }
 
@@ -614,6 +925,7 @@ export type AuthRole =
   | "visitor"
   | "pandit"
   | "temple_manager"
+  | "ashram_manager"
   | "sales"
   | "super_admin";
 
@@ -646,7 +958,9 @@ export type RegisterPayload = {
   role:
     | "visitor"
     | "pandit"
-    | "temple_manager";
+    | "temple_manager"
+    | "ashram_manager";
+
   name: string;
   email: string;
   phone?: string;
@@ -658,9 +972,14 @@ export type RegisterPayload = {
   preferredLanguage?: string;
   marketingConsent?: boolean;
 
+  /*
+   * Pandit.
+   */
   title?: string;
   photo?: string;
-  experienceYears?: number;
+  experienceYears?:
+    | number
+    | string;
   district?: string;
   languages?: string[];
   specializations?: string[];
@@ -673,16 +992,28 @@ export type RegisterPayload = {
   services?: Array<{
     name: string;
     description?: string;
-    priceAmount?: number;
-    durationMinutes?: number;
+    priceAmount?:
+      | number
+      | string;
+    durationMinutes?:
+      | number
+      | string;
   }>;
+
+  /*
+   * Temple / Ashram Manager.
+   */
+  designation?: string;
+  organizationName?: string;
 
   [key: string]: unknown;
 };
 
 export type AuthMeData = {
   authenticated: boolean;
-  user: AuthUser | null;
+  user:
+    | AuthUser
+    | null;
 };
 
 export type AuthLoginData = {
@@ -693,6 +1024,9 @@ export type AuthLoginData = {
 export type AuthRegisterData = {
   authenticated: boolean;
   user: AuthUser;
+  message?: string;
+  approvalRequired?: boolean;
+  verificationRequired?: boolean;
 };
 
 export type AuthRoleData = {
@@ -752,7 +1086,9 @@ export const authApi = {
       expiresAt?: string;
     }>(
       "/api/auth/forgot-password",
-      { email },
+      {
+        email,
+      },
     );
   },
 
@@ -773,7 +1109,23 @@ export const authApi = {
   ) {
     return apiPost(
       "/api/auth/verify-email",
-      { token },
+      {
+        token,
+      },
+    );
+  },
+
+  async profile<
+    T = AuthUser,
+  >(
+    payload: Record<
+      string,
+      unknown
+    >,
+  ) {
+    return apiPatch<T>(
+      "/api/auth/profile",
+      payload,
     );
   },
 };
@@ -834,7 +1186,10 @@ export type AdminPlanPayload = {
 };
 
 export type AdminSettingsPayload =
-  Record<string, unknown>;
+  Record<
+    string,
+    unknown
+  >;
 
 export type CreateSalesPayload = {
   name: string;
@@ -961,7 +1316,7 @@ export const adminApi = {
       )}/feature`,
       {
         featured,
-      } satisfies AdminFeaturePayload,
+      },
     );
   },
 
@@ -977,7 +1332,7 @@ export const adminApi = {
       )}/listing`,
       {
         listingActive,
-      } satisfies AdminListingPayload,
+      },
     );
   },
 
@@ -1105,10 +1460,7 @@ export const adminApi = {
 };
 
 /* ============================================================================
- * Future Role APIs
- *
- * These wrappers are intentionally small. The actual backend routes can be
- * added later without changing the central request implementation.
+ * Pandit API
  * ========================================================================== */
 
 export const panditApi = {
@@ -1118,7 +1470,10 @@ export const panditApi = {
     ),
 
   updateProfile: <T = unknown>(
-    payload: Record<string, unknown>,
+    payload: Record<
+      string,
+      unknown
+    >,
   ) =>
     apiPatch<T>(
       "/api/pandit/profile",
@@ -1126,18 +1481,27 @@ export const panditApi = {
     ),
 
   getLeads: <T = unknown>(
-    params?: Record<string, QueryValue>,
+    params?: Record<
+      string,
+      QueryValue
+    >,
   ) =>
     apiGet<T>(
       "/api/pandit/leads",
       params,
     ),
 
-  getSubscription: <T = unknown>() =>
+  getSubscription: <
+    T = unknown,
+  >() =>
     apiGet<T>(
       "/api/pandit/subscription",
     ),
 };
+
+/* ============================================================================
+ * Temple Manager API
+ * ========================================================================== */
 
 export const templeManagerApi = {
   me: <T = unknown>() =>
@@ -1146,16 +1510,24 @@ export const templeManagerApi = {
     ),
 
   temples: <T = unknown>(
-    params?: Record<string, QueryValue>,
+    params?: Record<
+      string,
+      QueryValue
+    >,
   ) =>
     apiGet<T>(
       "/api/temple-manager/temples",
       params,
     ),
 
-  updateTemple: <T = unknown>(
+  updateTemple: <
+    T = unknown,
+  >(
     templeId: number | string,
-    payload: Record<string, unknown>,
+    payload: Record<
+      string,
+      unknown
+    >,
   ) =>
     apiPatch<T>(
       `/api/temple-manager/temples/${encodeURIComponent(
@@ -1165,6 +1537,57 @@ export const templeManagerApi = {
     ),
 };
 
+/* ============================================================================
+ * Ashram Manager API
+ * ========================================================================== */
+
+export const ashramManagerApi = {
+  me: <T = unknown>() =>
+    apiGet<T>(
+      "/api/ashram-manager/me",
+    ),
+
+  ashrams: <T = unknown>(
+    params?: Record<
+      string,
+      QueryValue
+    >,
+  ) =>
+    apiGet<T>(
+      "/api/ashram-manager/ashrams",
+      params,
+    ),
+
+  updateAshram: <
+    T = unknown,
+  >(
+    ashramId:
+      | number
+      | string,
+    payload: Record<
+      string,
+      unknown
+    >,
+  ) =>
+    apiPatch<T>(
+      `/api/ashram-manager/ashrams/${encodeURIComponent(
+        String(ashramId),
+      )}`,
+      payload,
+    ),
+
+  getSubscription: <
+    T = unknown,
+  >() =>
+    apiGet<T>(
+      "/api/ashram-manager/subscription",
+    ),
+};
+
+/* ============================================================================
+ * Sales API
+ * ========================================================================== */
+
 export const salesApi = {
   dashboard: <T = unknown>() =>
     apiGet<T>(
@@ -1172,36 +1595,192 @@ export const salesApi = {
     ),
 
   leads: <T = unknown>(
-    params?: Record<string, QueryValue>,
+    params?: Record<
+      string,
+      QueryValue
+    >,
   ) =>
     apiGet<T>(
       "/api/sales/leads",
       params,
     ),
 
+  lead: <T = unknown>(
+    leadId: number | string,
+  ) =>
+    apiGet<T>(
+      `/api/sales/leads/${encodeURIComponent(
+        String(leadId),
+      )}`,
+    ),
+
+  createLead: <T = unknown>(
+    payload: Record<
+      string,
+      unknown
+    >,
+  ) =>
+    apiPost<T>(
+      "/api/sales/leads",
+      payload,
+    ),
+
+  updateLead: <
+    T = unknown,
+  >(
+    leadId: number | string,
+    payload: Record<
+      string,
+      unknown
+    >,
+  ) =>
+    apiPatch<T>(
+      `/api/sales/leads/${encodeURIComponent(
+        String(leadId),
+      )}`,
+      payload,
+    ),
+
   followups: <T = unknown>(
-    params?: Record<string, QueryValue>,
+    params?: Record<
+      string,
+      QueryValue
+    >,
   ) =>
     apiGet<T>(
       "/api/sales/followups",
       params,
     ),
 
+  activities: <T = unknown>(
+    params?: Record<
+      string,
+      QueryValue
+    >,
+  ) =>
+    apiGet<T>(
+      "/api/sales/activities",
+      params,
+    ),
+
+  payments: <T = unknown>(
+    params?: Record<
+      string,
+      QueryValue
+    >,
+  ) =>
+    apiGet<T>(
+      "/api/sales/payments",
+      params,
+    ),
+
+  bookings: <T = unknown>(
+    params?: Record<
+      string,
+      QueryValue
+    >,
+  ) =>
+    apiGet<T>(
+      "/api/sales/bookings",
+      params,
+    ),
+
   pandits: <T = unknown>(
-    params?: Record<string, QueryValue>,
+    params?: Record<
+      string,
+      QueryValue
+    >,
   ) =>
     apiGet<T>(
       "/api/sales/pandits",
       params,
     ),
+
+  owners: <T = unknown>() =>
+    apiGet<T>(
+      "/api/leads/owners",
+    ),
+
+  scheduleFollowup: <
+    T = unknown,
+  >(
+    leadId: number | string,
+    payload: Record<
+      string,
+      unknown
+    >,
+  ) =>
+    apiPost<T>(
+      `/api/leads/${encodeURIComponent(
+        String(leadId),
+      )}/followups`,
+      payload,
+    ),
+
+  exportLeads: (
+    params?: Record<
+      string,
+      QueryValue
+    >,
+  ) => {
+    const query =
+      buildQueryString(params);
+
+    return buildApiUrl(
+      `/api/sales/leads/export.csv${query}`,
+    );
+  },
 };
+
+/* ============================================================================
+ * Shared Utility API
+ * ========================================================================== */
+
+export const utilityApi = {
+  health: <T = unknown>() =>
+    apiGet<T>(
+      "/api/health",
+    ),
+};
+
+/* ============================================================================
+ * API Configuration Accessors
+ * ========================================================================== */
+
+/**
+ * Returns the backend origin only.
+ *
+ * Examples:
+ *   http://localhost:3001
+ *   https://api.example.com
+ */
+export function getApiOrigin(): string {
+  return API_ORIGIN;
+}
+
+/**
+ * Returns the canonical API prefix.
+ */
+export function getApiPrefix(): string {
+  return API_PREFIX;
+}
+
+/**
+ * Returns the resolved full API URL for debugging.
+ */
+export function getResolvedApiUrl(
+  path = "",
+): string {
+  return buildApiUrl(path);
+}
 
 /* ============================================================================
  * Exports
  * ========================================================================== */
 
 export {
-  API_URL,
+  API_ORIGIN,
+  API_PREFIX,
   DEFAULT_API_URL,
   DEFAULT_TIMEOUT_MS,
 };

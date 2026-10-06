@@ -14,14 +14,146 @@ import {
 |--------------------------------------------------------------------------
 | API Configuration
 |--------------------------------------------------------------------------
+|
+| Canonical development setup:
+|
+|   Frontend : http://localhost:5173
+|   Backend  : http://localhost:3001
+|
+| Frontend `.env`:
+|
+|   VITE_API_URL=/api
+|
+| `apiFetch()` calls remain written as:
+|
+|   /api/auth/me
+|   /api/auth/login
+|   /api/auth/logout
+|
+| In development we intentionally resolve `/api` to the backend origin:
+|
+|   http://localhost:3001/api/...
+|
+| This keeps authentication independent from Vite proxy configuration.
+|
+| In production `/api` stays same-origin so it can be handled by the
+| reverse proxy / web server.
+|--------------------------------------------------------------------------
 */
 
-const API_BASE_URL = (
-  import.meta.env.VITE_API_URL ||
-  "http://localhost:3001"
-).replace(/\/+$/, "");
+function resolveApiBaseUrl(): string {
+  const configured =
+    typeof import.meta.env.VITE_API_URL === "string"
+      ? import.meta.env.VITE_API_URL.trim()
+      : "";
+
+  if (configured) {
+    const normalized = configured.replace(/\/+$/, "");
+
+    /*
+     * Development:
+     *
+     * VITE_API_URL=/api
+     *
+     * becomes:
+     *
+     * http://localhost:3001
+     *
+     * because apiFetch() preserves the /api endpoint prefix.
+     */
+    if (
+      import.meta.env.DEV &&
+      normalized.toLowerCase() === "/api"
+    ) {
+      return "http://localhost:3001";
+    }
+
+    /*
+     * Production:
+     *
+     * VITE_API_URL=/api
+     *
+     * should remain same-origin.
+     */
+    if (normalized.toLowerCase() === "/api") {
+      return "";
+    }
+
+    /*
+     * Support:
+     *
+     * VITE_API_URL=http://localhost:3001/api
+     *
+     * or:
+     *
+     * VITE_API_URL=https://example.com/api
+     *
+     * The `/api` suffix is removed because apiFetch() receives endpoints
+     * which already contain the canonical `/api` prefix.
+     */
+    return normalized.replace(/\/api$/i, "");
+  }
+
+  /*
+   * Development default.
+   */
+  if (import.meta.env.DEV) {
+    return "http://localhost:3001";
+  }
+
+  /*
+   * Production default.
+   */
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+
+  return "";
+}
+
+const API_BASE_URL =
+  resolveApiBaseUrl();
 
 const API_TIMEOUT_MS = 15_000;
+
+/*
+|--------------------------------------------------------------------------
+| API Endpoint Normalization
+|--------------------------------------------------------------------------
+|
+| Supports both:
+|
+|   /api/auth/me
+|   /auth/me
+|
+| and makes sure the final path has the canonical `/api` prefix.
+|--------------------------------------------------------------------------
+*/
+
+function normalizeApiEndpoint(
+  endpoint: string,
+): string {
+  const trimmed =
+    endpoint.trim();
+
+  if (!trimmed) {
+    return "/api";
+  }
+
+  const path =
+    trimmed.startsWith("/")
+      ? trimmed
+      : `/${trimmed}`;
+
+  if (
+    path === "/api" ||
+    path.startsWith("/api/")
+  ) {
+    return path;
+  }
+
+  return `/api${path}`;
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -33,6 +165,7 @@ export type UserRole =
   | "visitor"
   | "pandit"
   | "temple_manager"
+  | "ashram_manager"
   | "sales"
   | "super_admin";
 
@@ -59,9 +192,13 @@ const ROLE_DASHBOARD_PATHS: Record<
 > = {
   visitor: "/dashboard",
   pandit: "/pandit/dashboard",
-  temple_manager: "/temple-manager/dashboard",
+  temple_manager:
+    "/temple-manager/dashboard",
+  ashram_manager:
+    "/ashram/dashboard",
   sales: "/sales/dashboard",
-  super_admin: "/admin/dashboard",
+  super_admin:
+    "/admin/dashboard",
 };
 
 export function getDashboardPathForRole(
@@ -90,6 +227,8 @@ export type User = {
   role: UserRole;
   status: UserStatus;
   avatar: string | null;
+  emailVerifiedAt: string | null;
+  phoneVerifiedAt: string | null;
 };
 
 /*
@@ -98,17 +237,18 @@ export type User = {
 |--------------------------------------------------------------------------
 */
 
-export type ProfileUpdateInput = Partial<
-  Pick<
-    User,
-    | "name"
-    | "phone"
-    | "city"
-    | "state"
-    | "country"
-    | "avatar"
-  >
->;
+export type ProfileUpdateInput =
+  Partial<
+    Pick<
+      User,
+      | "name"
+      | "phone"
+      | "city"
+      | "state"
+      | "country"
+      | "avatar"
+    >
+  >;
 
 /*
 |--------------------------------------------------------------------------
@@ -116,17 +256,25 @@ export type ProfileUpdateInput = Partial<
 |--------------------------------------------------------------------------
 */
 
-export type ServiceRegistrationInput = {
-  name: string;
-  description?: string;
-  priceAmount?: number | string;
-  durationMinutes?: number | string;
-};
+export type ServiceRegistrationInput =
+  {
+    name: string;
+    description?: string;
+    priceAmount?:
+      | number
+      | string;
+    durationMinutes?:
+      | number
+      | string;
+  };
 
 export type RegisterInput = {
   role: Extract<
     UserRole,
-    "visitor" | "pandit" | "temple_manager"
+    | "visitor"
+    | "pandit"
+    | "temple_manager"
+    | "ashram_manager"
   >;
 
   name: string;
@@ -145,7 +293,9 @@ export type RegisterInput = {
    */
   title?: string;
   photo?: string;
-  experienceYears?: number | string;
+  experienceYears?:
+    | number
+    | string;
   district?: string;
   languages?: string[];
   specializations?: string[];
@@ -157,7 +307,7 @@ export type RegisterInput = {
   services?: ServiceRegistrationInput[];
 
   /*
-   * Temple Manager fields.
+   * Temple / Ashram Manager fields.
    */
   designation?: string;
   organizationName?: string;
@@ -169,10 +319,11 @@ export type RegisterInput = {
 |--------------------------------------------------------------------------
 */
 
-export type LoginCredentials = {
-  email: string;
-  password: string;
-};
+export type LoginCredentials =
+  {
+    email: string;
+    password: string;
+  };
 
 /*
 |--------------------------------------------------------------------------
@@ -211,14 +362,20 @@ type ApiEnvelope = {
   success?: boolean;
   authenticated?: boolean;
   user?: unknown;
+  profile?: unknown;
   message?: string;
   error?: string;
   code?: string;
+  approvalRequired?: boolean;
+  verificationRequired?: boolean;
+  dashboardPath?: string;
 };
 
-type AuthApiResponse = ApiEnvelope;
+type AuthApiResponse =
+  ApiEnvelope;
 
-type ProfileApiResponse = ApiEnvelope;
+type ProfileApiResponse =
+  ApiEnvelope;
 
 /*
 |--------------------------------------------------------------------------
@@ -226,10 +383,11 @@ type ProfileApiResponse = ApiEnvelope;
 |--------------------------------------------------------------------------
 */
 
-type ApiError = Error & {
-  status?: number;
-  code?: string;
-};
+type ApiError =
+  Error & {
+    status?: number;
+    code?: string;
+  };
 
 /*
 |--------------------------------------------------------------------------
@@ -282,6 +440,8 @@ type AppState = {
 
   isTempleManager: boolean;
 
+  isAshramManager: boolean;
+
   isSales: boolean;
 
   isSuperAdmin: boolean;
@@ -303,7 +463,9 @@ type AppState = {
   savedPlaces: string[];
 
   toggleSave: (
-    kind: "temple" | "place",
+    kind:
+      | "temple"
+      | "place",
     slug: string,
   ) => void;
 
@@ -356,21 +518,32 @@ function isRecord(
   );
 }
 
-const VALID_ROLES: UserRole[] = [
-  "visitor",
-  "pandit",
-  "temple_manager",
-  "sales",
-  "super_admin",
-];
+const VALID_ROLES: UserRole[] =
+  [
+    "visitor",
+    "pandit",
+    "temple_manager",
+    "ashram_manager",
+    "sales",
+    "super_admin",
+  ];
 
-const VALID_STATUSES: UserStatus[] = [
-  "pending",
-  "active",
-  "suspended",
-  "rejected",
-  "blocked",
-];
+const PUBLIC_REGISTRATION_ROLES: RegisterInput["role"][] =
+  [
+    "visitor",
+    "pandit",
+    "temple_manager",
+    "ashram_manager",
+  ];
+
+const VALID_STATUSES: UserStatus[] =
+  [
+    "pending",
+    "active",
+    "suspended",
+    "rejected",
+    "blocked",
+  ];
 
 /*
 |--------------------------------------------------------------------------
@@ -492,6 +665,14 @@ function normalizeUser(
     avatar:
       nullableString(
         value.avatar,
+      ),
+    emailVerifiedAt:
+      nullableString(
+        value.emailVerifiedAt,
+      ),
+    phoneVerifiedAt:
+      nullableString(
+        value.phoneVerifiedAt,
       ),
   };
 }
@@ -641,13 +822,22 @@ async function apiFetch<T>(
       );
     }
 
+    const apiEndpoint =
+      normalizeApiEndpoint(
+        endpoint,
+      );
+
+    const requestUrl =
+      `${API_BASE_URL}${apiEndpoint}`;
+
     const response =
       await fetch(
-        `${API_BASE_URL}${endpoint}`,
+        requestUrl,
         {
           ...options,
           credentials:
             "include",
+          cache: "no-store",
           headers,
           signal:
             controller.signal,
@@ -666,9 +856,11 @@ async function apiFetch<T>(
       response.status !== 204
     ) {
       if (
-        contentType.includes(
-          "application/json",
-        )
+        contentType
+          .toLowerCase()
+          .includes(
+            "application/json",
+          )
       ) {
         try {
           data =
@@ -728,12 +920,18 @@ async function apiFetch<T>(
     return data as T;
   } catch (error) {
     if (
-      error instanceof DOMException &&
-      error.name ===
-        "AbortError"
+      (typeof DOMException !==
+        "undefined" &&
+        error instanceof
+          DOMException &&
+        error.name ===
+          "AbortError") ||
+      (isRecord(error) &&
+        error.name ===
+          "AbortError")
     ) {
       throw new Error(
-        "The DivyaDhara API request timed out. Please check that the backend server is running.",
+        "The DivyaDhara API request timed out. Please check that the backend server is running on port 3001.",
       );
     }
 
@@ -741,11 +939,15 @@ async function apiFetch<T>(
       error instanceof TypeError
     ) {
       throw new Error(
-        `Unable to connect to the DivyaDhara API server at ${API_BASE_URL}.`,
+        `Unable to connect to the DivyaDhara API server at ${
+          API_BASE_URL ||
+          "the current website origin"
+        }. Please check that the backend server is running on port 3001.`,
       );
     }
 
-    throw error instanceof Error
+    throw error instanceof
+      Error
       ? error
       : new Error(
           "Unexpected API error.",
@@ -938,29 +1140,35 @@ function normalizeRegisterData(
 |--------------------------------------------------------------------------
 */
 
-const DEFAULT_BOOKINGS: Booking[] = [
-  {
-    id: "DD-2481",
-    kind: "Puja Enquiry",
-    title:
-      "Satyanarayan Katha — Home",
-    date: "2026-09-02",
-    status: "Confirmed",
-    detail:
-      "Pandit assigned · Varanasi",
-  },
-  {
-    id: "DD-2510",
-    kind: "Yatra Enquiry",
-    title:
-      "Kashi · Ayodhya · Prayagraj 5D",
-    date: "2026-09-05",
-    status:
-      "In progress",
-    detail:
-      "2 travellers · Oct batch",
-  },
-];
+const DEFAULT_BOOKINGS:
+  Booking[] = [
+    {
+      id: "DD-2481",
+      kind:
+        "Puja Enquiry",
+      title:
+        "Satyanarayan Katha — Home",
+      date:
+        "2026-09-02",
+      status:
+        "Confirmed",
+      detail:
+        "Pandit assigned · Varanasi",
+    },
+    {
+      id: "DD-2510",
+      kind:
+        "Yatra Enquiry",
+      title:
+        "Kashi · Ayodhya · Prayagraj 5D",
+      date:
+        "2026-09-05",
+      status:
+        "In progress",
+      detail:
+        "2 travellers · Oct batch",
+    },
+  ];
 
 const DEFAULT_NOTIFICATIONS:
   Notification[] = [
@@ -968,19 +1176,22 @@ const DEFAULT_NOTIFICATIONS:
       id: "n1",
       text:
         "Your Satyanarayan Katha pandit has been assigned.",
-      date: "2026-09-06",
+      date:
+        "2026-09-06",
     },
     {
       id: "n2",
       text:
         "Dev Deepawali boats in Varanasi are filling — reserve early.",
-      date: "2026-09-04",
+      date:
+        "2026-09-04",
     },
     {
       id: "n3",
       text:
         "New batch: Sanskrit Foundation begins first Saturday.",
-      date: "2026-09-01",
+      date:
+        "2026-09-01",
     },
   ];
 
@@ -1019,9 +1230,9 @@ export function AppProvider({
     authError,
     setAuthError,
   ] =
-    useState<string | null>(
-      null,
-    );
+    useState<
+      string | null
+    >(null);
 
   /*
    * ----------------------------------------------------------------------
@@ -1356,11 +1567,13 @@ export function AppProvider({
             await apiFetch<AuthApiResponse>(
               "/api/auth/login",
               {
-                method: "POST",
-                body: JSON.stringify({
-                  email,
-                  password,
-                }),
+                method:
+                  "POST",
+                body:
+                  JSON.stringify({
+                    email,
+                    password,
+                  }),
               },
             );
 
@@ -1428,6 +1641,22 @@ export function AppProvider({
           normalizeRegisterData(
             data,
           );
+
+        if (
+          !PUBLIC_REGISTRATION_ROLES.includes(
+            normalized.role,
+          )
+        ) {
+          const message =
+            "This account role is not available for public registration.";
+
+          setAuthError(message);
+          setIsLoading(false);
+
+          throw new Error(
+            message,
+          );
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -1579,10 +1808,12 @@ export function AppProvider({
             await apiFetch<AuthApiResponse>(
               "/api/auth/register",
               {
-                method: "POST",
-                body: JSON.stringify(
-                  normalized,
-                ),
+                method:
+                  "POST",
+                body:
+                  JSON.stringify(
+                    normalized,
+                  ),
               },
             );
 
@@ -1607,8 +1838,8 @@ export function AppProvider({
           /*
            * Visitor is normally authenticated immediately.
            *
-           * Pandit / Temple Manager may receive authenticated=false
-           * while waiting for admin approval.
+           * Pandit / Temple Manager / Ashram Manager may receive
+           * authenticated=false while waiting for admin approval.
            */
           if (
             authenticated
@@ -1663,7 +1894,8 @@ export function AppProvider({
           await apiFetch<AuthApiResponse>(
             "/api/auth/logout",
             {
-              method: "POST",
+              method:
+                "POST",
             },
           );
         } catch (error) {
@@ -1978,10 +2210,12 @@ export function AppProvider({
             await apiFetch<ProfileApiResponse>(
               "/api/auth/profile",
               {
-                method: "PATCH",
-                body: JSON.stringify(
-                  payload,
-                ),
+                method:
+                  "PATCH",
+                body:
+                  JSON.stringify(
+                    payload,
+                  ),
               },
             );
 
@@ -2092,6 +2326,10 @@ export function AppProvider({
   const isTempleManager =
     user?.role ===
     "temple_manager";
+
+  const isAshramManager =
+    user?.role ===
+    "ashram_manager";
 
   const isSales =
     user?.role ===
@@ -2250,6 +2488,8 @@ export function AppProvider({
 
         isTempleManager,
 
+        isAshramManager,
+
         isSales,
 
         isSuperAdmin,
@@ -2296,6 +2536,7 @@ export function AppProvider({
         isVisitor,
         isPandit,
         isTempleManager,
+        isAshramManager,
         isSales,
         isSuperAdmin,
         updateProfile,

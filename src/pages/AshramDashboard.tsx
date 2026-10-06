@@ -48,14 +48,13 @@ import {
   showWarning,
   toast,
 } from "../lib/swal";
+import { buildApiUrl } from "../lib/api";
 
 /* -------------------------------------------------------------------------- */
 /* API                                                                        */
 /* -------------------------------------------------------------------------- */
 
-const API_BASE = (
-  import.meta.env.VITE_API_URL || window.location.origin
-).replace(/\/+$/, "");
+const REQUEST_TIMEOUT_MS = 20_000;
 
 class AshramApiError extends Error {
   constructor(
@@ -65,6 +64,7 @@ class AshramApiError extends Error {
   ) {
     super(message);
     this.name = "AshramApiError";
+    Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
@@ -79,14 +79,37 @@ async function apiRequest<T>(
   } = {},
 ): Promise<T> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 15000);
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    REQUEST_TIMEOUT_MS,
+  );
+
+  const url = buildApiUrl(path);
+
+  const forwardAbort = () => {
+    if (!controller.signal.aborted) {
+      controller.abort();
+    }
+  };
+
+  if (options.signal) {
+    if (options.signal.aborted) {
+      forwardAbort();
+    } else {
+      options.signal.addEventListener(
+        "abort",
+        forwardAbort,
+        { once: true },
+      );
+    }
+  }
 
   try {
-    const response = await fetch(`${API_BASE}${path}`, {
+    const response = await fetch(url, {
       method: options.method || "GET",
       credentials: "include",
       cache: "no-store",
-      signal: options.signal ?? controller.signal,
+      signal: controller.signal,
       headers: {
         Accept: "application/json",
         ...(options.body !== undefined
@@ -98,7 +121,25 @@ async function apiRequest<T>(
         : {}),
     });
 
-    const data = (await response.json().catch(() => ({}))) as JsonObject;
+    const raw = await response.text();
+    let data: JsonObject = {};
+
+    if (raw.trim()) {
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed)
+        ) {
+          data = parsed as JsonObject;
+        }
+      } catch {
+        data = {
+          error: raw.trim().slice(0, 1000),
+        };
+      }
+    }
 
     if (!response.ok) {
       throw new AshramApiError(
@@ -108,15 +149,36 @@ async function apiRequest<T>(
             ? data.message
             : `Request failed with status ${response.status}.`,
         response.status,
-        typeof data.code === "string" ? data.code : null,
+        typeof data.code === "string"
+          ? data.code
+          : null,
+      );
+    }
+
+    if (data.success === false) {
+      throw new AshramApiError(
+        typeof data.error === "string"
+          ? data.error
+          : typeof data.message === "string"
+            ? data.message
+            : "The Ashram request was rejected by the server.",
+        response.status || 400,
+        typeof data.code === "string"
+          ? data.code
+          : null,
       );
     }
 
     return data as T;
   } catch (error) {
-    if (error instanceof AshramApiError) throw error;
+    if (error instanceof AshramApiError) {
+      throw error;
+    }
 
-    if (error instanceof DOMException && error.name === "AbortError") {
+    if (
+      error instanceof DOMException &&
+      error.name === "AbortError"
+    ) {
       throw new AshramApiError(
         "The Ashram dashboard request timed out. Please check that the DivyaDhara API server is running.",
         408,
@@ -126,7 +188,7 @@ async function apiRequest<T>(
 
     if (error instanceof TypeError) {
       throw new AshramApiError(
-        `Unable to connect to the DivyaDhara API server at ${API_BASE}.`,
+        "Unable to connect to the DivyaDhara API server.",
         0,
         "API_CONNECTION_ERROR",
       );
@@ -134,13 +196,18 @@ async function apiRequest<T>(
 
     throw error instanceof Error
       ? error
-      : new AshramApiError("Unexpected Ashram dashboard error.");
+      : new AshramApiError(
+          "Unexpected Ashram dashboard error.",
+        );
   } finally {
-    window.clearTimeout(timeout);
+    window.clearTimeout(timeoutId);
+    options.signal?.removeEventListener(
+      "abort",
+      forwardAbort,
+    );
   }
 }
 
-/* -------------------------------------------------------------------------- */
 /* Types                                                                      */
 /* -------------------------------------------------------------------------- */
 
@@ -308,6 +375,7 @@ type WorkspaceResponse = {
 
 type LeadRecord = {
   id: number;
+  ashram_id?: number | null;
   lead_number?: string | null;
   leadNumber?: string | null;
   name?: string | null;
@@ -321,6 +389,10 @@ type LeadRecord = {
   serviceType?: string | null;
   puja_type?: string | null;
   pujaType?: string | null;
+  city?: string | null;
+  district?: string | null;
+  state?: string | null;
+  country?: string | null;
   source_page?: string | null;
   sourcePage?: string | null;
   ashram_name?: string | null;
@@ -503,6 +575,19 @@ function dateLabel(value?: string | null): string {
     month: "short",
     year: "numeric",
   }).format(date);
+}
+
+function safeUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return true;
+
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function daysRemaining(value?: string | null): number | null {
@@ -853,10 +938,24 @@ export default function AshramDashboard() {
       currentAssignment?.managerVerificationStatus ||
       currentAssignment?.verificationStatus,
   );
-  const canManagePrograms = Boolean(activeSubscription && programLimit > 0);
-  const canManageGallery = Boolean(activeSubscription && galleryLimit > 0);
+  const programCapacityUsed = number(
+    counts?.totalProgramsAndCourses ??
+      programCount + number(counts?.linkedCourses),
+  );
 
-  const canAddProgram = canManagePrograms && programCount < programLimit;
+  const canManagePrograms = Boolean(
+    activeSubscription &&
+      programLimit > 0,
+  );
+
+  const canManageGallery = Boolean(
+    activeSubscription &&
+      galleryLimit > 0,
+  );
+
+  const canAddProgram =
+    canManagePrograms &&
+    programCapacityUsed < programLimit;
   const canAddGallery = canManageGallery && galleryCount < galleryLimit;
 
   const locationLabel = [ashram?.city, ashram?.district, ashram?.state]
@@ -897,6 +996,36 @@ export default function AshramDashboard() {
         toast("warning", "Please correct the Timings JSON before saving.");
         return;
       }
+    }
+
+    for (const [label, value] of [
+      ["Primary image", ashramForm.image],
+      ["Map URL", ashramForm.mapUrl],
+      ["Website URL", ashramForm.websiteUrl],
+    ] as Array<[string, string]>) {
+      if (!safeUrl(value)) {
+        toast(
+          "warning",
+          `${label} must be a valid HTTP(S) URL or safe relative path.`,
+        );
+        return;
+      }
+    }
+
+    const contactEmail =
+      ashramForm.contactEmail.trim();
+
+    if (
+      contactEmail &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+        contactEmail,
+      )
+    ) {
+      toast(
+        "warning",
+        "Please enter a valid Ashram contact email.",
+      );
+      return;
     }
 
     const latitude = ashramForm.latitude.trim() === "" ? null : Number(ashramForm.latitude);
@@ -1032,7 +1161,7 @@ export default function AshramDashboard() {
     const value = galleryInput.trim();
     if (!value) return;
 
-    if (!/^https?:\/\//i.test(value) && !value.startsWith("/")) {
+    if (!safeUrl(value)) {
       toast("warning", "Use an HTTPS/HTTP image URL or a site-relative path.");
       return;
     }
@@ -1115,6 +1244,27 @@ export default function AshramDashboard() {
       return;
     }
 
+    if (
+      !editingProgramId &&
+      !canAddProgram
+    ) {
+      await showWarning(
+        "Program capacity unavailable",
+        activeSubscription
+          ? `Your current plan allows ${programLimit} combined programs/courses and the available capacity has been reached.`
+          : "An active Ashram subscription is required before creating a program.",
+      );
+      return;
+    }
+
+    if (!safeUrl(programForm.image)) {
+      toast(
+        "warning",
+        "Program image must be a valid HTTP(S) URL or safe relative path.",
+      );
+      return;
+    }
+
     const payload = {
       title,
       description: programForm.description.trim() || undefined,
@@ -1165,7 +1315,16 @@ export default function AshramDashboard() {
     } finally {
       setLoading((current) => ({ ...current, savingProgram: false }));
     }
-  }, [closeProgramModal, editingProgramId, loadDashboard, programForm, selectedAshramId]);
+  }, [
+    activeSubscription,
+    canAddProgram,
+    closeProgramModal,
+    editingProgramId,
+    loadDashboard,
+    programForm,
+    programLimit,
+    selectedAshramId,
+  ]);
 
   const deleteProgram = useCallback(
     async (program: AshramProgram) => {
@@ -1198,7 +1357,22 @@ export default function AshramDashboard() {
       if (!selectedAshramId) return;
       const next = !bool(program.isActive);
       if (next && !canManagePrograms) {
-        toast("warning", "An active Ashram subscription is required to activate programs.");
+        toast(
+          "warning",
+          "An active Ashram subscription is required to activate programs.",
+        );
+        return;
+      }
+
+      if (
+        next &&
+        programCapacityUsed >=
+          programLimit
+      ) {
+        await showWarning(
+          "Program capacity reached",
+          `Your current plan allows ${programLimit} combined programs/courses.`,
+        );
         return;
       }
       try {
@@ -1217,33 +1391,138 @@ export default function AshramDashboard() {
         );
       }
     },
-    [canManagePrograms, selectedAshramId],
+    [
+      canManagePrograms,
+      programCapacityUsed,
+      programLimit,
+      selectedAshramId,
+    ],
   );
 
   /* ---------------------------------------------------------------------- */
   /* Leads                                                                   */
   /* ---------------------------------------------------------------------- */
 
-  const loadLeads = useCallback(async (page = 1, search = leadSearch, status = leadStatusFilter) => {
-    setLoading((current) => ({ ...current, leads: true }));
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: "10" });
-      if (search.trim()) params.set("search", search.trim());
-      if (status !== "all") params.set("status", status);
-      const response = await apiRequest<LeadListResponse>(`/api/leads?${params.toString()}`);
-      setLeads(response.leads ?? []);
-      setLeadPage(Number(response.pagination?.page ?? page));
-      setLeadTotal(Number(response.pagination?.total ?? 0));
-      setLeadTotalPages(Math.max(1, Number(response.pagination?.totalPages ?? 1)));
-    } catch (error) {
-      await showError(
-        "Unable to load enquiries",
-        error instanceof Error ? error.message : "Please try again.",
-      );
-    } finally {
-      setLoading((current) => ({ ...current, leads: false }));
+  const loadLeads = useCallback(
+    async (
+      page = 1,
+      status = leadStatusFilter,
+    ) => {
+      if (!selectedAshramId) return;
+
+      setLoading((current) => ({
+        ...current,
+        leads: true,
+      }));
+
+      try {
+        const params =
+          new URLSearchParams({
+            page: String(page),
+            limit: "100",
+          });
+
+        if (status && status !== "all") {
+          params.set(
+            "status",
+            status,
+          );
+        }
+
+        const response =
+          await apiRequest<LeadListResponse>(
+            `/api/ashrams/${selectedAshramId}/leads?${params.toString()}`,
+          );
+
+        setLeads(
+          response.leads ?? [],
+        );
+
+        setLeadPage(
+          Number(
+            response.pagination?.page ??
+              page,
+          ),
+        );
+
+        setLeadTotal(
+          Number(
+            response.pagination?.total ??
+              0,
+          ),
+        );
+
+        setLeadTotalPages(
+          Math.max(
+            1,
+            Number(
+              response.pagination?.totalPages ??
+                1,
+            ),
+          ),
+        );
+      } catch (error) {
+        if (
+          error instanceof AshramApiError &&
+          error.status === 403
+        ) {
+          await showWarning(
+            "Lead access unavailable",
+            "Your Ashram Manager assignment does not currently have lead-view access.",
+          );
+        } else {
+          await showError(
+            "Unable to load Ashram enquiries",
+            error instanceof Error
+              ? error.message
+              : "Please try again.",
+          );
+        }
+      } finally {
+        setLoading((current) => ({
+          ...current,
+          leads: false,
+        }));
+      }
+    },
+    [
+      leadStatusFilter,
+      selectedAshramId,
+    ],
+  );
+
+  const filteredLeads = useMemo(() => {
+    const query =
+      leadSearch.trim().toLowerCase();
+
+    if (!query) {
+      return leads;
     }
-  }, [leadSearch, leadStatusFilter]);
+
+    return leads.filter((lead) =>
+      [
+        lead.lead_number,
+        lead.leadNumber,
+        lead.name,
+        lead.email,
+        lead.phone,
+        lead.service_type,
+        lead.serviceType,
+        lead.puja_type,
+        lead.pujaType,
+        lead.city,
+        lead.source_page,
+        lead.sourcePage,
+      ].some((value) =>
+        text(value)
+          .toLowerCase()
+          .includes(query),
+      ),
+    );
+  }, [
+    leadSearch,
+    leads,
+  ]);
 
   const loadAnalytics = useCallback(async () => {
     setLoading((current) => ({ ...current, analytics: true }));
@@ -1267,7 +1546,13 @@ export default function AshramDashboard() {
       setAnalyticsConversions([]);
       setAnalyticsRange(null);
       if (error instanceof AshramApiError && error.status === 403) {
-        // Analytics paywall/permission state is shown by the UI, not converted into fake data.
+        setAnalytics(null);
+        setAnalyticsConversions([]);
+        setAnalyticsRange(null);
+        await showWarning(
+          "Analytics unavailable",
+          "Detailed analytics are not available for this Ashram Manager account or current plan.",
+        );
         return;
       }
       await showError(
@@ -1281,9 +1566,15 @@ export default function AshramDashboard() {
 
   useEffect(() => {
     if (tab === "leads") {
-      void loadLeads(1, leadSearch, leadStatusFilter);
+      setLeadPage(1);
+      void loadLeads(1, leadStatusFilter);
     }
-  }, [leadSearch, leadStatusFilter, loadLeads, tab]);
+  }, [
+    leadStatusFilter,
+    loadLeads,
+    selectedAshramId,
+    tab,
+  ]);
 
   useEffect(() => {
     if (tab === "analytics") {
@@ -1618,7 +1909,7 @@ export default function AshramDashboard() {
                   {[
                     ["Open Enquiries", activeLeads, "Needs attention", MessageCircle],
                     ["Converted Leads", convertedLeads, "Completed conversions", CheckCircle2],
-                    ["Programs", programCount, programLimit > 0 ? `of ${programLimit}` : "Plan not enabled", CalendarClock],
+                    ["Programs", programCount, programLimit > 0 ? `${programCapacityUsed} of ${programLimit} combined` : "Plan not enabled", CalendarClock],
                     ["Gallery", galleryCount, galleryLimit > 0 ? `of ${galleryLimit}` : "Plan not enabled", ImagePlus],
                   ].map(([label, value, sub, Icon]) => {
                     const CardIcon = Icon as LucideIcon;
@@ -1808,7 +2099,7 @@ export default function AshramDashboard() {
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-3">
-                  <CapacityCard label="Programs" used={programCount} limit={programLimit} icon={CalendarClock} />
+                  <CapacityCard label="Program capacity" used={programCapacityUsed} limit={programLimit} icon={CalendarClock} />
                   <CapacityCard label="Linked courses" used={number(counts?.linkedCourses)} limit={programLimit} icon={BookOpen} />
                   <CapacityCard label="Combined capacity" used={number(counts?.totalProgramsAndCourses ?? programCount + number(counts?.linkedCourses))} limit={programLimit} icon={Link2} />
                 </div>
@@ -1951,7 +2242,7 @@ export default function AshramDashboard() {
                       This list is restricted by the backend to Ashram leads accessible to your active Manager assignment. Lead ownership, quota consumption and CRM authority stay server-side controlled.
                     </p>
                   </div>
-                  <button type="button" onClick={() => void loadLeads(leadPage, leadSearch, leadStatusFilter)} className="rounded-xl border border-orange-900/10 bg-white px-4 py-2.5 text-xs font-black text-orange-800 hover:bg-orange-50">
+                  <button type="button" onClick={() => void loadLeads(leadPage, leadStatusFilter)} className="rounded-xl border border-orange-900/10 bg-white px-4 py-2.5 text-xs font-black text-orange-800 hover:bg-orange-50">
                     <RefreshCw size={14} className="mr-1.5 inline" /> Refresh Leads
                   </button>
                 </div>
@@ -1971,9 +2262,9 @@ export default function AshramDashboard() {
                         value={leadSearch}
                         onChange={(event) => setLeadSearch(event.target.value)}
                         onKeyDown={(event) => {
-                          if (event.key === "Enter") void loadLeads(1, leadSearch, leadStatusFilter);
+                          if (event.key === "Enter") void loadLeads(1, leadStatusFilter);
                         }}
-                        placeholder="Search name, phone, email, service or lead number…"
+                        placeholder="Filter loaded leads by name, phone, email, service or lead number…"
                         className={`${formInput} pl-9`}
                       />
                     </div>
@@ -1992,14 +2283,14 @@ export default function AshramDashboard() {
                       <option value="closed">Closed</option>
                       <option value="lost">Lost</option>
                     </select>
-                    <button type="button" onClick={() => void loadLeads(1, leadSearch, leadStatusFilter)} className="btn-saffron rounded-xl px-5 py-3 text-sm font-black text-white">Search</button>
+                    <button type="button" onClick={() => void loadLeads(1, leadStatusFilter)} className="btn-saffron rounded-xl px-5 py-3 text-sm font-black text-white">Search</button>
                   </div>
                 </div>
 
                 <div className="overflow-hidden rounded-3xl border border-orange-900/10 bg-white shadow-sm">
                   {loading.leads ? (
                     <div className="p-10 text-center"><LoaderCircle className="mx-auto animate-spin text-orange-700" size={28} /><p className="mt-3 text-sm font-bold text-stone-700">Loading Ashram enquiries…</p></div>
-                  ) : leads.length === 0 ? (
+                  ) : filteredLeads.length === 0 ? (
                     <div className="p-10 text-center">
                       <MessageCircle className="mx-auto text-stone-300" size={32} />
                       <h2 className="mt-3 text-lg font-black">No enquiries found</h2>
@@ -2007,7 +2298,7 @@ export default function AshramDashboard() {
                     </div>
                   ) : (
                     <div className="divide-y divide-orange-900/10">
-                      {leads.map((lead) => {
+                      {filteredLeads.map((lead) => {
                         const leadNumber = text(lead.lead_number ?? lead.leadNumber) || `#${lead.id}`;
                         const leadName = text(lead.name) || "Visitor";
                         const contact = text(lead.phone) || text(lead.email) || "Contact details protected";
@@ -2043,11 +2334,11 @@ export default function AshramDashboard() {
                 </div>
 
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-stone-500">Showing {leads.length} of {leadTotal} entr{leadTotal === 1 ? "y" : "ies"} in the current filtered scope.</p>
+                  <p className="text-xs text-stone-500">Showing {filteredLeads.length} of {leadTotal} entr{leadTotal === 1 ? "y" : "ies"} in the current filtered scope.</p>
                   <div className="flex items-center gap-2">
-                    <button type="button" disabled={leadPage <= 1 || loading.leads} onClick={() => void loadLeads(leadPage - 1, leadSearch, leadStatusFilter)} className="rounded-xl border border-orange-900/10 bg-white px-4 py-2 text-xs font-black text-stone-700 disabled:opacity-40">Previous</button>
+                    <button type="button" disabled={leadPage <= 1 || loading.leads} onClick={() => void loadLeads(leadPage - 1, leadStatusFilter)} className="rounded-xl border border-orange-900/10 bg-white px-4 py-2 text-xs font-black text-stone-700 disabled:opacity-40">Previous</button>
                     <span className="rounded-xl bg-stone-100 px-3 py-2 text-xs font-black text-stone-700">Page {leadPage} / {leadTotalPages}</span>
-                    <button type="button" disabled={leadPage >= leadTotalPages || loading.leads} onClick={() => void loadLeads(leadPage + 1, leadSearch, leadStatusFilter)} className="rounded-xl border border-orange-900/10 bg-white px-4 py-2 text-xs font-black text-stone-700 disabled:opacity-40">Next</button>
+                    <button type="button" disabled={leadPage >= leadTotalPages || loading.leads} onClick={() => void loadLeads(leadPage + 1, leadStatusFilter)} className="rounded-xl border border-orange-900/10 bg-white px-4 py-2 text-xs font-black text-stone-700 disabled:opacity-40">Next</button>
                   </div>
                 </div>
 
@@ -2173,7 +2464,7 @@ export default function AshramDashboard() {
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-700">Performance</p>
                     <h1 className="mt-1 text-2xl font-black">Ashram analytics</h1>
-                    <p className="mt-1 text-sm text-stone-500">Detailed reporting is loaded from the owner-scoped analytics service and is never calculated from frontend guesses.</p>
+                    <p className="mt-1 text-sm text-stone-500">Detailed reporting is loaded from the owner-scoped analytics service for this Manager account and is never calculated from frontend guesses.</p>
                   </div>
                   <button type="button" onClick={() => void loadAnalytics()} disabled={loading.analytics} className="rounded-xl border border-orange-900/10 bg-white px-4 py-2.5 text-xs font-black text-orange-800 hover:bg-orange-50 disabled:opacity-50">
                     {loading.analytics ? <LoaderCircle size={14} className="mr-1.5 inline animate-spin" /> : <RefreshCw size={14} className="mr-1.5 inline" />} Refresh Analytics
@@ -2240,7 +2531,7 @@ export default function AshramDashboard() {
                 )}
 
                 <div className="rounded-3xl border border-orange-900/10 bg-stone-50 p-5 text-xs leading-5 text-stone-600">
-                  Analytics access remains tied to the active Ashram entitlement. The detailed endpoint itself also enforces the authenticated owner scope, so changing the URL or entity ID cannot expand this Manager's access.
+                  Analytics access remains tied to the active Ashram entitlement. The detailed endpoint enforces the authenticated owner scope for the Manager account. A Manager can only receive analytics for Ashrams included in the server-authorized assignment scope.
                 </div>
               </section>
             )}

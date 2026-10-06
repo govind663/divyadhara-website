@@ -46,8 +46,7 @@ import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useSEO } from "../lib/seo";
 import { confirmAction, showError, showSuccess, showWarning, toast } from "../lib/swal";
-
-const API_BASE = (import.meta.env.VITE_API_URL || window.location.origin).replace(/\/+$/, "");
+import { buildApiUrl } from "../lib/api";
 
 type JsonObject = Record<string, unknown>;
 type TabId =
@@ -69,30 +68,90 @@ async function apiRequest<T>(
   path: string,
   options: { method?: string; body?: unknown; signal?: AbortSignal } = {},
 ): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: options.method || "GET",
-    credentials: "include",
-    cache: "no-store",
-    signal: options.signal,
-    headers: {
-      Accept: "application/json",
-      ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
-    },
-    ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-  });
-  const data = (await response.json().catch(() => ({}))) as JsonObject;
-  if (!response.ok) {
-    throw new TempleApiError(
-      typeof data.error === "string"
-        ? data.error
-        : typeof data.message === "string"
-          ? data.message
-          : `Request failed (${response.status}).`,
-      response.status,
-      typeof data.code === "string" ? data.code : null,
-    );
+  const url = buildApiUrl(path);
+
+  try {
+    const response = await fetch(url, {
+      method: options.method || "GET",
+      credentials: "include",
+      cache: "no-store",
+      signal: options.signal,
+      headers: {
+        Accept: "application/json",
+        ...(options.body !== undefined
+          ? { "Content-Type": "application/json" }
+          : {}),
+      },
+      ...(options.body !== undefined
+        ? { body: JSON.stringify(options.body) }
+        : {}),
+    });
+
+    const raw = await response.text();
+    let data: JsonObject = {};
+
+    if (raw.trim()) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        data = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? (parsed as JsonObject)
+          : { data: parsed };
+      } catch {
+        data = { error: raw.trim() };
+      }
+    }
+
+    if (!response.ok) {
+      throw new TempleApiError(
+        typeof data.error === "string"
+          ? data.error
+          : typeof data.message === "string"
+            ? data.message
+            : `Request failed (${response.status}).`,
+        response.status,
+        typeof data.code === "string" ? data.code : null,
+      );
+    }
+
+    if (data.success === false) {
+      throw new TempleApiError(
+        typeof data.error === "string"
+          ? data.error
+          : typeof data.message === "string"
+            ? data.message
+            : "Temple API request was rejected.",
+        response.status || 400,
+        typeof data.code === "string" ? data.code : null,
+      );
+    }
+
+    return data as T;
+  } catch (error) {
+    if (error instanceof TempleApiError) {
+      throw error;
+    }
+
+    if (
+      error instanceof DOMException &&
+      error.name === "AbortError"
+    ) {
+      throw new TempleApiError(
+        "Request timed out. Please try again.",
+        408,
+        "REQUEST_TIMEOUT",
+      );
+    }
+
+    if (error instanceof TypeError) {
+      throw new TempleApiError(
+        "Unable to connect to the DivyaDhara API server.",
+        0,
+        "API_CONNECTION_ERROR",
+      );
+    }
+
+    throw error;
   }
-  return data as T;
 }
 
 type TempleListItem = {
@@ -345,6 +404,23 @@ const CONTENT_SCHEMAS: ContentSchema[] = [
     ],
   },
   {
+    route: "scriptural-connections", label: "Scriptural Connections", description: "Scriptural references and contextual explanations tied to the temple.", icon: BookOpen,
+    fields: [
+      { key: "title", label: "Reference title", type: "text", required: true },
+      { key: "context", label: "Context", type: "textarea", required: true },
+      { key: "sort_order", label: "Sort order", type: "number" },
+      { key: "is_active", label: "Visible", type: "checkbox" },
+    ],
+  },
+  {
+    route: "bhagavata-connections", label: "Bhagavata Connections", description: "Bhagavata-related narratives and devotional context.", icon: Sparkles,
+    fields: [
+      { key: "content", label: "Content", type: "textarea", required: true },
+      { key: "sort_order", label: "Sort order", type: "number" },
+      { key: "is_active", label: "Visible", type: "checkbox" },
+    ],
+  },
+  {
     route: "pilgrim-experience", label: "Pilgrim Experience", description: "Practical, respectful pilgrim guidance.", icon: Eye,
     fields: [
       { key: "content", label: "Content", type: "textarea", required: true },
@@ -514,10 +590,6 @@ export default function TempleDashboard() {
   const [searchLeads, setSearchLeads] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [selectedLead, setSelectedLead] = useState<Enquiry | null>(null);
-  const [leadNote, setLeadNote] = useState("");
-  const [followupDate, setFollowupDate] = useState("");
-  const [followupNote, setFollowupNote] = useState("");
-  const [savingLead, setSavingLead] = useState(false);
 
   const [seo, setSeo] = useState<SeoEntry | null>(null);
   const [seoKeywords, setSeoKeywords] = useState<JsonObject[]>([]);
@@ -970,46 +1042,19 @@ export default function TempleDashboard() {
   useEffect(() => { if (tab === "leads") void loadLeads(); }, [loadLeads, tab]);
 
   const openLead = useCallback(async (item: Enquiry) => {
-    if (!item.lead_id) { setSelectedLead(item); return; }
-    try {
-      const response = await apiRequest<{ lead?: JsonObject }>(`/api/leads/${item.lead_id}`);
-      setSelectedLead({ ...item, ...(response.lead ?? {}) } as Enquiry);
-    } catch { setSelectedLead(item); }
-  }, []);
+    if (!selectedTempleId) return;
 
-  const updateLeadStatus = useCallback(async (status: string) => {
-    if (!selectedLead?.lead_id) return;
-    setSavingLead(true);
     try {
-      await apiRequest(`/api/leads/${selectedLead.lead_id}/status`, { method: "PATCH", body: { status } });
-      setSelectedLead((current) => current ? { ...current, lead_status: status } : current);
-      await loadLeads(); toast("success", `Lead status changed to ${prettyStatus(status)}.`);
-    } catch (error) { await showError("Lead status update failed", error instanceof Error ? error.message : "Please try again."); }
-    finally { setSavingLead(false); }
-  }, [loadLeads, selectedLead]);
-
-  const addLeadNote = useCallback(async () => {
-    if (!selectedLead?.lead_id || !leadNote.trim()) return;
-    setSavingLead(true);
-    try {
-      await apiRequest(`/api/leads/${selectedLead.lead_id}/notes`, { method: "POST", body: { note: leadNote.trim(), noteType: "internal" } });
-      setLeadNote(""); toast("success", "Internal note saved.");
-    } catch (error) { await showError("Note save failed", error instanceof Error ? error.message : "Please try again."); }
-    finally { setSavingLead(false); }
-  }, [leadNote, selectedLead]);
-
-  const addFollowup = useCallback(async () => {
-    if (!selectedLead?.lead_id || !followupDate) { toast("warning", "Choose a follow-up date."); return; }
-    setSavingLead(true);
-    try {
-      await apiRequest(`/api/leads/${selectedLead.lead_id}/followups`, {
-        method: "POST",
-        body: { dueAt: followupDate, followupType: "call", subject: "Temple enquiry follow-up", notes: followupNote.trim() || null },
-      });
-      setFollowupDate(""); setFollowupNote(""); await updateLeadStatus("follow_up"); toast("success", "Follow-up scheduled.");
-    } catch (error) { await showError("Follow-up failed", error instanceof Error ? error.message : "Please try again."); }
-    finally { setSavingLead(false); }
-  }, [followupDate, followupNote, selectedLead, updateLeadStatus]);
+      // Temple Managers must use the temple-scoped enquiry endpoint.
+      // Lead lifecycle mutation remains owned by /api/leads / CRM.
+      const response = await apiRequest<{ enquiry?: Enquiry }>(
+        `/api/temples/manage/${selectedTempleId}/enquiries/${item.id}`,
+      );
+      setSelectedLead(response.enquiry ?? item);
+    } catch {
+      setSelectedLead(item);
+    }
+  }, [selectedTempleId]);
 
   const loadSeo = useCallback(async () => {
     if (!selectedTempleId) return;
@@ -1055,21 +1100,51 @@ export default function TempleDashboard() {
   }, [loadSeo, seoEntitled, selectedTempleId]);
 
   const loadAnalytics = useCallback(async () => {
-    if (!selectedTempleId) return;
-    setAnalyticsLoading(true); setAnalyticsError(null);
+    if (!selectedTempleId || !features?.analyticsAccess) {
+      setAnalytics(null);
+      setAnalyticsError(features?.analyticsAccess === false
+        ? "Analytics are not included in the current Temple plan."
+        : null);
+      return;
+    }
+
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+
     try {
-      const from = (() => { const d = new Date(); d.setDate(d.getDate() - 29); return d.toISOString().slice(0, 10); })();
-      const to = new Date().toISOString().slice(0, 10);
-      setAnalytics(await apiRequest<JsonObject>(`/api/temples/manage/${selectedTempleId}/insights?from=${from}%2000:00:00&to=${to}%2023:59:59`));
+      const fromDate = new Date();
+      fromDate.setDate(fromDate.getDate() - 29);
+
+      const params = new URLSearchParams({
+        from: `${fromDate.toISOString().slice(0, 10)} 00:00:00`,
+        to: `${new Date().toISOString().slice(0, 10)} 23:59:59`,
+      });
+
+      setAnalytics(
+        await apiRequest<JsonObject>(
+          `/api/temples/manage/${selectedTempleId}/insights?${params.toString()}`,
+        ),
+      );
     } catch (error) {
       setAnalytics(null);
-      setAnalyticsError(error instanceof TempleApiError && error.status === 403
-        ? "Analytics are not included in the current Temple plan."
-        : error instanceof Error ? error.message : "Unable to load analytics.");
-    } finally { setAnalyticsLoading(false); }
-  }, [selectedTempleId]);
+      setAnalyticsError(
+        error instanceof TempleApiError &&
+        error.status === 403
+          ? "Analytics are not included in the current Temple plan."
+          : error instanceof Error
+            ? error.message
+            : "Unable to load analytics.",
+      );
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, [features?.analyticsAccess, selectedTempleId]);
 
-  useEffect(() => { if (tab === "analytics") void loadAnalytics(); }, [loadAnalytics, tab]);
+  useEffect(() => {
+    if (tab === "analytics" && features?.analyticsAccess) {
+      void loadAnalytics();
+    }
+  }, [features?.analyticsAccess, loadAnalytics, tab]);
 
   const handleLogout = useCallback(async () => {
     const ok = await confirmAction("Logout from Temple Dashboard?", "Your current browser session will be closed.", "Logout");
@@ -1381,7 +1456,7 @@ export default function TempleDashboard() {
 
             {tab === "videos" && (
               <section className="space-y-5">
-                <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-orange-700">Video Studio</p><h1 className="mt-1 text-2xl font-black">Temple videos</h1><p className="mt-1 text-sm text-stone-500">YouTube, Vimeo, self-hosted and other supported references. Managers keep videos in draft workflow.</p></div><button type="button" disabled={!features} onClick={() => { if (!features) { void showWarning("Subscription required", "Video management needs an eligible Temple subscription."); return; } if (videoLimit > 0 && videos.length >= videoLimit) { void showWarning("Video limit reached", `Your plan allows ${videoLimit} videos.`); return; } setEditingVideoId(null); setVideoFormState(videoForm()); setVideoModal(true); }} className="btn-saffron inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-black text-white disabled:opacity-50"><Plus size={16} /> Add Video</button></div>
+                <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-orange-700">Video Studio</p><h1 className="mt-1 text-2xl font-black">Temple videos</h1><p className="mt-1 text-sm text-stone-500">YouTube, Vimeo, self-hosted and other supported references. Managers keep videos in draft workflow.</p></div><button type="button" disabled={!hasVideoEntitlement} onClick={() => { if (!hasVideoEntitlement) { void showWarning("Video management not included", "Your active Temple plan does not include video capacity. Review your subscription to continue."); return; } if (videoLimit > 0 && videos.length >= videoLimit) { void showWarning("Video limit reached", `Your plan allows ${videoLimit} videos.`); return; } setEditingVideoId(null); setVideoFormState(videoForm()); setVideoModal(true); }} className="btn-saffron inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"><Plus size={16} /> Add Video</button></div>
                 {videos.length === 0 ? <div className="rounded-3xl border border-dashed border-orange-900/20 bg-white p-12 text-center"><Video className="mx-auto text-orange-600" size={32} /><h2 className="mt-3 text-xl font-black">No videos yet</h2><p className="mt-1 text-sm text-stone-500">Create a darshan, aarti, documentary or informational video draft.</p></div> : <div className="grid gap-4 md:grid-cols-2">{videos.map((item) => <article key={item.id} className="overflow-hidden rounded-3xl border border-orange-900/10 bg-white shadow-sm"><div className="aspect-video bg-stone-100">{item.thumbnail_url || item.image ? <img src={item.thumbnail_url || item.image || ""} alt={item.title} className="h-full w-full object-cover" loading="lazy" /> : <div className="grid h-full place-items-center text-stone-400"><Video size={30} /></div>}</div><div className="p-5"><div className="flex items-start justify-between gap-3"><div><h2 className="font-black">{item.title}</h2><p className="mt-1 text-xs text-stone-500">{item.video_provider || item.provider || "Video"}{item.duration_text ? ` · ${item.duration_text}` : ""}</p></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ring-1 ${tone(item.status || "draft")}`}>{prettyStatus(item.status || "draft")}</span></div><p className="mt-3 line-clamp-3 text-sm text-stone-500">{item.short_description || item.description || "No description."}</p><div className="mt-4 flex gap-2"><button type="button" onClick={() => { setEditingVideoId(item.id); setVideoFormState(videoForm(item)); setVideoModal(true); }} className="flex-1 rounded-xl border border-orange-900/10 px-3 py-2.5 text-xs font-black text-orange-900">Edit</button><button type="button" onClick={() => void deleteVideo(item)} className="rounded-xl border border-rose-100 p-2.5 text-rose-700"><Trash2 size={15} /></button></div></div></article>)}</div>}
               </section>
             )}
@@ -1399,14 +1474,68 @@ export default function TempleDashboard() {
 
             {tab === "leads" && (
               <section className="space-y-5">
-                <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-orange-700">Revenue & Enquiry Desk</p><h1 className="mt-1 text-2xl font-black">Temple enquiries & leads</h1><p className="mt-1 max-w-3xl text-sm text-stone-500">Read and manage leads for the assigned temple. Reassignment stays out of this UI because Lead/CRM owns assignment and credit consumption.</p></div><button type="button" onClick={() => void loadLeads()} className="rounded-xl border border-orange-900/10 bg-white px-4 py-2.5 text-xs font-black text-orange-900"><RefreshCw className="mr-1 inline" size={13} /> Refresh</button></div>
+                <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><p className="text-xs font-black uppercase tracking-[0.18em] text-orange-700">Revenue & Enquiry Desk</p><h1 className="mt-1 text-2xl font-black">Temple enquiries & leads</h1><p className="mt-1 max-w-3xl text-sm text-stone-500">View enquiries for the assigned temple. Lead assignment, credit consumption and lifecycle mutation remain owned by the central Lead/CRM workflow.</p></div><button type="button" onClick={() => void loadLeads()} className="rounded-xl border border-orange-900/10 bg-white px-4 py-2.5 text-xs font-black text-orange-900"><RefreshCw className="mr-1 inline" size={13} /> Refresh</button></div>
                 <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">{[["Total",enquiryStats.total],["New",enquiryStats.new_count],["Qualified",enquiryStats.qualified_count],["Contacted",enquiryStats.contacted_count],["Follow-up",enquiryStats.follow_up_count],["Converted",enquiryStats.converted_count]].map(([label,value]) => <div key={String(label)} className="rounded-2xl border border-orange-900/10 bg-white p-4"><p className="text-[11px] font-black uppercase tracking-wider text-stone-400">{label}</p><p className="mt-2 text-2xl font-black">{n(value)}</p></div>)}</div>
                 <div className="grid gap-5 lg:grid-cols-[1fr_390px]">
                   <div className="overflow-hidden rounded-3xl border border-orange-900/10 bg-white shadow-sm"><div className="flex flex-col gap-3 border-b border-orange-900/10 p-4 sm:flex-row"><div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={15} /><input className="w-full rounded-xl border border-orange-900/10 py-2.5 pl-9 pr-3 text-sm" placeholder="Search name, phone, email or city" value={searchLeads} onChange={(e) => setSearchLeads(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void loadLeads(); }} /></div><select className="rounded-xl border border-orange-900/10 px-3 py-2.5 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="">All statuses</option><option value="new">New</option><option value="qualified">Qualified</option><option value="contacted">Contacted</option><option value="follow_up">Follow-up</option><option value="converted">Converted</option><option value="closed">Closed</option><option value="lost">Lost</option></select></div>
                     {enquiries.length === 0 ? <div className="p-10 text-center"><MessageCircle className="mx-auto text-orange-600" size={30} /><h2 className="mt-3 font-black">No matching enquiries</h2><p className="mt-1 text-sm text-stone-500">Verified business enquiries for this temple will appear here.</p></div> : <div className="divide-y divide-orange-900/10">{enquiries.map((item) => <button key={item.id} type="button" onClick={() => void openLead(item)} className="flex w-full items-start gap-4 p-4 text-left hover:bg-orange-50/40"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-orange-50 text-orange-700"><User size={17} /></span><span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-2"><strong className="truncate text-sm">{item.lead_name || "Visitor enquiry"}</strong><span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ring-1 ${tone(item.lead_status || "new")}`}>{prettyStatus(item.lead_status || "new")}</span></span><span className="mt-1 block truncate text-xs text-stone-500">{item.enquiry_type || "Temple enquiry"} · {item.lead_phone || item.lead_email || "Verified contact available"}</span><span className="mt-1 block line-clamp-2 text-xs text-stone-500">{item.message || "No message supplied."}</span></span><ChevronDown className="-rotate-90 text-stone-300" size={16} /></button>)}</div>}
                   </div>
                   <div className="rounded-3xl border border-orange-900/10 bg-white p-5 shadow-sm">
-                    {!selectedLead ? <div className="py-12 text-center"><MessageCircle className="mx-auto text-stone-300" size={30} /><h2 className="mt-3 font-black">Select an enquiry</h2><p className="mt-1 text-xs leading-5 text-stone-500">Review verified contact details and update the lead lifecycle.</p></div> : <div className="space-y-5"><div className="flex items-start justify-between"><div><p className="text-xs font-black uppercase tracking-wider text-orange-700">Lead {selectedLead.lead_number || selectedLead.lead_id || "—"}</p><h2 className="mt-1 text-xl font-black">{selectedLead.lead_name || "Visitor enquiry"}</h2></div><button type="button" onClick={() => setSelectedLead(null)} className="rounded-xl p-2 text-stone-400"><X size={16} /></button></div><div className="space-y-2 text-sm text-stone-600"><p><strong>Phone:</strong> {selectedLead.lead_phone || "—"}</p><p><strong>Email:</strong> {selectedLead.lead_email || "—"}</p><p><strong>Preference:</strong> {selectedLead.contact_preference || "—"}</p></div><div className="rounded-2xl bg-stone-50 p-4"><p className="text-xs font-black uppercase tracking-wider text-stone-400">Message</p><p className="mt-2 text-sm leading-6">{selectedLead.message || "No message supplied."}</p></div><div><label className="mb-1.5 block text-xs font-bold">Lead status</label><select className={inputClass} disabled={!selectedLead.lead_id || savingLead} value={selectedLead.lead_status || "new"} onChange={(e) => void updateLeadStatus(e.target.value)}><option value="new">New</option><option value="qualified">Qualified</option><option value="assigned">Assigned</option><option value="contacted">Contacted</option><option value="follow_up">Follow-up</option><option value="converted">Converted</option><option value="closed">Closed</option><option value="lost">Lost</option></select></div><div><label className="mb-1.5 block text-xs font-bold">Internal note</label><textarea className={areaClass} rows={3} value={leadNote} onChange={(e) => setLeadNote(e.target.value)} /><button type="button" disabled={savingLead || !leadNote.trim() || !selectedLead.lead_id} onClick={() => void addLeadNote()} className="mt-2 rounded-xl bg-orange-50 px-4 py-2.5 text-xs font-black text-orange-900">Save Note</button></div><div className="rounded-2xl border border-orange-900/10 p-4"><p className="text-sm font-black">Schedule follow-up</p><input type="datetime-local" className={`${inputClass} mt-3`} value={followupDate} onChange={(e) => setFollowupDate(e.target.value)} /><textarea className={`${areaClass} mt-2`} rows={2} value={followupNote} onChange={(e) => setFollowupNote(e.target.value)} placeholder="Follow-up note" /><button type="button" disabled={savingLead || !selectedLead.lead_id} onClick={() => void addFollowup()} className="btn-saffron mt-2 rounded-xl px-4 py-2.5 text-xs font-black text-white">Schedule Follow-up</button></div></div>}
+                    {!selectedLead ? (
+                      <div className="py-12 text-center">
+                        <MessageCircle className="mx-auto text-stone-300" size={30} />
+                        <h2 className="mt-3 font-black">Select an enquiry</h2>
+                        <p className="mt-1 text-xs leading-5 text-stone-500">View the enquiry captured for this assigned temple.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-black uppercase tracking-wider text-orange-700">
+                              Enquiry {selectedLead.id || "—"}
+                            </p>
+                            <h2 className="mt-1 text-xl font-black">{selectedLead.lead_name || "Visitor enquiry"}</h2>
+                            <p className="mt-1 text-xs text-stone-500">{selectedLead.enquiry_type || "Temple enquiry"}</p>
+                          </div>
+                          <button type="button" onClick={() => setSelectedLead(null)} className="rounded-xl p-2 text-stone-400">
+                            <X size={16} />
+                          </button>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-2xl bg-stone-50 p-4">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-stone-400">Status</p>
+                            <p className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-black ring-1 ${tone(selectedLead.lead_status || "new")}`}>
+                              {prettyStatus(selectedLead.lead_status || "new")}
+                            </p>
+                          </div>
+                          <div className="rounded-2xl bg-stone-50 p-4">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-stone-400">Lead number</p>
+                            <p className="mt-2 text-sm font-black">{selectedLead.lead_number || "—"}</p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 text-sm text-stone-600">
+                          <p><strong>Phone:</strong> {selectedLead.lead_phone || "—"}</p>
+                          <p><strong>Email:</strong> {selectedLead.lead_email || "—"}</p>
+                          <p><strong>City:</strong> {selectedLead.city || "—"}</p>
+                          <p><strong>Contact preference:</strong> {selectedLead.contact_preference || "—"}</p>
+                          <p><strong>Lead temperature:</strong> {selectedLead.lead_temperature || "—"}</p>
+                        </div>
+
+                        <div className="rounded-2xl bg-stone-50 p-4">
+                          <p className="text-xs font-black uppercase tracking-wider text-stone-400">Message</p>
+                          <p className="mt-2 text-sm leading-6">{selectedLead.message || "No message supplied."}</p>
+                        </div>
+
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                          <p className="text-sm font-black text-amber-900">CRM ownership</p>
+                          <p className="mt-1 text-xs leading-5 text-amber-800/80">
+                            Temple Manager access is read-only for this enquiry workspace. Lead assignment, credit consumption, status changes, notes, follow-ups and conversion actions remain owned by the central Lead/CRM workflow.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </section>

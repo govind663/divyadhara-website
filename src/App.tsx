@@ -12,7 +12,6 @@ import {
 } from "react-router-dom";
 
 import Layout from "./components/Layout";
-
 import {
   AppProvider,
   useApp,
@@ -86,15 +85,13 @@ import {
 import Dashboard from "./pages/Dashboard";
 
 /* ============================================================================
- * PANDIT
+ * ROLE DASHBOARDS
  * ========================================================================== */
 
 import PanditDashboard from "./pages/PanditDashboard";
-
-/* ============================================================================
- * ADMIN
- * ========================================================================== */
-
+import TempleDashboard from "./pages/TempleDashboard";
+import AshramDashboard from "./pages/AshramDashboard";
+import SalesDashboard from "./pages/SalesDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 
 /* ============================================================================
@@ -104,54 +101,60 @@ import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";
 
 /* ============================================================================
- * SUPPORTED ROLES
+ * SUPPORTED ROUTE ROLES
+ *
+ * Keep this local to the router so App.tsx remains compatible even when the
+ * auth context is temporarily behind the backend role list.
  * ========================================================================== */
 
 type SupportedRole =
   | "visitor"
   | "pandit"
   | "temple_manager"
+  | "ashram_manager"
   | "sales"
   | "super_admin";
 
-/* ============================================================================
- * ROLE HELPERS
- * ========================================================================== */
+const SUPPORTED_ROLES: readonly SupportedRole[] = [
+  "visitor",
+  "pandit",
+  "temple_manager",
+  "ashram_manager",
+  "sales",
+  "super_admin",
+];
 
 function isSupportedRole(
   role: unknown,
 ): role is SupportedRole {
   return (
-    role === "visitor" ||
-    role === "pandit" ||
-    role === "temple_manager" ||
-    role === "sales" ||
-    role === "super_admin"
+    typeof role === "string" &&
+    SUPPORTED_ROLES.includes(role as SupportedRole)
   );
 }
 
 /* ============================================================================
- * SCROLL TO TOP
+ * SESSION LOADING UI
  * ========================================================================== */
 
-function ScrollToTop() {
-  const {
-    pathname,
-    search,
-  } = useLocation();
+function SessionLoader() {
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#fdfaf5] px-5">
+      <div className="text-center">
+        <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-orange-100">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-orange-300 border-t-orange-700" />
+        </div>
 
-  useEffect(() => {
-    window.scrollTo({
-      top: 0,
-      left: 0,
-      behavior: "auto",
-    });
-  }, [
-    pathname,
-    search,
-  ]);
+        <h1 className="mt-4 font-display text-xl font-semibold text-[#2a1a10]">
+          Verifying session
+        </h1>
 
-  return null;
+        <p className="mt-1 text-sm text-stone-500">
+          Please wait while DivyaDhara verifies your account.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 /* ============================================================================
@@ -159,7 +162,7 @@ function ScrollToTop() {
  * ========================================================================== */
 
 type RequireRoleProps = {
-  roles: SupportedRole[];
+  roles: readonly SupportedRole[];
   children: ReactNode;
 };
 
@@ -172,35 +175,9 @@ function RequireRole({
     isLoading,
   } = useApp();
 
-  /* --------------------------------------------------------------------------
-   * SESSION LOADING
-   * ------------------------------------------------------------------------ */
-
   if (isLoading) {
-    return (
-      <div className="grid min-h-screen place-items-center bg-[#fdfaf5] px-5">
-        <div className="text-center">
-          <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-orange-100">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-orange-300 border-t-orange-700" />
-          </div>
-
-          <h1 className="mt-4 font-display text-xl font-semibold text-[#2a1a10]">
-            Verifying session
-          </h1>
-
-          <p className="mt-1 text-sm text-stone-500">
-            Please wait while
-            DivyaDhara verifies your
-            account.
-          </p>
-        </div>
-      </div>
-    );
+    return <SessionLoader />;
   }
-
-  /* --------------------------------------------------------------------------
-   * NOT LOGGED IN
-   * ------------------------------------------------------------------------ */
 
   if (!user) {
     return (
@@ -211,11 +188,11 @@ function RequireRole({
     );
   }
 
-  /* --------------------------------------------------------------------------
-   * INVALID ROLE
-   * ------------------------------------------------------------------------ */
+  // Read the runtime value defensively so the router also supports a role that
+  // has been added on the backend before the shared context types are updated.
+  const role: unknown = user.role;
 
-  if (!isSupportedRole(user.role)) {
+  if (!isSupportedRole(role)) {
     return (
       <Navigate
         to="/"
@@ -224,11 +201,7 @@ function RequireRole({
     );
   }
 
-  /* --------------------------------------------------------------------------
-   * WRONG ROLE
-   * ------------------------------------------------------------------------ */
-
-  if (!roles.includes(user.role)) {
+  if (!roles.includes(role)) {
     return (
       <Navigate
         to="/"
@@ -236,10 +209,6 @@ function RequireRole({
       />
     );
   }
-
-  /* --------------------------------------------------------------------------
-   * AUTHORIZED
-   * ------------------------------------------------------------------------ */
 
   return <>{children}</>;
 }
@@ -255,23 +224,18 @@ function AppRoutes() {
 
       <Routes>
         {/* ====================================================================
-         * PUBLIC WEBSITE
+         * PUBLIC WEBSITE + AUTH + VISITOR ACCOUNT
          * ================================================================== */}
-
         <Route element={<Layout />}>
-          {/* ------------------------------------------------------------------
-           * HOME
-           * ---------------------------------------------------------------- */}
-
+          {/* Home */}
           <Route
             index
             element={<Home />}
           />
 
           {/* ------------------------------------------------------------------
-           * DHARMA — TEMPLES
+           * TEMPLES
            * ---------------------------------------------------------------- */}
-
           <Route
             path="temples"
             element={<Temples />}
@@ -293,9 +257,8 @@ function AppRoutes() {
           />
 
           {/* ------------------------------------------------------------------
-           * DHARMA — PUJA SERVICES
+           * PUJA SERVICES
            * ---------------------------------------------------------------- */}
-
           <Route
             path="services"
             element={<Services />}
@@ -317,9 +280,8 @@ function AppRoutes() {
           />
 
           {/* ------------------------------------------------------------------
-           * DHARMA — PANDITS
+           * PANDITS
            * ---------------------------------------------------------------- */}
-
           <Route
             path="pandits"
             element={<Pandits />}
@@ -329,15 +291,6 @@ function AppRoutes() {
             path="pandits/:slug"
             element={<PanditDetail />}
           />
-
-          {/* ------------------------------------------------------------------
-           * PUBLIC LEGACY PANDIT PROFILE
-           *
-           * IMPORTANT:
-           * /pandit/dashboard has its own exact protected route below.
-           * React Router ranks the static protected route above this dynamic
-           * :slug route, so "dashboard" will NOT be treated as a slug.
-           * ---------------------------------------------------------------- */}
 
           <Route
             path="pandit/:slug"
@@ -352,7 +305,6 @@ function AppRoutes() {
           {/* ------------------------------------------------------------------
            * ASHRAMS
            * ---------------------------------------------------------------- */}
-
           <Route
             path="ashrams"
             element={<AshramList />}
@@ -366,7 +318,6 @@ function AppRoutes() {
           {/* ------------------------------------------------------------------
            * COURSES
            * ---------------------------------------------------------------- */}
-
           <Route
             path="courses"
             element={<CourseList />}
@@ -378,9 +329,8 @@ function AppRoutes() {
           />
 
           {/* ------------------------------------------------------------------
-           * PANCHANG
+           * PANCHANG / ASTROLOGY
            * ---------------------------------------------------------------- */}
-
           <Route
             path="panchang"
             element={<PanchangPage />}
@@ -406,10 +356,6 @@ function AppRoutes() {
             element={<PanchangPage />}
           />
 
-          {/* ------------------------------------------------------------------
-           * ASTROLOGY ALIASES
-           * ---------------------------------------------------------------- */}
-
           <Route
             path="jyotish"
             element={
@@ -433,7 +379,6 @@ function AppRoutes() {
           {/* ------------------------------------------------------------------
            * EVENTS
            * ---------------------------------------------------------------- */}
-
           <Route
             path="events"
             element={<EventList />}
@@ -447,7 +392,6 @@ function AppRoutes() {
           {/* ------------------------------------------------------------------
            * SPIRITUAL PLACES
            * ---------------------------------------------------------------- */}
-
           <Route
             path="spiritual-places"
             element={<Places />}
@@ -471,7 +415,6 @@ function AppRoutes() {
           {/* ------------------------------------------------------------------
            * YATRA PACKAGES
            * ---------------------------------------------------------------- */}
-
           <Route
             path="packages"
             element={<Packages />}
@@ -500,7 +443,6 @@ function AppRoutes() {
           {/* ------------------------------------------------------------------
            * MEDIA
            * ---------------------------------------------------------------- */}
-
           <Route
             path="gallery"
             element={<Gallery />}
@@ -524,7 +466,6 @@ function AppRoutes() {
           {/* ------------------------------------------------------------------
            * INFORMATION
            * ---------------------------------------------------------------- */}
-
           <Route
             path="about"
             element={<About />}
@@ -538,7 +479,6 @@ function AppRoutes() {
           {/* ------------------------------------------------------------------
            * AUTHENTICATION
            * ---------------------------------------------------------------- */}
-
           <Route
             path="login"
             element={<Login />}
@@ -557,28 +497,84 @@ function AppRoutes() {
           {/* ------------------------------------------------------------------
            * VISITOR DASHBOARD
            * ---------------------------------------------------------------- */}
-
           <Route
             path="dashboard"
-            element={<Dashboard />}
+            element={
+              <RequireRole roles={["visitor"]}>
+                <Dashboard />
+              </RequireRole>
+            }
           />
         </Route>
 
         {/* ====================================================================
          * PANDIT DASHBOARD
-         *
-         * THIS IS THE IMPORTANT FIX
          * ================================================================== */}
-
         <Route
           path="pandit/dashboard"
           element={
-            <RequireRole
-              roles={[
-                "pandit",
-              ]}
-            >
+            <RequireRole roles={["pandit"]}>
               <PanditDashboard />
+            </RequireRole>
+          }
+        />
+
+        {/* ====================================================================
+         * TEMPLE MANAGER DASHBOARD
+         * Canonical: /temple/dashboard
+         * Legacy:    /temple-manager/dashboard
+         * ================================================================== */}
+        <Route
+          path="temple/dashboard"
+          element={
+            <RequireRole roles={["temple_manager"]}>
+              <TempleDashboard />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="temple-manager/dashboard"
+          element={
+            <Navigate
+              to="/temple/dashboard"
+              replace
+            />
+          }
+        />
+
+        {/* ====================================================================
+         * ASHRAM MANAGER DASHBOARD
+         * Canonical: /ashram/dashboard
+         * Legacy:    /ashram-manager/dashboard
+         * ================================================================== */}
+        <Route
+          path="ashram/dashboard"
+          element={
+            <RequireRole roles={["ashram_manager"]}>
+              <AshramDashboard />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="ashram-manager/dashboard"
+          element={
+            <Navigate
+              to="/ashram/dashboard"
+              replace
+            />
+          }
+        />
+
+        {/* ====================================================================
+         * SALES DASHBOARD
+         * ================================================================== */}
+        <Route
+          path="sales/dashboard"
+          element={
+            <RequireRole roles={["sales"]}>
+              <SalesDashboard />
             </RequireRole>
           }
         />
@@ -586,15 +582,10 @@ function AppRoutes() {
         {/* ====================================================================
          * SUPER ADMIN
          * ================================================================== */}
-
         <Route
           path="admin/dashboard"
           element={
-            <RequireRole
-              roles={[
-                "super_admin",
-              ]}
-            >
+            <RequireRole roles={["super_admin"]}>
               <AdminDashboard />
             </RequireRole>
           }
@@ -611,77 +602,8 @@ function AppRoutes() {
         />
 
         {/* ====================================================================
-         * TEMPLE MANAGER
-         * ================================================================== */}
-
-        <Route
-          path="temple-manager/dashboard"
-          element={
-            <RequireRole
-              roles={[
-                "temple_manager",
-              ]}
-            >
-              <div className="grid min-h-screen place-items-center bg-[#fdfaf5] px-5">
-                <div className="rounded-3xl border border-orange-900/10 bg-white p-8 text-center shadow-xl">
-                  <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-orange-100 text-orange-700">
-                    <span className="text-2xl">
-                      ॐ
-                    </span>
-                  </div>
-
-                  <h1 className="mt-5 text-2xl font-bold text-[#2a1a10]">
-                    Temple Manager Dashboard
-                  </h1>
-
-                  <p className="mt-2 text-sm text-stone-500">
-                    Temple Manager module is
-                    being prepared.
-                  </p>
-                </div>
-              </div>
-            </RequireRole>
-          }
-        />
-
-        {/* ====================================================================
-         * SALES
-         * ================================================================== */}
-
-        <Route
-          path="sales/dashboard"
-          element={
-            <RequireRole
-              roles={[
-                "sales",
-              ]}
-            >
-              <div className="grid min-h-screen place-items-center bg-[#fdfaf5] px-5">
-                <div className="rounded-3xl border border-orange-900/10 bg-white p-8 text-center shadow-xl">
-                  <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-orange-100 text-orange-700">
-                    <span className="text-2xl">
-                      ॐ
-                    </span>
-                  </div>
-
-                  <h1 className="mt-5 text-2xl font-bold text-[#2a1a10]">
-                    Sales Dashboard
-                  </h1>
-
-                  <p className="mt-2 text-sm text-stone-500">
-                    Sales module is being
-                    prepared.
-                  </p>
-                </div>
-              </div>
-            </RequireRole>
-          }
-        />
-
-        {/* ====================================================================
          * 404
          * ================================================================== */}
-
         <Route
           path="*"
           element={<NotFound />}
@@ -689,6 +611,27 @@ function AppRoutes() {
       </Routes>
     </>
   );
+}
+
+/* ============================================================================
+ * SCROLL TO TOP
+ * ========================================================================== */
+
+function ScrollToTop() {
+  const {
+    pathname,
+    search,
+  } = useLocation();
+
+  useEffect(() => {
+    window.scrollTo({
+      top: 0,
+      left: 0,
+      behavior: "auto",
+    });
+  }, [pathname, search]);
+
+  return null;
 }
 
 /* ============================================================================

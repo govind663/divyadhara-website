@@ -23,56 +23,15 @@ import analyticsRoutes from "./routes/analytics.ts";
 import salesRoutes from "./routes/sales.ts";
 import subscriptionRoutes from "./routes/subscriptions.ts";
 import paymentRoutes from "./routes/payments.ts";
-
-/*
-|--------------------------------------------------------------------------
-| Future / catalogue / operations routers
-|--------------------------------------------------------------------------
-|
-| These routers are intentionally kept as separate business modules.
-| Create them one-by-one before enabling their imports/mounts below:
-|
-|   ashrams.ts
-|   bookings.ts
-|   puja-services.ts
-|   yatra.ts
-|   events.ts
-|   courses.ts
-|   spiritual-places.ts
-|   seo.ts
-|
-| Business ownership remains:
-|   auth.ts            -> identity / RBAC / sessions
-|   admin.ts            -> Super Admin control plane
-|   pandit.ts           -> Pandit self-service
-|   temples.ts          -> Temple catalogue + manager operations
-|   leads.ts            -> public enquiry intake + lead lifecycle
-|   sales.ts            -> Sales CRM / pipeline / renewals
-|   subscriptions.ts    -> subscription lifecycle / entitlements
-|   payments.ts         -> Razorpay + financial ledger
-|   analytics.ts        -> visitor / session / conversion analytics
-|
-| The new modules are NOT imported dynamically. Once each route is created,
-| add its import and mount here. This avoids hiding missing modules at build
-| time and keeps the backend dependency graph explicit.
-|--------------------------------------------------------------------------
-*/
-
-/*
- * IMPORTANT:
- * The following imports are intentionally commented until each route file
- * is created. Uncomment one block at a time as the corresponding route is
- * implemented.
- *
- * import ashramRoutes from "./routes/ashrams.ts";
- * import bookingRoutes from "./routes/bookings.ts";
- * import pujaServiceRoutes from "./routes/puja-services.ts";
- * import yatraRoutes from "./routes/yatra.ts";
- * import eventRoutes from "./routes/events.ts";
- * import courseRoutes from "./routes/courses.ts";
- * import spiritualPlaceRoutes from "./routes/spiritual-places.ts";
- * import seoRoutes from "./routes/seo.ts";
- */
+import firebaseAuthRoutes from "./routes/firebase-auth.ts";
+import ashramRoutes from "./routes/ashrams.ts";
+import bookingRoutes from "./routes/bookings.ts";
+import pujaServiceRoutes from "./routes/puja-services.ts";
+import yatraRoutes from "./routes/yatra.ts";
+import eventRoutes from "./routes/events.ts";
+import courseRoutes from "./routes/courses.ts";
+import spiritualPlaceRoutes from "./routes/spiritual-places.ts";
+import seoRoutes from "./routes/seo.ts";
 
 /*
 |--------------------------------------------------------------------------
@@ -99,8 +58,10 @@ import paymentRoutes from "./routes/payments.ts";
 | 3. Lead creation/lifecycle belongs to leads.ts.
 | 4. Subscription lifecycle belongs to subscriptions.ts.
 | 5. Analytics never becomes the CRM lead system.
-| 6. New catalogue modules must not duplicate existing business ownership.
+| 6. Catalogue modules keep their own business ownership.
 | 7. Protected routers enforce their own RBAC in addition to authentication.
+| 8. Ashram Manager routes are mounted at /api/ashrams and enforce their own
+|    assignment-based access control in routes/ashrams.ts.
 |--------------------------------------------------------------------------
 */
 
@@ -492,14 +453,21 @@ if (!IS_PRODUCTION) {
 
 /*
 |--------------------------------------------------------------------------
-| Core route mounts
+| API route mounts
 |--------------------------------------------------------------------------
 |
-| Route order matters for payment webhooks only at middleware level. By the
-| time execution reaches this section, raw-body parsing and normal body parsing
-| have already been configured correctly.
+| All route modules present in server/routes are mounted here explicitly.
+| Keep this section synchronized with the module registry returned by /api
+| and /api/health so the diagnostics never advertise an inactive endpoint.
+|
+| Firebase phone verification is mounted below /api/auth/firebase because the
+| frontend uses /api/auth/firebase/verify. The normal auth router remains
+| mounted at /api/auth.
 |--------------------------------------------------------------------------
 */
+
+/* Firebase phone verification / identity bridge */
+app.use("/api/auth/firebase", firebaseAuthRoutes);
 
 /* Identity / account */
 app.use("/api/auth", authRoutes);
@@ -528,24 +496,29 @@ app.use("/api/subscriptions", subscriptionRoutes);
 /* Razorpay checkout / payment ledger / verification / refunds / webhooks */
 app.use("/api/payments", paymentRoutes);
 
-/*
-|--------------------------------------------------------------------------
-| Future route mounts — enable one module at a time
-|--------------------------------------------------------------------------
-|
-| Uncomment each pair only after its route file has been implemented and
-| TypeScript-checked against the canonical SQLite schema.
-|--------------------------------------------------------------------------
-*/
+/* Ashram catalogue + Ashram Manager operations */
+app.use("/api/ashrams", ashramRoutes);
 
-// app.use("/api/ashrams", ashramRoutes);
-// app.use("/api/bookings", bookingRoutes);
-// app.use("/api/puja-services", pujaServiceRoutes);
-// app.use("/api/yatra", yatraRoutes);
-// app.use("/api/events", eventRoutes);
-// app.use("/api/courses", courseRoutes);
-// app.use("/api/spiritual-places", spiritualPlaceRoutes);
-// app.use("/api/seo", seoRoutes);
+/* Booking lifecycle + booking operations */
+app.use("/api/bookings", bookingRoutes);
+
+/* Puja service catalogue + service operations */
+app.use("/api/puja-services", pujaServiceRoutes);
+
+/* Yatra / pilgrimage catalogue + operations */
+app.use("/api/yatra", yatraRoutes);
+
+/* Events catalogue + schedule / registration operations */
+app.use("/api/events", eventRoutes);
+
+/* Courses catalogue + enrollment / management operations */
+app.use("/api/courses", courseRoutes);
+
+/* Spiritual places catalogue + management operations */
+app.use("/api/spiritual-places", spiritualPlaceRoutes);
+
+/* SEO metadata / location pages / sitemap / robots operations */
+app.use("/api/seo", seoRoutes);
 
 /*
 |--------------------------------------------------------------------------
@@ -623,6 +596,14 @@ app.use(
 
     if (status === 400) {
       message = "Invalid request body.";
+    } else if (status === 401) {
+      message = "Authentication required.";
+    } else if (status === 403) {
+      message = "Access denied.";
+    } else if (status === 404) {
+      message = "Resource not found.";
+    } else if (status === 409) {
+      message = "Request conflicts with the current resource state.";
     } else if (status === 413) {
       message = "Request body is too large.";
     } else if (
@@ -713,6 +694,11 @@ function startServer(): void {
     return;
   }
 
+  if (httpServer) {
+    console.warn("Server is already running.");
+    return;
+  }
+
   httpServer = app.listen(PORT, HOST, () => {
     const stats = getDatabaseStats();
 
@@ -735,8 +721,15 @@ function startServer(): void {
     console.log(`Subscriptions   : http://localhost:${PORT}/api/subscriptions`);
     console.log(`Payments        : http://localhost:${PORT}/api/payments`);
     console.log(`Webhook         : http://localhost:${PORT}/api/payments/webhooks/razorpay`);
-    console.log("Future modules  : Ashram / Booking / Puja / Yatra / Events / Courses / Spiritual Places / SEO");
-    console.log("Database        : SQLite");
+    console.log(`Ashrams         : http://localhost:${PORT}/api/ashrams`);
+    console.log(`Bookings        : http://localhost:${PORT}/api/bookings`);
+    console.log(`Puja Services   : http://localhost:${PORT}/api/puja-services`);
+    console.log(`Yatra           : http://localhost:${PORT}/api/yatra`);
+    console.log(`Events          : http://localhost:${PORT}/api/events`);
+    console.log(`Courses         : http://localhost:${PORT}/api/courses`);
+    console.log(`Spiritual Places: http://localhost:${PORT}/api/spiritual-places`);
+    console.log(`SEO             : http://localhost:${PORT}/api/seo`);
+    console.log(`Database        : SQLite`);
     console.log(`Database OK     : ${stats.connected ? "true" : "false"}`);
     console.log(`Migration       : ${stats.migrationVersion ?? "unknown"}`);
     console.log(`Active Plans    : ${stats.activePlans ?? "unknown"}`);
