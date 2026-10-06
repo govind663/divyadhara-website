@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   User,
@@ -20,6 +21,14 @@ import {
   Globe2,
   AlertCircle,
   CheckCircle2,
+  Compass,
+  Sparkles,
+  Landmark,
+  BookOpen,
+  ArrowRight,
+  Clock3,
+  LifeBuoy,
+  Search,
 } from "lucide-react";
 import { TEMPLES, PLACES } from "../data/content";
 import { useSEO } from "../lib/seo";
@@ -34,13 +43,8 @@ const TABS = [
     i: <LayoutDashboard size={16} />,
   },
   {
-    id: "profile",
-    l: "Profile",
-    i: <User size={16} />,
-  },
-  {
     id: "bookings",
-    l: "My Bookings",
+    l: "My Enquiries & Bookings",
     i: <CalendarCheck size={16} />,
   },
   {
@@ -52,6 +56,11 @@ const TABS = [
     id: "notifications",
     l: "Notifications",
     i: <Bell size={16} />,
+  },
+  {
+    id: "profile",
+    l: "Profile",
+    i: <User size={16} />,
   },
   {
     id: "settings",
@@ -82,36 +91,29 @@ const DEFAULT_PREFS: NotificationPrefs = {
   festival: true,
 };
 
-/*
-|--------------------------------------------------------------------------
-| Notification Preferences
-|--------------------------------------------------------------------------
-*/
+/* -------------------------------------------------------------------------- */
+/* Notification Preferences                                                  */
+/* -------------------------------------------------------------------------- */
 
 function loadPrefs(): NotificationPrefs {
   try {
-    const raw = localStorage.getItem(
-      "dd_notification_prefs",
-    );
+    const raw = localStorage.getItem("dd_notification_prefs");
 
     if (!raw) {
       return DEFAULT_PREFS;
     }
 
-    const parsed =
-      JSON.parse(raw) as Partial<NotificationPrefs>;
+    const parsed = JSON.parse(raw) as Partial<NotificationPrefs>;
 
     return {
       whatsapp:
         typeof parsed.whatsapp === "boolean"
           ? parsed.whatsapp
           : DEFAULT_PREFS.whatsapp,
-
       email:
         typeof parsed.email === "boolean"
           ? parsed.email
           : DEFAULT_PREFS.email,
-
       festival:
         typeof parsed.festival === "boolean"
           ? parsed.festival
@@ -122,74 +124,80 @@ function loadPrefs(): NotificationPrefs {
   }
 }
 
-/*
-|--------------------------------------------------------------------------
-| Role Labels
-|--------------------------------------------------------------------------
-*/
+/* -------------------------------------------------------------------------- */
+/* Role / Status Helpers                                                      */
+/* -------------------------------------------------------------------------- */
 
 function roleLabel(role?: string): string {
   switch (role) {
     case "pandit":
       return "Pandit / Acharya";
-
     case "temple_manager":
       return "Temple Manager";
-
+    case "ashram_manager":
+      return "Ashram Manager";
     case "sales":
       return "Sales";
-
     case "super_admin":
       return "Super Admin";
-
     case "visitor":
     default:
       return "Visitor / Devotee";
   }
 }
 
-/*
-|--------------------------------------------------------------------------
-| Status Labels
-|--------------------------------------------------------------------------
-*/
+function roleDashboard(role?: string): string | null {
+  switch (role) {
+    case "pandit":
+      return "/pandit/dashboard";
+    case "temple_manager":
+      return "/temple/dashboard";
+    case "ashram_manager":
+      return "/ashram/dashboard";
+    case "sales":
+      return "/sales/dashboard";
+    case "super_admin":
+      return "/admin";
+    case "visitor":
+    default:
+      return null;
+  }
+}
 
 function statusLabel(status?: string): string {
   switch (status) {
     case "active":
       return "Active";
-
     case "pending":
       return "Pending Approval";
-
     case "suspended":
       return "Suspended";
-
     case "rejected":
       return "Rejected";
-
     case "blocked":
       return "Blocked";
-
     default:
       return "Active";
   }
 }
 
-/*
-|--------------------------------------------------------------------------
-| Dashboard
-|--------------------------------------------------------------------------
-*/
+function prettyStatus(value?: string): string {
+  if (!value) return "Pending";
+
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/* -------------------------------------------------------------------------- */
+/* Visitor Dashboard                                                          */
+/* -------------------------------------------------------------------------- */
 
 export default function Dashboard() {
   useSEO({
-    title:
-      "My Dashboard — Bookings, Saved Temples & Profile | DivyaDhara",
-
+    title: "My Dashboard — DivyaDhara | Pilgrimage, Puja & Spiritual Journey",
     description:
-      "Manage your DivyaDhara account: bookings, puja & yatra enquiries, saved temples, notifications and profile.",
-
+      "Manage your DivyaDhara profile, spiritual enquiries, bookings, saved temples, saved places and notifications in one personal dashboard.",
     path: "/dashboard",
   });
 
@@ -210,45 +218,20 @@ export default function Dashboard() {
 
   const nav = useNavigate();
 
-  /*
-   * ----------------------------------------------------------------------
-   * Local State
-   * ----------------------------------------------------------------------
-   */
-
-  const [tab, setTab] =
-    useState<TabId>("overview");
-
-  const [f, setF] =
-    useState<ProfileForm>({
-      name: user?.name ?? "",
-      phone: user?.phone ?? "",
-      city: user?.city ?? "",
-      state: user?.state ?? "",
-      country: user?.country ?? "India",
-    });
-
-  const [saved, setSaved] =
-    useState(false);
-
-  const [profileError, setProfileError] =
-    useState<string | null>(null);
-
-  const [prefs, setPrefs] =
-    useState<NotificationPrefs>(
-      loadPrefs,
-    );
-
-  /*
-   * ----------------------------------------------------------------------
-   * Sync form with authenticated backend user
-   * ----------------------------------------------------------------------
-   */
+  const [tab, setTab] = useState<TabId>("overview");
+  const [f, setF] = useState<ProfileForm>({
+    name: user?.name ?? "",
+    phone: user?.phone ?? "",
+    city: user?.city ?? "",
+    state: user?.state ?? "",
+    country: user?.country ?? "India",
+  });
+  const [saved, setSaved] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [prefs, setPrefs] = useState<NotificationPrefs>(loadPrefs);
 
   useEffect(() => {
-    if (!user) {
-      return;
-    }
+    if (!user) return;
 
     setF({
       name: user.name ?? "",
@@ -259,12 +242,6 @@ export default function Dashboard() {
     });
   }, [user]);
 
-  /*
-   * ----------------------------------------------------------------------
-   * Clear transient save state when changing tabs
-   * ----------------------------------------------------------------------
-   */
-
   useEffect(() => {
     if (tab !== "profile") {
       setSaved(false);
@@ -272,28 +249,13 @@ export default function Dashboard() {
     }
   }, [tab]);
 
-  /*
-   * ----------------------------------------------------------------------
-   * Persist local notification preferences
-   * ----------------------------------------------------------------------
-   */
-
   useEffect(() => {
     try {
-      localStorage.setItem(
-        "dd_notification_prefs",
-        JSON.stringify(prefs),
-      );
+      localStorage.setItem("dd_notification_prefs", JSON.stringify(prefs));
     } catch {
-      // Ignore localStorage failures.
+      // Local-only preference persistence should never block dashboard use.
     }
   }, [prefs]);
-
-  /*
-   * ----------------------------------------------------------------------
-   * Logout
-   * ----------------------------------------------------------------------
-   */
 
   const handleLogout = async () => {
     try {
@@ -303,15 +265,7 @@ export default function Dashboard() {
     }
   };
 
-  /*
-   * ----------------------------------------------------------------------
-   * Profile Save
-   * ----------------------------------------------------------------------
-   */
-
-  const handleProfileSave = async (
-    e: React.FormEvent<HTMLFormElement>,
-  ) => {
+  const handleProfileSave = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     setProfileError(null);
@@ -324,40 +278,26 @@ export default function Dashboard() {
     const country = f.country.trim();
 
     if (!name) {
-      setProfileError(
-        "Please enter your full name.",
-      );
+      setProfileError("Please enter your full name.");
       return;
     }
 
     if (name.length < 2) {
-      setProfileError(
-        "Full name must contain at least 2 characters.",
-      );
+      setProfileError("Full name must contain at least 2 characters.");
       return;
     }
 
     if (!phone) {
-      setProfileError(
-        "Please enter your mobile number.",
-      );
+      setProfileError("Please enter your mobile number.");
       return;
     }
 
     if (phone.length < 7) {
-      setProfileError(
-        "Please enter a valid mobile number.",
-      );
+      setProfileError("Please enter a valid mobile number.");
       return;
     }
 
     try {
-      /*
-       * Backend-persistent profile update.
-       *
-       * Email is intentionally not included.
-       * Email remains read-only in this profile screen.
-       */
       await updateProfile({
         name,
         phone,
@@ -380,34 +320,53 @@ export default function Dashboard() {
     }
   };
 
-  /*
-   * ----------------------------------------------------------------------
-   * Loading State
-   * ----------------------------------------------------------------------
-   */
+  const savedT = useMemo(
+    () => TEMPLES.filter((t) => savedTemples.includes(t.slug)),
+    [savedTemples],
+  );
+
+  const savedP = useMemo(
+    () => PLACES.filter((p) => savedPlaces.includes(p.slug)),
+    [savedPlaces],
+  );
+
+  const profileCompletion = useMemo(() => {
+    if (!user) return 0;
+
+    const fields = [
+      user.name,
+      user.email,
+      user.phone,
+      user.city,
+      user.state,
+      user.country,
+    ];
+
+    return Math.round(
+      (fields.filter((value) => Boolean(String(value ?? "").trim())).length /
+        fields.length) *
+        100,
+    );
+  }, [user]);
+
+  const firstName = user?.name.trim().split(/\s+/)[0] || "Devotee";
+  const avatarLetter = user?.name.trim().charAt(0).toUpperCase() || "D";
+
+  const input =
+    "w-full rounded-xl border border-orange-900/15 bg-white px-4 py-3 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-200";
+
+  const readonlyInput =
+    "w-full cursor-not-allowed rounded-xl border border-orange-900/10 bg-stone-50 px-4 py-3 text-sm text-stone-600 outline-none";
 
   if (isLoading && !user) {
     return (
       <div className="mx-auto flex min-h-[60vh] max-w-lg items-center justify-center px-4 py-20">
         <div className="text-center">
-          <div
-            className="
-              mx-auto grid h-14 w-14 place-items-center
-              rounded-2xl bg-orange-50 text-orange-700
-            "
-          >
-            <LoaderCircle
-              size={24}
-              className="animate-spin"
-            />
+          <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-orange-50 text-orange-700">
+            <LoaderCircle size={24} className="animate-spin" />
           </div>
 
-          <h1
-            className="
-              font-display mt-5 text-2xl
-              font-semibold text-stone-900
-            "
-          >
+          <h1 className="font-display mt-5 text-2xl font-semibold text-stone-900">
             Loading your dashboard
           </h1>
 
@@ -419,45 +378,31 @@ export default function Dashboard() {
     );
   }
 
-  /*
-   * ----------------------------------------------------------------------
-   * Logged Out State
-   * ----------------------------------------------------------------------
-   */
-
   if (!user) {
     return (
       <div className="mx-auto max-w-lg px-4 py-20 text-center">
-        <p className="font-sanskrit text-5xl text-orange-300">
-          ॐ
-        </p>
+        <p className="font-sanskrit text-5xl text-orange-300">ॐ</p>
 
         <h1 className="font-display mt-3 text-3xl font-semibold">
           Please login first
         </h1>
 
         <p className="mt-2 text-stone-500">
-          Your dashboard holds bookings, saved temples
-          and yatra enquiries.
+          Your personal dashboard keeps your spiritual enquiries, bookings,
+          saved places and account details together.
         </p>
 
         <div className="mt-6 flex justify-center gap-2">
           <Link
             to="/login"
-            className="
-              btn-saffron rounded-2xl px-6 py-3
-              text-sm font-bold text-white
-            "
+            className="btn-saffron rounded-2xl px-6 py-3 text-sm font-bold text-white"
           >
             Login
           </Link>
 
           <Link
             to="/register"
-            className="
-              rounded-2xl border border-orange-700/25
-              px-6 py-3 text-sm font-bold text-orange-900
-            "
+            className="rounded-2xl border border-orange-700/25 px-6 py-3 text-sm font-bold text-orange-900"
           >
             Register
           </Link>
@@ -466,188 +411,179 @@ export default function Dashboard() {
     );
   }
 
-  /*
-   * ----------------------------------------------------------------------
-   * Derived Data
-   * ----------------------------------------------------------------------
-   */
+  // This page is intentionally visitor-only. Other roles have their own
+  // dashboards and must not receive visitor dashboard UI/data.
+  const redirectPath = roleDashboard(user.role);
+  if (redirectPath) {
+    return <Navigate to={redirectPath} replace />;
+  }
 
-  const savedT = TEMPLES.filter((t) =>
-    savedTemples.includes(t.slug),
-  );
-
-  const savedP = PLACES.filter((p) =>
-    savedPlaces.includes(p.slug),
-  );
-
-  const input =
-    "w-full rounded-xl border border-orange-900/15 bg-white px-4 py-3 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-200";
-
-  const readonlyInput =
-    "w-full cursor-not-allowed rounded-xl border border-orange-900/10 bg-stone-50 px-4 py-3 text-sm text-stone-600 outline-none";
-
-  const firstName =
-    user.name.trim().split(/\s+/)[0] ||
-    "Devotee";
-
-  const avatarLetter =
-    user.name.trim().charAt(0).toUpperCase() ||
-    "D";
+  const statCards = [
+    {
+      l: "My Requests",
+      v: String(bookings.length),
+      d: "Enquiries & bookings",
+      icon: <CalendarCheck size={18} />,
+      action: () => setTab("bookings"),
+    },
+    {
+      l: "Saved Temples",
+      v: String(savedT.length),
+      d: "Your sacred wishlist",
+      icon: <Landmark size={18} />,
+      action: () => setTab("saved"),
+    },
+    {
+      l: "Saved Places",
+      v: String(savedP.length),
+      d: "Places to discover",
+      icon: <MapPin size={18} />,
+      action: () => setTab("saved"),
+    },
+    {
+      l: "Notifications",
+      v: String(notifications.length),
+      d: "Latest account updates",
+      icon: <Bell size={18} />,
+      action: () => setTab("notifications"),
+    },
+  ];
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-10 md:px-6 lg:px-8">
-      {/* =========================================================
-          DASHBOARD HEADER
-      ========================================================== */}
+    <div className="mx-auto max-w-7xl px-4 py-8 md:px-6 lg:px-8 lg:py-10">
+      {/* ================================================================ */}
+      {/* HEADER                                                           */}
+      {/* ================================================================ */}
 
       <Reveal
-        className="
-          flex flex-col items-start justify-between gap-4
-          rounded-[1.75rem]
-          bg-linear-to-br from-[#2a1a10] via-saffron-900 to-saffron-700
-          p-6 text-white
-          md:flex-row md:items-center md:p-8
-        "
+        className="relative overflow-hidden rounded-[2rem] bg-linear-to-br from-[#24160e] via-saffron-900 to-saffron-700 p-6 text-white shadow-[0_22px_60px_rgba(91,51,20,0.20)] md:p-8"
       >
-        <div className="flex min-w-0 items-center gap-4">
-          {user.avatar ? (
-            <img
-              src={user.avatar}
-              alt={`${user.name} profile`}
-              className="
-                h-16 w-16 shrink-0 rounded-2xl
-                object-cover ring-1 ring-white/25
-              "
-            />
-          ) : (
-            <span
-              className="
-                grid h-16 w-16 shrink-0 place-items-center
-                rounded-2xl bg-white/15
-                text-2xl font-bold text-amber-200
-                ring-1 ring-white/25
-              "
-              aria-hidden="true"
-            >
-              {avatarLetter}
-            </span>
-          )}
+        <div className="pointer-events-none absolute -right-16 -top-20 h-52 w-52 rounded-full bg-amber-300/10 blur-2xl" />
+        <div className="pointer-events-none absolute -bottom-28 left-1/2 h-56 w-56 -translate-x-1/2 rounded-full bg-orange-300/10 blur-3xl" />
 
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p
-                className="
-                  text-xs uppercase tracking-[0.25em]
-                  text-amber-300
-                "
+        <div className="relative flex flex-col items-start justify-between gap-6 lg:flex-row lg:items-center">
+          <div className="flex min-w-0 items-center gap-4">
+            {user.avatar ? (
+              <img
+                src={user.avatar}
+                alt={`${user.name} profile`}
+                className="h-16 w-16 shrink-0 rounded-2xl object-cover ring-1 ring-white/25 md:h-20 md:w-20"
+              />
+            ) : (
+              <span
+                className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-white/15 text-2xl font-bold text-amber-200 ring-1 ring-white/25 md:h-20 md:w-20"
+                aria-hidden="true"
               >
-                Jai Shri Ram · Dashboard
-              </p>
+                {avatarLetter}
+              </span>
+            )}
 
-              {user.status === "active" && (
-                <span
-                  className="
-                    inline-flex items-center gap-1
-                    rounded-full bg-emerald-400/15
-                    px-2.5 py-1
-                    text-[10px] font-bold uppercase tracking-wider
-                    text-emerald-200
-                    ring-1 ring-emerald-300/20
-                  "
-                >
-                  <ShieldCheck size={11} />
-                  Active
-                </span>
-              )}
-            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-amber-300 sm:text-xs">
+                  Jai Shri Ram · My DivyaDhara
+                </p>
 
-            <h1
-              className="
-                font-display mt-1 truncate
-                text-2xl font-semibold
-                md:text-3xl
-              "
-            >
-              Namaste, {firstName} 🙏
-            </h1>
-
-            <div
-              className="
-                mt-1 flex flex-wrap items-center
-                gap-x-2 gap-y-1
-                text-sm text-orange-100/80
-              "
-            >
-              <span>{user.email}</span>
-
-              {user.city && (
-                <>
-                  <span aria-hidden="true">
-                    ·
+                {user.status === "active" && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-200 ring-1 ring-emerald-300/20">
+                    <ShieldCheck size={11} />
+                    Active
                   </span>
+                )}
+              </div>
 
-                  <span>{user.city}</span>
-                </>
-              )}
+              <h1 className="font-display mt-1 truncate text-2xl font-semibold md:text-3xl">
+                Namaste, {firstName} 🙏
+              </h1>
 
-              <span aria-hidden="true">
-                ·
-              </span>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-orange-100/80">
+                <span className="truncate">{user.email}</span>
 
-              <span>
-                {roleLabel(user.role)}
-              </span>
+                {user.city && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span>{user.city}</span>
+                  </>
+                )}
+
+                <span aria-hidden="true">·</span>
+                <span>{roleLabel(user.role)}</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="flex w-full gap-2 sm:w-auto">
-          <a
-            href={`https://wa.me/919820809883?text=${encodeURIComponent(
-              "Namaste! I need help with my DivyaDhara account and bookings.",
-            )}`}
-            target="_blank"
-            rel="noreferrer"
-            className="
-              flex flex-1 items-center justify-center gap-1.5
-              rounded-xl bg-[#25D366] px-4 py-2.5
-              text-[13px] font-bold text-white
-              sm:flex-none
-            "
-          >
-            <MessageCircle size={15} />
-            Help
-          </a>
+          <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+            <Link
+              to="/services"
+              className="flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-[13px] font-bold text-orange-900 shadow-sm transition hover:-translate-y-0.5 hover:bg-orange-50"
+            >
+              <Sparkles size={15} />
+              Explore Sevas
+            </Link>
 
-          <button
-            type="button"
-            onClick={() => void handleLogout()}
-            className="
-              flex flex-1 items-center justify-center gap-1.5
-              rounded-xl border border-white/25 bg-white/10
-              px-4 py-2.5 text-[13px] font-bold
-              hover:bg-white/15
-              sm:flex-none
-            "
-          >
-            <LogOut size={15} />
-            Logout
-          </button>
+            <a
+              href={`https://wa.me/919820809883?text=${encodeURIComponent(
+                "Namaste! I need help with my DivyaDhara account, enquiry or booking.",
+              )}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-center gap-2 rounded-xl bg-[#25D366] px-4 py-3 text-[13px] font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:brightness-95"
+            >
+              <MessageCircle size={15} />
+              Help
+            </a>
+
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              className="flex items-center justify-center gap-2 rounded-xl border border-white/25 bg-white/10 px-4 py-3 text-[13px] font-bold text-white transition hover:bg-white/15"
+            >
+              <LogOut size={15} />
+              Logout
+            </button>
+          </div>
         </div>
       </Reveal>
 
-      {/* =========================================================
-          MAIN DASHBOARD
-      ========================================================== */}
+      {/* ================================================================ */}
+      {/* QUICK STATS                                                      */}
+      {/* ================================================================ */}
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[240px_1fr]">
-        {/* =======================================================
-            TABS
-        ======================================================== */}
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {statCards.map((card) => (
+          <button
+            key={card.l}
+            type="button"
+            onClick={card.action}
+            className="group rounded-3xl border border-orange-900/10 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-orange-900/20 hover:shadow-md"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-orange-50 text-orange-700 ring-1 ring-orange-100">
+                {card.icon}
+              </span>
+              <ArrowRight
+                size={16}
+                className="mt-1 text-stone-300 transition group-hover:translate-x-1 group-hover:text-orange-600"
+              />
+            </div>
 
+            <p className="mt-4 font-display text-3xl font-bold text-orange-800">
+              {card.v}
+            </p>
+            <p className="mt-0.5 text-sm font-bold text-stone-800">{card.l}</p>
+            <p className="mt-0.5 text-xs text-stone-500">{card.d}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* ================================================================ */}
+      {/* MAIN                                                              */}
+      {/* ================================================================ */}
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-[250px_1fr]">
         <nav
-          className="flex gap-2 overflow-x-auto lg:flex-col"
-          aria-label="Dashboard sections"
+          className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible"
+          aria-label="Visitor dashboard sections"
         >
           {TABS.map((t) => (
             <button
@@ -659,397 +595,719 @@ export default function Dashboard() {
                 "flex shrink-0 items-center gap-2.5 rounded-2xl px-4 py-3 text-sm font-bold transition",
                 tab === t.id
                   ? "bg-[#2a1a10] text-amber-200 shadow"
-                  : "bg-white text-stone-600 ring-1 ring-orange-900/10 hover:bg-orange-50",
+                  : "bg-white text-stone-600 ring-1 ring-orange-900/10 hover:bg-orange-50 hover:text-orange-800",
               )}
             >
               {t.i}
-
               <span>{t.l}</span>
 
-              {t.id === "bookings" &&
-                bookings.length > 0 && (
-                  <span className="ml-auto rounded-full bg-orange-600 px-2 py-0.5 text-[11px] text-white">
-                    {bookings.length}
-                  </span>
-                )}
+              {t.id === "bookings" && bookings.length > 0 && (
+                <span className="ml-auto rounded-full bg-orange-600 px-2 py-0.5 text-[11px] text-white">
+                  {bookings.length}
+                </span>
+              )}
 
-              {t.id === "notifications" &&
-                notifications.length > 0 && (
-                  <span className="ml-auto rounded-full bg-orange-600 px-2 py-0.5 text-[11px] text-white">
-                    {notifications.length}
-                  </span>
-                )}
+              {t.id === "notifications" && notifications.length > 0 && (
+                <span className="ml-auto rounded-full bg-orange-600 px-2 py-0.5 text-[11px] text-white">
+                  {notifications.length}
+                </span>
+              )}
             </button>
           ))}
+
+          <div className="mt-1 hidden rounded-3xl bg-amber-50 p-5 ring-1 ring-amber-200 lg:block">
+            <div className="flex items-center gap-2 text-orange-800">
+              <Compass size={18} />
+              <p className="text-sm font-bold">Continue your journey</p>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-stone-600">
+              Discover temples, puja services, pandits and spiritual places
+              through DivyaDhara.
+            </p>
+            <Link
+              to="/temples"
+              className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-orange-800 underline underline-offset-2"
+            >
+              Discover Temples <ArrowRight size={13} />
+            </Link>
+          </div>
         </nav>
 
-        {/* =======================================================
-            CONTENT
-        ======================================================== */}
-
         <div className="min-w-0">
-          {/* =====================================================
-              OVERVIEW
-          ====================================================== */}
+          {/* ============================================================ */}
+          {/* OVERVIEW                                                      */}
+          {/* ============================================================ */}
 
           {tab === "overview" && (
-            <div className="grid gap-4 sm:grid-cols-3">
-              {[
-                {
-                  l: "Total Enquiries",
-                  v: String(bookings.length),
-                  d: "Puja · Yatra · Events",
-                },
-                {
-                  l: "Saved Temples",
-                  v: String(savedT.length),
-                  d: "Your sacred wishlist",
-                },
-                {
-                  l: "Saved Places",
-                  v: String(savedP.length),
-                  d: "Yatra dreams",
-                },
-              ].map((c) => (
-                <div
-                  key={c.l}
-                  className="
-                    rounded-3xl border border-orange-900/10
-                    bg-white p-6 text-center sacred-border
-                  "
-                >
-                  <p
-                    className="
-                      font-display text-4xl
-                      font-bold text-orange-800
-                    "
-                  >
-                    {c.v}
-                  </p>
+            <div className="space-y-5">
+              <div className="grid gap-4 xl:grid-cols-[1.4fr_0.9fr]">
+                <div className="rounded-[2rem] border border-orange-900/10 bg-white p-6 shadow-sm md:p-7">
+                  <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                    <div>
+                      <div className="inline-flex items-center gap-2 rounded-full bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-800 ring-1 ring-orange-100">
+                        <Sparkles size={13} />
+                        Your Spiritual Journey
+                      </div>
+                      <h2 className="font-display mt-3 text-2xl font-semibold text-stone-900">
+                        From discovery to darshan, all in one place.
+                      </h2>
+                      <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-500">
+                        Explore India’s temples, puja traditions, pandits,
+                        ashrams and pilgrimage experiences. Your enquiries,
+                        bookings and saved places stay connected to your
+                        account.
+                      </p>
+                    </div>
 
-                  <p className="mt-1 text-sm font-bold text-stone-700">
-                    {c.l}
-                  </p>
+                    <div className="shrink-0 rounded-2xl bg-stone-50 px-4 py-3 text-center ring-1 ring-stone-100">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                        Profile
+                      </p>
+                      <p className="mt-1 text-2xl font-bold text-orange-800">
+                        {profileCompletion}%
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setTab("profile")}
+                        className="mt-0.5 text-[11px] font-bold text-orange-700 underline underline-offset-2"
+                      >
+                        Complete profile
+                      </button>
+                    </div>
+                  </div>
 
-                  <p className="text-xs text-stone-500">
-                    {c.d}
-                  </p>
+                  <div className="mt-6 h-2 overflow-hidden rounded-full bg-stone-100">
+                    <div
+                      className="h-full rounded-full bg-linear-to-r from-orange-500 via-amber-500 to-orange-700 transition-all"
+                      style={{ width: `${profileCompletion}%` }}
+                    />
+                  </div>
+
+                  <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                    <Link
+                      to="/pandits"
+                      className="group rounded-2xl bg-stone-50 p-4 ring-1 ring-stone-100 transition hover:bg-orange-50 hover:ring-orange-100"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-orange-700 shadow-sm ring-1 ring-orange-100">
+                          <User size={16} />
+                        </span>
+                        <ArrowRight
+                          size={15}
+                          className="text-stone-300 transition group-hover:translate-x-1 group-hover:text-orange-700"
+                        />
+                      </div>
+                      <p className="mt-3 text-sm font-bold text-stone-800">
+                        Find a Pandit
+                      </p>
+                      <p className="mt-1 text-xs text-stone-500">
+                        Explore pandits and enquire about services.
+                      </p>
+                    </Link>
+
+                    <Link
+                      to="/temples"
+                      className="group rounded-2xl bg-stone-50 p-4 ring-1 ring-stone-100 transition hover:bg-orange-50 hover:ring-orange-100"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-orange-700 shadow-sm ring-1 ring-orange-100">
+                          <Landmark size={16} />
+                        </span>
+                        <ArrowRight
+                          size={15}
+                          className="text-stone-300 transition group-hover:translate-x-1 group-hover:text-orange-700"
+                        />
+                      </div>
+                      <p className="mt-3 text-sm font-bold text-stone-800">
+                        Temple Darshan
+                      </p>
+                      <p className="mt-1 text-xs text-stone-500">
+                        Discover temples, traditions and sacred places.
+                      </p>
+                    </Link>
+
+                    <Link
+                      to="/ashrams"
+                      className="group rounded-2xl bg-stone-50 p-4 ring-1 ring-stone-100 transition hover:bg-orange-50 hover:ring-orange-100"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-orange-700 shadow-sm ring-1 ring-orange-100">
+                          <Compass size={16} />
+                        </span>
+                        <ArrowRight
+                          size={15}
+                          className="text-stone-300 transition group-hover:translate-x-1 group-hover:text-orange-700"
+                        />
+                      </div>
+                      <p className="mt-3 text-sm font-bold text-stone-800">
+                        Explore Ashrams
+                      </p>
+                      <p className="mt-1 text-xs text-stone-500">
+                        Discover spiritual communities and programs.
+                      </p>
+                    </Link>
+
+                    <Link
+                      to="/yatra"
+                      className="group rounded-2xl bg-stone-50 p-4 ring-1 ring-stone-100 transition hover:bg-orange-50 hover:ring-orange-100"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-orange-700 shadow-sm ring-1 ring-orange-100">
+                          <MapPin size={16} />
+                        </span>
+                        <ArrowRight
+                          size={15}
+                          className="text-stone-300 transition group-hover:translate-x-1 group-hover:text-orange-700"
+                        />
+                      </div>
+                      <p className="mt-3 text-sm font-bold text-stone-800">
+                        Plan a Tirth Yatra
+                      </p>
+                      <p className="mt-1 text-xs text-stone-500">
+                        Explore pilgrimage and spiritual travel options.
+                      </p>
+                    </Link>
+                  </div>
                 </div>
-              ))}
 
-              <div
-                className="
-                  rounded-3xl bg-amber-50 p-6
-                  ring-1 ring-amber-200
-                  sm:col-span-3
-                "
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h3 className="font-display text-lg font-semibold">
-                      Recent activity
-                    </h3>
-
-                    <p className="mt-0.5 text-xs text-stone-500">
-                      Latest puja, pandit, yatra and event enquiries
+                <div className="rounded-[2rem] bg-linear-to-br from-amber-50 to-orange-50 p-6 ring-1 ring-amber-200 md:p-7">
+                  <div className="flex items-center gap-2 text-orange-800">
+                    <BookOpen size={18} />
+                    <p className="text-sm font-bold uppercase tracking-wider">
+                      DivyaDhara Picks
                     </p>
                   </div>
 
-                  <Link
-                    to="/services"
-                    className="
-                      text-xs font-bold text-orange-700
-                      underline underline-offset-2
-                    "
+                  <h3 className="font-display mt-3 text-xl font-semibold text-stone-900">
+                    Begin with what calls you.
+                  </h3>
+
+                  <div className="mt-5 space-y-2.5">
+                    <Link
+                      to="/panchang"
+                      className="group flex items-center gap-3 rounded-2xl bg-white/85 p-3.5 ring-1 ring-orange-100 transition hover:bg-white"
+                    >
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-orange-50 text-orange-700">
+                        <Clock3 size={16} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-bold text-stone-800">
+                          Daily Panchang
+                        </span>
+                        <span className="block text-xs text-stone-500">
+                          Tithi, muhurat and spiritual calendar.
+                        </span>
+                      </span>
+                      <ArrowRight
+                        size={14}
+                        className="text-stone-300 transition group-hover:translate-x-1 group-hover:text-orange-700"
+                      />
+                    </Link>
+
+                    <Link
+                      to="/courses"
+                      className="group flex items-center gap-3 rounded-2xl bg-white/85 p-3.5 ring-1 ring-orange-100 transition hover:bg-white"
+                    >
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-orange-50 text-orange-700">
+                        <BookOpen size={16} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-bold text-stone-800">
+                          Spiritual Learning
+                        </span>
+                        <span className="block text-xs text-stone-500">
+                          Courses and practical spiritual wisdom.
+                        </span>
+                      </span>
+                      <ArrowRight
+                        size={14}
+                        className="text-stone-300 transition group-hover:translate-x-1 group-hover:text-orange-700"
+                      />
+                    </Link>
+
+                    <Link
+                      to="/services"
+                      className="group flex items-center gap-3 rounded-2xl bg-white/85 p-3.5 ring-1 ring-orange-100 transition hover:bg-white"
+                    >
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-orange-50 text-orange-700">
+                        <Sparkles size={16} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-bold text-stone-800">
+                          Puja & Seva
+                        </span>
+                        <span className="block text-xs text-stone-500">
+                          Find a service and start an enquiry.
+                        </span>
+                      </span>
+                      <ArrowRight
+                        size={14}
+                        className="text-stone-300 transition group-hover:translate-x-1 group-hover:text-orange-700"
+                      />
+                    </Link>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-[2rem] border border-orange-900/10 bg-white p-6 shadow-sm md:p-7">
+                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Clock3 size={18} className="text-orange-700" />
+                      <h3 className="font-display text-xl font-semibold">
+                        Recent activity
+                      </h3>
+                    </div>
+                    <p className="mt-1 text-sm text-stone-500">
+                      Your latest requests, bookings and service activity.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setTab("bookings")}
+                    className="inline-flex w-fit items-center gap-1.5 text-xs font-bold text-orange-700 underline underline-offset-2"
                   >
-                    Explore Sevas
-                  </Link>
+                    View all <ArrowRight size={13} />
+                  </button>
                 </div>
 
                 {bookings.length === 0 ? (
-                  <p className="mt-4 text-sm text-stone-500">
-                    No enquiries yet —{" "}
-                    <Link
-                      to="/services"
-                      className="font-bold text-orange-700 underline"
-                    >
-                      book your first puja
-                    </Link>
-                    .
-                  </p>
-                ) : (
-                  <ul className="mt-3 space-y-2">
-                    {bookings
-                      .slice(0, 3)
-                      .map((b) => (
-                        <li
-                          key={b.id}
-                          className="
-                            flex flex-wrap items-center
-                            justify-between gap-2
-                            rounded-xl bg-white
-                            px-4 py-3 text-sm
-                            ring-1 ring-orange-900/5
-                          "
+                  <div className="mt-5 rounded-2xl bg-stone-50 p-5 ring-1 ring-stone-100">
+                    <div className="flex items-start gap-3">
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-orange-50 text-orange-700">
+                        <Search size={17} />
+                      </span>
+                      <div>
+                        <p className="text-sm font-bold text-stone-800">
+                          Your journey starts here.
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-stone-500">
+                          Explore a temple, puja service, pandit, ashram or
+                          yatra and send an enquiry when you are ready.
+                        </p>
+                        <Link
+                          to="/services"
+                          className="mt-3 inline-flex items-center gap-1 rounded-xl bg-orange-700 px-3.5 py-2 text-xs font-bold text-white"
                         >
-                          <span className="min-w-0">
-                            <strong className="text-stone-800">
-                              {b.title}
-                            </strong>{" "}
-                            <span className="text-stone-400">
-                              · {b.id}
-                            </span>
-                          </span>
+                          Explore Sevas <ArrowRight size={13} />
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <ul className="mt-5 space-y-2.5">
+                    {bookings.slice(0, 4).map((b) => (
+                      <li
+                        key={b.id}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-stone-50 px-4 py-3.5 ring-1 ring-stone-100"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-orange-700">
+                            {b.kind} · {b.id}
+                          </p>
+                          <p className="mt-0.5 truncate text-sm font-bold text-stone-800">
+                            {b.title}
+                          </p>
+                          <p className="mt-1 flex flex-wrap items-center gap-1 text-xs text-stone-500">
+                            <span>{b.date}</span>
+                            <span aria-hidden="true">·</span>
+                            <span>{b.detail}</span>
+                          </p>
+                        </div>
 
-                          <span
-                            className="
-                              rounded-full bg-emerald-100
-                              px-2.5 py-0.5
-                              text-xs font-bold
-                              text-emerald-900
-                            "
-                          >
-                            {b.status}
-                          </span>
-                        </li>
-                      ))}
+                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-900">
+                          {prettyStatus(b.status)}
+                        </span>
+                      </li>
+                    ))}
                   </ul>
                 )}
-              </div>
-
-              <div
-                className="
-                  rounded-3xl border border-orange-900/10
-                  bg-white p-6
-                  sm:col-span-3
-                "
-              >
-                <div className="flex items-center gap-2">
-                  <ShieldCheck
-                    size={18}
-                    className="text-orange-700"
-                  />
-
-                  <div>
-                    <h3 className="font-display text-lg font-semibold">
-                      Account
-                    </h3>
-
-                    <p className="text-xs text-stone-500">
-                      Your DivyaDhara account status
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl bg-stone-50 p-4">
-                    <p
-                      className="
-                        text-[10px] font-bold
-                        uppercase tracking-wider
-                        text-stone-400
-                      "
-                    >
-                      Role
-                    </p>
-
-                    <p className="mt-1 text-sm font-bold text-stone-800">
-                      {roleLabel(user.role)}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl bg-stone-50 p-4">
-                    <p
-                      className="
-                        text-[10px] font-bold
-                        uppercase tracking-wider
-                        text-stone-400
-                      "
-                    >
-                      Status
-                    </p>
-
-                    <p className="mt-1 text-sm font-bold text-stone-800">
-                      {statusLabel(user.status)}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl bg-stone-50 p-4">
-                    <p
-                      className="
-                        text-[10px] font-bold
-                        uppercase tracking-wider
-                        text-stone-400
-                      "
-                    >
-                      Location
-                    </p>
-
-                    <p
-                      className="
-                        mt-1 flex items-center gap-1
-                        text-sm font-bold text-stone-800
-                      "
-                    >
-                      <MapPin
-                        size={13}
-                        className="text-orange-700"
-                      />
-
-                      {user.city || "India"}
-                    </p>
-                  </div>
-                </div>
               </div>
             </div>
           )}
 
-          {/* =====================================================
-              PROFILE
-          ====================================================== */}
+          {/* ============================================================ */}
+          {/* BOOKINGS / ENQUIRIES                                          */}
+          {/* ============================================================ */}
+
+          {tab === "bookings" && (
+            <div className="space-y-4">
+              <div className="rounded-[2rem] border border-orange-900/10 bg-white p-6 shadow-sm md:p-8">
+                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                  <div>
+                    <h2 className="font-display text-2xl font-semibold">
+                      My Enquiries & Bookings
+                    </h2>
+                    <p className="mt-1 text-sm text-stone-500">
+                      Track your puja, pandit, yatra, course and event requests.
+                    </p>
+                  </div>
+
+                  {bookings.length > 0 && (
+                    <span className="w-fit rounded-full bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-800 ring-1 ring-orange-100">
+                      {bookings.length} request{bookings.length === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
+
+                {bookings.length === 0 ? (
+                  <div className="mt-5">
+                    <Empty
+                      title="No requests yet"
+                      sub="Your puja, pandit, yatra, course and event enquiries will appear here once you submit them."
+                      action={
+                        <div className="flex flex-wrap justify-center gap-2">
+                          <Link
+                            to="/services"
+                            className="btn-saffron rounded-xl px-5 py-3 text-sm font-bold text-white"
+                          >
+                            Explore Sevas
+                          </Link>
+                          <Link
+                            to="/pandits"
+                            className="rounded-xl border border-orange-200 px-5 py-3 text-sm font-bold text-orange-900"
+                          >
+                            Find a Pandit
+                          </Link>
+                        </div>
+                      }
+                    />
+                  </div>
+                ) : (
+                  <div className="mt-5 space-y-3">
+                    {bookings.map((b) => (
+                      <div
+                        key={b.id}
+                        className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-orange-900/10 bg-stone-50 p-4"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-bold uppercase tracking-widest text-orange-700">
+                            {b.kind} · {b.id}
+                          </p>
+                          <p className="mt-1 text-sm font-bold text-stone-800">
+                            {b.title}
+                          </p>
+                          <p className="mt-1 flex flex-wrap items-center gap-1 text-[13px] text-stone-500">
+                            <span>{b.date}</span>
+                            <span aria-hidden="true">·</span>
+                            <span>{b.detail}</span>
+                          </p>
+                        </div>
+
+                        <span className="rounded-full bg-emerald-100 px-3 py-1.5 text-xs font-bold text-emerald-900">
+                          {prettyStatus(b.status)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Link
+                  to="/services"
+                  className="group rounded-2xl bg-orange-50 p-4 text-sm font-bold text-orange-900 ring-1 ring-orange-200 transition hover:bg-orange-100"
+                >
+                  <span className="flex items-center justify-between">
+                    + New Puja Enquiry
+                    <ArrowRight size={14} className="transition group-hover:translate-x-1" />
+                  </span>
+                </Link>
+
+                <Link
+                  to="/yatra"
+                  className="group rounded-2xl bg-orange-50 p-4 text-sm font-bold text-orange-900 ring-1 ring-orange-200 transition hover:bg-orange-100"
+                >
+                  <span className="flex items-center justify-between">
+                    + New Yatra Enquiry
+                    <ArrowRight size={14} className="transition group-hover:translate-x-1" />
+                  </span>
+                </Link>
+
+                <Link
+                  to="/pandits"
+                  className="group rounded-2xl bg-orange-50 p-4 text-sm font-bold text-orange-900 ring-1 ring-orange-200 transition hover:bg-orange-100"
+                >
+                  <span className="flex items-center justify-between">
+                    + Pandit Request
+                    <ArrowRight size={14} className="transition group-hover:translate-x-1" />
+                  </span>
+                </Link>
+
+                <Link
+                  to="/courses"
+                  className="group rounded-2xl bg-orange-50 p-4 text-sm font-bold text-orange-900 ring-1 ring-orange-200 transition hover:bg-orange-100"
+                >
+                  <span className="flex items-center justify-between">
+                    + Course Registration
+                    <ArrowRight size={14} className="transition group-hover:translate-x-1" />
+                  </span>
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================ */}
+          {/* SAVED                                                         */}
+          {/* ============================================================ */}
+
+          {tab === "saved" && (
+            <div className="rounded-[2rem] border border-orange-900/10 bg-white p-6 shadow-sm md:p-8">
+              <div>
+                <h2 className="font-display text-2xl font-semibold">
+                  Saved Temples & Spiritual Places
+                </h2>
+                <p className="mt-1 text-sm text-stone-500">
+                  Keep the places that inspire your next journey close at hand.
+                </p>
+              </div>
+
+              {savedT.length === 0 && savedP.length === 0 ? (
+                <div className="mt-5">
+                  <Empty
+                    title="Nothing saved yet"
+                    sub="Tap the heart on a temple or spiritual place to build your personal wishlist."
+                    action={
+                      <div className="flex flex-wrap justify-center gap-2">
+                        <Link
+                          to="/temples"
+                          className="btn-saffron rounded-xl px-5 py-3 text-sm font-bold text-white"
+                        >
+                          Discover Temples
+                        </Link>
+                        <Link
+                          to="/ashrams"
+                          className="rounded-xl border border-orange-200 px-5 py-3 text-sm font-bold text-orange-900"
+                        >
+                          Explore Ashrams
+                        </Link>
+                      </div>
+                    }
+                  />
+                </div>
+              ) : (
+                <div className="mt-6 space-y-7">
+                  {savedT.length > 0 && (
+                    <section>
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <h3 className="text-sm font-bold uppercase tracking-wider text-stone-500">
+                          Saved Temples
+                        </h3>
+                        <Link
+                          to="/temples"
+                          className="text-xs font-bold text-orange-700"
+                        >
+                          Discover more
+                        </Link>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {savedT.map((t) => (
+                          <div
+                            key={t.slug}
+                            className="flex items-center gap-3 rounded-2xl bg-stone-50 p-3 ring-1 ring-orange-900/10"
+                          >
+                            <img
+                              src={t.image}
+                              alt={t.name}
+                              className="h-16 w-16 shrink-0 rounded-xl object-cover"
+                              loading="lazy"
+                            />
+
+                            <div className="min-w-0 flex-1">
+                              <Link
+                                to={`/temples/${t.slug}`}
+                                className="block truncate text-sm font-bold text-stone-800 hover:text-orange-700"
+                              >
+                                {t.name}
+                              </Link>
+                              <p className="mt-1 flex items-center gap-1 text-xs text-stone-500">
+                                <MapPin size={11} />
+                                {t.city}
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => toggleSave("temple", t.slug)}
+                              className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold text-red-600 transition hover:bg-red-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {savedP.length > 0 && (
+                    <section>
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <h3 className="text-sm font-bold uppercase tracking-wider text-stone-500">
+                          Saved Spiritual Places
+                        </h3>
+                        <Link
+                          to="/spiritual-places"
+                          className="text-xs font-bold text-orange-700"
+                        >
+                          Discover more
+                        </Link>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {savedP.map((p) => (
+                          <div
+                            key={p.slug}
+                            className="flex items-center gap-3 rounded-2xl bg-stone-50 p-3 ring-1 ring-orange-900/10"
+                          >
+                            <img
+                              src={p.image}
+                              alt={p.name}
+                              className="h-16 w-16 shrink-0 rounded-xl object-cover"
+                              loading="lazy"
+                            />
+
+                            <div className="min-w-0 flex-1">
+                              <Link
+                                to={`/spiritual-places/${p.slug}`}
+                                className="block truncate text-sm font-bold text-stone-800 hover:text-orange-700"
+                              >
+                                {p.name}
+                              </Link>
+                              <p className="mt-1 flex items-center gap-1 text-xs text-stone-500">
+                                <MapPin size={11} />
+                                {p.state}
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => toggleSave("place", p.slug)}
+                              className="shrink-0 rounded-lg px-2 py-1 text-xs font-bold text-red-600 transition hover:bg-red-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ============================================================ */}
+          {/* NOTIFICATIONS                                                 */}
+          {/* ============================================================ */}
+
+          {tab === "notifications" && (
+            <div className="rounded-[2rem] border border-orange-900/10 bg-white p-6 shadow-sm md:p-8">
+              <div>
+                <h2 className="font-display text-2xl font-semibold">
+                  Notifications
+                </h2>
+                <p className="mt-1 text-sm text-stone-500">
+                  Important updates related to your DivyaDhara activity.
+                </p>
+              </div>
+
+              {notifications.length === 0 ? (
+                <div className="mt-5">
+                  <Empty
+                    title="No notifications"
+                    sub="You're all caught up. New account and activity updates will appear here."
+                  />
+                </div>
+              ) : (
+                <div className="mt-5 space-y-2.5">
+                  {notifications.map((n) => (
+                    <div
+                      key={n.id}
+                      className="flex items-start gap-3 rounded-2xl border border-orange-900/10 bg-stone-50 p-4"
+                    >
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-orange-50 text-orange-600">
+                        <Bell size={17} />
+                      </span>
+
+                      <div className="min-w-0">
+                        <p className="text-sm leading-5 text-stone-700">{n.text}</p>
+                        <p className="mt-1 flex items-center gap-1 text-xs text-stone-400">
+                          <Clock3 size={11} />
+                          {n.date}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ============================================================ */}
+          {/* PROFILE                                                        */}
+          {/* ============================================================ */}
 
           {tab === "profile" && (
             <form
               onSubmit={handleProfileSave}
-              className="
-                rounded-3xl border border-orange-900/10
-                bg-white p-6 md:p-8
-              "
+              className="rounded-[2rem] border border-orange-900/10 bg-white p-6 shadow-sm md:p-8"
             >
-              <div
-                className="
-                  flex flex-col justify-between gap-3
-                  sm:flex-row sm:items-start
-                "
-              >
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
                 <div>
-                  <h2 className="font-display text-xl font-semibold">
-                    Profile
-                  </h2>
-
+                  <h2 className="font-display text-2xl font-semibold">Profile</h2>
                   <p className="mt-1 text-sm text-stone-500">
-                    Keep your contact and location details up to date.
+                    Keep your contact and location details up to date for a smoother enquiry and booking experience.
                   </p>
                 </div>
 
-                <span
-                  className="
-                    inline-flex w-fit items-center gap-1.5
-                    rounded-full bg-orange-50
-                    px-3 py-1.5 text-xs font-bold
-                    text-orange-800
-                    ring-1 ring-orange-100
-                  "
-                >
+                <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-800 ring-1 ring-orange-100">
                   <User size={13} />
                   {roleLabel(user.role)}
                 </span>
               </div>
 
-              {/* Global auth error */}
               {authError && (
-                <div
-                  className="
-                    mt-5 flex items-start gap-3
-                    rounded-2xl border border-red-200
-                    bg-red-50 p-4
-                    text-sm text-red-800
-                  "
-                >
-                  <AlertCircle
-                    size={18}
-                    className="mt-0.5 shrink-0"
-                  />
-
+                <div className="mt-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                  <AlertCircle size={18} className="mt-0.5 shrink-0" />
                   <div className="min-w-0">
-                    <p className="font-bold">
-                      Account update error
-                    </p>
-
-                    <p className="mt-0.5">
-                      {authError}
-                    </p>
+                    <p className="font-bold">Account update error</p>
+                    <p className="mt-0.5">{authError}</p>
                   </div>
                 </div>
               )}
 
-              {/* Profile-specific error */}
               {profileError && !authError && (
-                <div
-                  className="
-                    mt-5 flex items-start gap-3
-                    rounded-2xl border border-red-200
-                    bg-red-50 p-4
-                    text-sm text-red-800
-                  "
-                >
-                  <AlertCircle
-                    size={18}
-                    className="mt-0.5 shrink-0"
-                  />
-
+                <div className="mt-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                  <AlertCircle size={18} className="mt-0.5 shrink-0" />
                   <div className="min-w-0">
-                    <p className="font-bold">
-                      Unable to save profile
-                    </p>
-
-                    <p className="mt-0.5">
-                      {profileError}
-                    </p>
+                    <p className="font-bold">Unable to save profile</p>
+                    <p className="mt-0.5">{profileError}</p>
                   </div>
                 </div>
               )}
 
-              {/* Success */}
               {saved && (
-                <div
-                  className="
-                    mt-5 flex items-start gap-3
-                    rounded-2xl border border-emerald-200
-                    bg-emerald-50 p-4
-                    text-sm text-emerald-800
-                  "
-                >
-                  <CheckCircle2
-                    size={18}
-                    className="mt-0.5 shrink-0"
-                  />
-
+                <div className="mt-5 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                  <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
                   <div>
-                    <p className="font-bold">
-                      Profile updated successfully.
-                    </p>
-
-                    <p className="mt-0.5">
-                      Your latest profile details are saved to your account.
-                    </p>
+                    <p className="font-bold">Profile updated successfully.</p>
+                    <p className="mt-0.5">Your latest profile details are saved to your account.</p>
                   </div>
                 </div>
               )}
 
               <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                {/* Full Name */}
                 <div>
-                  <label
-                    className="
-                      mb-1.5 block text-xs font-bold
-                      text-stone-600
-                    "
-                    htmlFor="d-n"
-                  >
+                  <label className="mb-1.5 block text-xs font-bold text-stone-600" htmlFor="d-n">
                     Full name
                   </label>
-
                   <input
                     id="d-n"
                     type="text"
                     value={f.name}
-                    onChange={(e) =>
-                      setF({
-                        ...f,
-                        name: e.target.value,
-                      })
-                    }
+                    onChange={(e) => setF({ ...f, name: e.target.value })}
                     autoComplete="name"
                     maxLength={120}
                     className={input}
@@ -1058,19 +1316,11 @@ export default function Dashboard() {
                   />
                 </div>
 
-                {/* Email */}
                 <div>
-                  <label
-                    className="
-                      mb-1.5 flex items-center gap-1
-                      text-xs font-bold text-stone-600
-                    "
-                    htmlFor="d-e"
-                  >
+                  <label className="mb-1.5 flex items-center gap-1 text-xs font-bold text-stone-600" htmlFor="d-e">
                     <Mail size={12} />
                     Email
                   </label>
-
                   <input
                     id="d-e"
                     type="email"
@@ -1079,35 +1329,21 @@ export default function Dashboard() {
                     aria-readonly="true"
                     className={readonlyInput}
                   />
-
                   <p className="mt-1.5 text-[11px] text-stone-400">
                     Account email is managed separately for security.
                   </p>
                 </div>
 
-                {/* Mobile */}
                 <div>
-                  <label
-                    className="
-                      mb-1.5 flex items-center gap-1
-                      text-xs font-bold text-stone-600
-                    "
-                    htmlFor="d-p"
-                  >
+                  <label className="mb-1.5 flex items-center gap-1 text-xs font-bold text-stone-600" htmlFor="d-p">
                     <Phone size={12} />
                     Mobile
                   </label>
-
                   <input
                     id="d-p"
                     type="tel"
                     value={f.phone}
-                    onChange={(e) =>
-                      setF({
-                        ...f,
-                        phone: e.target.value,
-                      })
-                    }
+                    onChange={(e) => setF({ ...f, phone: e.target.value })}
                     autoComplete="tel"
                     maxLength={30}
                     className={input}
@@ -1116,29 +1352,16 @@ export default function Dashboard() {
                   />
                 </div>
 
-                {/* City */}
                 <div>
-                  <label
-                    className="
-                      mb-1.5 flex items-center gap-1
-                      text-xs font-bold text-stone-600
-                    "
-                    htmlFor="d-c"
-                  >
+                  <label className="mb-1.5 flex items-center gap-1 text-xs font-bold text-stone-600" htmlFor="d-c">
                     <MapPin size={12} />
                     City
                   </label>
-
                   <input
                     id="d-c"
                     type="text"
                     value={f.city}
-                    onChange={(e) =>
-                      setF({
-                        ...f,
-                        city: e.target.value,
-                      })
-                    }
+                    onChange={(e) => setF({ ...f, city: e.target.value })}
                     autoComplete="address-level2"
                     maxLength={100}
                     className={input}
@@ -1147,28 +1370,15 @@ export default function Dashboard() {
                   />
                 </div>
 
-                {/* State */}
                 <div>
-                  <label
-                    className="
-                      mb-1.5 block text-xs font-bold
-                      text-stone-600
-                    "
-                    htmlFor="d-s"
-                  >
+                  <label className="mb-1.5 block text-xs font-bold text-stone-600" htmlFor="d-s">
                     State
                   </label>
-
                   <input
                     id="d-s"
                     type="text"
                     value={f.state}
-                    onChange={(e) =>
-                      setF({
-                        ...f,
-                        state: e.target.value,
-                      })
-                    }
+                    onChange={(e) => setF({ ...f, state: e.target.value })}
                     autoComplete="address-level1"
                     maxLength={100}
                     className={input}
@@ -1177,29 +1387,16 @@ export default function Dashboard() {
                   />
                 </div>
 
-                {/* Country */}
                 <div>
-                  <label
-                    className="
-                      mb-1.5 flex items-center gap-1
-                      text-xs font-bold text-stone-600
-                    "
-                    htmlFor="d-country"
-                  >
+                  <label className="mb-1.5 flex items-center gap-1 text-xs font-bold text-stone-600" htmlFor="d-country">
                     <Globe2 size={12} />
                     Country
                   </label>
-
                   <input
                     id="d-country"
                     type="text"
                     value={f.country}
-                    onChange={(e) =>
-                      setF({
-                        ...f,
-                        country: e.target.value,
-                      })
-                    }
+                    onChange={(e) => setF({ ...f, country: e.target.value })}
                     autoComplete="country-name"
                     maxLength={100}
                     className={input}
@@ -1209,32 +1406,15 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div
-                className="
-                  mt-5 flex flex-col gap-3
-                  border-t border-orange-900/10
-                  pt-5 sm:flex-row sm:items-center
-                "
-              >
+              <div className="mt-6 flex flex-col gap-3 border-t border-orange-900/10 pt-5 sm:flex-row sm:items-center">
                 <button
                   type="submit"
                   disabled={isProfileUpdating}
-                  className="
-                    btn-saffron flex items-center
-                    justify-center gap-2
-                    rounded-xl px-6 py-3
-                    text-sm font-bold text-white
-                    disabled:cursor-not-allowed
-                    disabled:opacity-60
-                  "
+                  className="btn-saffron flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isProfileUpdating ? (
                     <>
-                      <LoaderCircle
-                        size={15}
-                        className="animate-spin"
-                      />
-
+                      <LoaderCircle size={15} className="animate-spin" />
                       Saving…
                     </>
                   ) : saved ? (
@@ -1259,516 +1439,97 @@ export default function Dashboard() {
             </form>
           )}
 
-          {/* =====================================================
-              BOOKINGS
-          ====================================================== */}
+          {/* ============================================================ */}
+          {/* SETTINGS                                                       */}
+          {/* ============================================================ */}
 
-          {tab === "bookings" && (
-            <div className="space-y-3">
-              <div
-                className="
-                  flex flex-col justify-between gap-3
-                  sm:flex-row sm:items-center
-                "
-              >
+          {tab === "settings" && (
+            <div className="space-y-4">
+              <div className="rounded-[2rem] border border-orange-900/10 bg-white p-6 shadow-sm md:p-8">
                 <div>
-                  <h2 className="font-display text-xl font-semibold">
-                    My Bookings & Enquiries
+                  <h2 className="font-display text-2xl font-semibold">
+                    Notification Settings
                   </h2>
-
                   <p className="mt-1 text-sm text-stone-500">
-                    Track your puja, pandit, yatra,
-                    course and event requests.
+                    Choose which updates you would like to receive on this device.
                   </p>
                 </div>
 
-                {bookings.length > 0 && (
-                  <span
-                    className="
-                      w-fit rounded-full bg-orange-50
-                      px-3 py-1.5 text-xs font-bold
-                      text-orange-800
-                      ring-1 ring-orange-100
-                    "
-                  >
-                    {bookings.length} total
-                  </span>
-                )}
-              </div>
-
-              {bookings.length === 0 ? (
-                <Empty
-                  title="No bookings yet"
-                  sub="Your puja, pandit, yatra, course and event enquiries will appear here."
-                  action={
-                    <Link
-                      to="/services"
-                      className="
-                        btn-saffron rounded-xl px-6 py-3
-                        text-sm font-bold text-white
-                      "
+                <div className="mt-5 space-y-2.5">
+                  {[
+                    {
+                      k: "whatsapp" as const,
+                      l: "WhatsApp updates",
+                      d: "Booking confirmations & enquiry-related alerts",
+                    },
+                    {
+                      k: "email" as const,
+                      l: "Email — Divya Patra",
+                      d: "Weekly Panchang & festival letter",
+                    },
+                    {
+                      k: "festival" as const,
+                      l: "Festival reminders",
+                      d: "Ekadashi, Purnima, Shivratri and key festival alerts",
+                    },
+                  ].map((o) => (
+                    <label
+                      key={o.k}
+                      className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl bg-orange-50/60 px-4 py-4 ring-1 ring-orange-100"
                     >
-                      Explore Sevas
-                    </Link>
-                  }
-                />
-              ) : (
-                <>
-                  <div className="space-y-3">
-                    {bookings.map((b) => (
-                      <div
-                        key={b.id}
-                        className="
-                          flex flex-wrap items-center
-                          justify-between gap-3
-                          rounded-2xl
-                          border border-orange-900/10
-                          bg-white p-4
-                        "
-                      >
-                        <div className="min-w-0">
-                          <p
-                            className="
-                              text-[11px] font-bold
-                              uppercase tracking-widest
-                              text-orange-700
-                            "
-                          >
-                            {b.kind} · {b.id}
-                          </p>
-
-                          <p className="mt-0.5 font-bold text-stone-800">
-                            {b.title}
-                          </p>
-
-                          <p
-                            className="
-                              mt-1 flex flex-wrap
-                              items-center gap-1
-                              text-[13px] text-stone-500
-                            "
-                          >
-                            <span>{b.date}</span>
-
-                            <span aria-hidden="true">
-                              ·
-                            </span>
-
-                            <span>{b.detail}</span>
-                          </p>
-                        </div>
-
-                        <span
-                          className="
-                            rounded-full bg-emerald-100
-                            px-3 py-1 text-xs
-                            font-bold text-emerald-900
-                          "
-                        >
-                          {b.status}
+                      <span>
+                        <span className="block text-sm font-bold text-stone-800">
+                          {o.l}
                         </span>
-                      </div>
-                    ))}
-                  </div>
+                        <span className="mt-0.5 block text-xs text-stone-500">
+                          {o.d}
+                        </span>
+                      </span>
 
-                  <div className="grid gap-2 pt-2 sm:grid-cols-2">
-                    <Link
-                      to="/services"
-                      className="
-                        rounded-2xl bg-orange-50 p-4
-                        text-sm font-bold text-orange-900
-                        ring-1 ring-orange-200
-                        transition hover:bg-orange-100
-                      "
-                    >
-                      + New Puja Enquiry
-                    </Link>
-
-                    <Link
-                      to="/packages"
-                      className="
-                        rounded-2xl bg-orange-50 p-4
-                        text-sm font-bold text-orange-900
-                        ring-1 ring-orange-200
-                        transition hover:bg-orange-100
-                      "
-                    >
-                      + New Yatra Enquiry
-                    </Link>
-
-                    <Link
-                      to="/pandits"
-                      className="
-                        rounded-2xl bg-orange-50 p-4
-                        text-sm font-bold text-orange-900
-                        ring-1 ring-orange-200
-                        transition hover:bg-orange-100
-                      "
-                    >
-                      + Pandit Request
-                    </Link>
-
-                    <Link
-                      to="/courses"
-                      className="
-                        rounded-2xl bg-orange-50 p-4
-                        text-sm font-bold text-orange-900
-                        ring-1 ring-orange-200
-                        transition hover:bg-orange-100
-                      "
-                    >
-                      + Course Registration
-                    </Link>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* =====================================================
-              SAVED
-          ====================================================== */}
-
-          {tab === "saved" && (
-            <div>
-              <div>
-                <h2 className="font-display text-xl font-semibold">
-                  Saved Temples & Places
-                </h2>
-
-                <p className="mt-1 text-sm text-stone-500">
-                  Your personal sacred wishlist.
-                </p>
-              </div>
-
-              {savedT.length === 0 &&
-              savedP.length === 0 ? (
-                <div className="mt-4">
-                  <Empty
-                    title="Nothing saved yet"
-                    sub="Tap the heart on any temple or place to build your sacred wishlist."
-                    action={
-                      <Link
-                        to="/temples"
-                        className="
-                          btn-saffron rounded-xl px-6 py-3
-                          text-sm font-bold text-white
-                        "
-                      >
-                        Discover Temples
-                      </Link>
-                    }
-                  />
+                      <input
+                        type="checkbox"
+                        checked={prefs[o.k]}
+                        onChange={() =>
+                          setPrefs({ ...prefs, [o.k]: !prefs[o.k] })
+                        }
+                        className="h-5 w-5 accent-orange-700"
+                      />
+                    </label>
+                  ))}
                 </div>
-              ) : (
-                <>
-                  {savedT.length > 0 && (
-                    <div className="mt-4">
-                      <h3
-                        className="
-                          mb-3 text-sm font-bold
-                          uppercase tracking-wider
-                          text-stone-500
-                        "
-                      >
-                        Saved Temples
-                      </h3>
 
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        {savedT.map((t) => (
-                          <div
-                            key={t.slug}
-                            className="
-                              flex items-center gap-3
-                              rounded-2xl bg-white p-3
-                              ring-1 ring-orange-900/10
-                            "
-                          >
-                            <img
-                              src={t.image}
-                              alt={t.name}
-                              className="
-                                h-14 w-14 shrink-0
-                                rounded-xl object-cover
-                              "
-                            />
-
-                            <div className="min-w-0 flex-1">
-                              <Link
-                                to={`/temples/${t.slug}`}
-                                className="
-                                  block truncate text-sm
-                                  font-bold hover:text-orange-700
-                                "
-                              >
-                                {t.name}
-                              </Link>
-
-                              <p
-                                className="
-                                  flex items-center gap-1
-                                  text-xs text-stone-500
-                                "
-                              >
-                                <MapPin size={11} />
-                                {t.city}
-                              </p>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                toggleSave(
-                                  "temple",
-                                  t.slug,
-                                )
-                              }
-                              className="
-                                shrink-0 text-xs font-bold
-                                text-red-600
-                                hover:text-red-700
-                              "
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {savedP.length > 0 && (
-                    <div className="mt-6">
-                      <h3
-                        className="
-                          mb-3 text-sm font-bold
-                          uppercase tracking-wider
-                          text-stone-500
-                        "
-                      >
-                        Saved Spiritual Places
-                      </h3>
-
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        {savedP.map((p) => (
-                          <div
-                            key={p.slug}
-                            className="
-                              flex items-center gap-3
-                              rounded-2xl bg-white p-3
-                              ring-1 ring-orange-900/10
-                            "
-                          >
-                            <img
-                              src={p.image}
-                              alt={p.name}
-                              className="
-                                h-14 w-14 shrink-0
-                                rounded-xl object-cover
-                              "
-                            />
-
-                            <div className="min-w-0 flex-1">
-                              <Link
-                                to={`/spiritual-places/${p.slug}`}
-                                className="
-                                  block truncate text-sm
-                                  font-bold hover:text-orange-700
-                                "
-                              >
-                                {p.name}
-                              </Link>
-
-                              <p className="text-xs text-stone-500">
-                                {p.state}
-                              </p>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                toggleSave(
-                                  "place",
-                                  p.slug,
-                                )
-                              }
-                              className="
-                                shrink-0 text-xs font-bold
-                                text-red-600
-                                hover:text-red-700
-                              "
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
-          {/* =====================================================
-              NOTIFICATIONS
-          ====================================================== */}
-
-          {tab === "notifications" && (
-            <div className="space-y-2.5">
-              <div>
-                <h2 className="font-display text-xl font-semibold">
-                  Notifications
-                </h2>
-
-                <p className="mt-1 text-sm text-stone-500">
-                  Important updates related to your DivyaDhara activity.
-                </p>
+                <div className="mt-5 rounded-2xl bg-stone-50 p-4 ring-1 ring-stone-100">
+                  <p className="text-xs leading-5 text-stone-500">
+                    These notification preferences are currently saved on this device. This screen does not replace backend consent or lead-capture preferences; those remain governed by the account and DivyaDhara&apos;s notification/lead systems.
+                  </p>
+                </div>
               </div>
 
-              {notifications.length === 0 ? (
-                <Empty
-                  title="No notifications"
-                  sub="You're all caught up. New account and booking updates will appear here."
-                />
-              ) : (
-                notifications.map((n) => (
-                  <div
-                    key={n.id}
-                    className="
-                      flex items-start gap-3
-                      rounded-2xl
-                      border border-orange-900/10
-                      bg-white p-4
-                    "
-                  >
-                    <span
-                      className="
-                        grid h-9 w-9 shrink-0
-                        place-items-center rounded-xl
-                        bg-orange-50 text-orange-600
-                      "
-                    >
-                      <Bell size={17} />
-                    </span>
-
-                    <div className="min-w-0">
-                      <p className="text-sm text-stone-700">
-                        {n.text}
-                      </p>
-
-                      <p
-                        className="
-                          mt-1 flex items-center gap-1
-                          text-xs text-stone-400
-                        "
-                      >
-                        <Phone size={11} />
-                        {n.date}
-                      </p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-          {/* =====================================================
-              SETTINGS
-          ====================================================== */}
-
-          {tab === "settings" && (
-            <div
-              className="
-                rounded-3xl border border-orange-900/10
-                bg-white p-6 md:p-8
-              "
-            >
-              <div>
-                <h2 className="font-display text-xl font-semibold">
-                  Notification Settings
-                </h2>
-
-                <p className="mt-1 text-sm text-stone-500">
-                  Choose which updates you would like to receive.
-                </p>
-              </div>
-
-              {[
-                {
-                  k: "whatsapp" as const,
-                  l: "WhatsApp updates",
-                  d: "Booking confirmations & yatra alerts",
-                },
-                {
-                  k: "email" as const,
-                  l: "Email — Divya Patra",
-                  d: "Weekly Panchang & festival letter",
-                },
-                {
-                  k: "festival" as const,
-                  l: "Festival reminders",
-                  d: "Ekadashi, Purnima, Shivratri alerts",
-                },
-              ].map((o) => (
-                <label
-                  key={o.k}
-                  className="
-                    mt-3 flex cursor-pointer
-                    items-center justify-between gap-4
-                    rounded-2xl bg-orange-50/60
-                    px-4 py-3.5
-                    ring-1 ring-orange-100
-                  "
-                >
-                  <span>
-                    <span
-                      className="
-                        block text-sm font-bold
-                        text-stone-800
-                      "
-                    >
-                      {o.l}
-                    </span>
-
-                    <span
-                      className="
-                        block text-xs text-stone-500
-                      "
-                    >
-                      {o.d}
-                    </span>
+              <div className="rounded-[2rem] bg-linear-to-br from-stone-50 to-amber-50 p-6 ring-1 ring-orange-100 md:p-7">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-orange-700 shadow-sm ring-1 ring-orange-100">
+                    <LifeBuoy size={17} />
                   </span>
-
-                  <input
-                    type="checkbox"
-                    checked={prefs[o.k]}
-                    onChange={() =>
-                      setPrefs({
-                        ...prefs,
-                        [o.k]:
-                          !prefs[o.k],
-                      })
-                    }
-                    className="
-                      h-5 w-5 accent-orange-700
-                    "
-                  />
-                </label>
-              ))}
-
-              <div
-                className="
-                  mt-5 rounded-2xl bg-stone-50 p-4
-                "
-              >
-                <p className="text-xs text-stone-500">
-                  Notification preferences are currently
-                  saved on this device. Central
-                  account-level notification preferences can
-                  be connected to the backend notification
-                  system later.
-                </p>
+                  <div>
+                    <p className="text-sm font-bold text-stone-800">
+                      Need help with an enquiry or booking?
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-stone-500">
+                      Use DivyaDhara support without leaving your account dashboard.
+                    </p>
+                    <a
+                      href={`https://wa.me/919820809883?text=${encodeURIComponent(
+                        "Namaste! I need help with my DivyaDhara account, enquiry or booking.",
+                      )}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-[#25D366] px-3.5 py-2 text-xs font-bold text-white"
+                    >
+                      <MessageCircle size={13} />
+                      Contact Support
+                    </a>
+                  </div>
+                </div>
               </div>
             </div>
           )}
