@@ -22,6 +22,8 @@
  * Supported VITE_API_URL values:
  *   http://localhost:3001
  *   http://localhost:3001/api
+ *   https://api.example.com
+ *   https://api.example.com/api
  *   /api
  *   ""
  *
@@ -52,7 +54,11 @@ function resolveApiOrigin(): string {
 
     /*
      * Production:
-     * Use same-origin API when no explicit API origin is configured.
+     * When no explicit backend origin is configured,
+     * fall back to same-origin.
+     *
+     * Recommended production setup:
+     *   VITE_API_URL=https://api.divya-dhara.in
      */
     if (typeof window !== "undefined") {
       return window.location.origin;
@@ -61,26 +67,26 @@ function resolveApiOrigin(): string {
     return "";
   }
 
-  const normalized =
-    configured.replace(/\/+$/, "");
+  /*
+   * Remove trailing slash.
+   */
+  const normalized = configured.replace(/\/+$/, "");
 
   /*
-   * If somebody configures:
+   * If configured as:
    *
-   *   VITE_API_URL=http://localhost:3001/api
+   *   https://api.example.com/api
    *
-   * store only the origin/base here.
+   * keep only:
    *
-   * Endpoint methods below already know about `/api`.
+   *   https://api.example.com
+   *
+   * because endpoint methods already include `/api`.
    */
-  return normalized.replace(
-    /\/api$/i,
-    "",
-  );
+  return normalized.replace(/\/api$/i, "");
 }
 
-const API_ORIGIN =
-  resolveApiOrigin();
+const API_ORIGIN = resolveApiOrigin();
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 
@@ -103,12 +109,9 @@ export type ApiJsonValue =
       [key: string]: ApiJsonValue;
     };
 
-export type ApiObject =
-  Record<string, ApiJsonValue>;
+export type ApiObject = Record<string, ApiJsonValue>;
 
-export type ApiResponse<
-  T = unknown,
-> = {
+export type ApiResponse<T = unknown> = {
   success: boolean;
   message?: string;
   error?: string;
@@ -116,11 +119,10 @@ export type ApiResponse<
   [key: string]: unknown;
 };
 
-export type ApiRequestOptions =
-  RequestInit & {
-    timeoutMs?: number;
-    skipJsonHeaders?: boolean;
-  };
+export type ApiRequestOptions = RequestInit & {
+  timeoutMs?: number;
+  skipJsonHeaders?: boolean;
+};
 
 export type QueryValue =
   | string
@@ -149,17 +151,11 @@ export class ApiError extends Error {
     super(message);
 
     this.name = "ApiError";
-    this.status =
-      options.status ?? 0;
-    this.code =
-      options.code ?? "API_ERROR";
-    this.details =
-      options.details;
+    this.status = options.status ?? 0;
+    this.code = options.code ?? "API_ERROR";
+    this.details = options.details;
 
-    Object.setPrototypeOf(
-      this,
-      new.target.prototype,
-    );
+    Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
@@ -169,10 +165,7 @@ export class ApiError extends Error {
 
 function isPlainObject(
   value: unknown,
-): value is Record<
-  string,
-  unknown
-> {
+): value is Record<string, unknown> {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -180,19 +173,13 @@ function isPlainObject(
   );
 }
 
-function isJsonResponse(
-  response: Response,
-): boolean {
+function isJsonResponse(response: Response): boolean {
   const contentType =
-    response.headers.get(
-      "content-type",
-    ) || "";
+    response.headers.get("content-type") || "";
 
   return contentType
     .toLowerCase()
-    .includes(
-      "application/json",
-    );
+    .includes("application/json");
 }
 
 function getErrorMessage(
@@ -201,17 +188,12 @@ function getErrorMessage(
 ): string {
   if (
     !payload ||
-    typeof payload !==
-      "object"
+    typeof payload !== "object"
   ) {
     return fallback;
   }
 
-  const data =
-    payload as Record<
-      string,
-      unknown
-    >;
+  const data = payload as Record<string, unknown>;
 
   const candidates = [
     data.error,
@@ -221,8 +203,7 @@ function getErrorMessage(
 
   for (const candidate of candidates) {
     if (
-      typeof candidate ===
-        "string" &&
+      typeof candidate === "string" &&
       candidate.trim()
     ) {
       return candidate.trim();
@@ -237,27 +218,46 @@ function getApiErrorCode(
 ): string {
   if (
     !payload ||
-    typeof payload !==
-      "object"
+    typeof payload !== "object"
   ) {
     return "API_ERROR";
   }
 
-  const data =
-    payload as Record<
-      string,
-      unknown
-    >;
+  const data = payload as Record<string, unknown>;
 
   if (
-    typeof data.code ===
-      "string" &&
+    typeof data.code === "string" &&
     data.code.trim()
   ) {
     return data.code.trim();
   }
 
   return "API_ERROR";
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    error instanceof DOMException &&
+    error.name === "AbortError"
+  );
+}
+
+function encodePathId(
+  value: number | string,
+  fieldName = "id",
+): string {
+  const stringValue = String(value).trim();
+
+  if (!stringValue) {
+    throw new ApiError(
+      `A valid ${fieldName} is required.`,
+      {
+        code: "INVALID_ID",
+      },
+    );
+  }
+
+  return encodeURIComponent(stringValue);
 }
 
 /* ============================================================================
@@ -287,51 +287,41 @@ function getApiErrorCode(
 function normalizeApiPath(
   path: string,
 ): string {
-  const trimmed =
-    path.trim();
+  const trimmed = path.trim();
 
   if (!trimmed) {
     return API_PREFIX;
   }
 
-  let normalized =
-    trimmed.startsWith("/")
-      ? trimmed
-      : `/${trimmed}`;
+  let normalized = trimmed.startsWith("/")
+    ? trimmed
+    : `/${trimmed}`;
 
   /*
-   * Collapse repeated slashes at the beginning.
+   * Collapse repeated leading slashes.
    */
-  normalized =
-    normalized.replace(
-      /^\/+/,
-      "/",
-    );
+  normalized = normalized.replace(/^\/+/, "/");
 
   /*
-   * Remove repeated API prefixes.
+   * Collapse repeated /api prefixes.
    *
-   * `/api/api/admin/users`
+   * /api/api/admin/users
    * becomes
-   * `/api/admin/users`
+   * /api/admin/users
    */
-  normalized =
-    normalized.replace(
-      /^\/api(?:\/api)+/i,
-      "/api",
-    );
+  normalized = normalized.replace(
+    /^\/api(?:\/api)+/i,
+    "/api",
+  );
 
   /*
-   * If the endpoint already has /api, keep it.
+   * Already canonical.
    */
   if (
-    normalized ===
-      API_PREFIX ||
+    normalized === API_PREFIX ||
     normalized
       .toLowerCase()
-      .startsWith(
-        `${API_PREFIX}/`,
-      )
+      .startsWith(`${API_PREFIX}/`)
   ) {
     return normalized;
   }
@@ -340,16 +330,12 @@ function normalizeApiPath(
 }
 
 /**
- * Build a complete API URL.
- *
- * The API origin never contains a trailing `/api`.
- * The path always contains exactly one `/api`.
+ * Build complete API URL.
  */
 export function buildApiUrl(
   path: string,
 ): string {
-  const apiPath =
-    normalizeApiPath(path);
+  const apiPath = normalizeApiPath(path);
 
   return `${API_ORIGIN}${apiPath}`;
 }
@@ -360,10 +346,7 @@ export function buildApiUrl(
 
 export function buildQueryString(
   params:
-    | Record<
-        string,
-        QueryValue
-      >
+    | Record<string, QueryValue>
     | URLSearchParams
     | undefined,
 ): string {
@@ -372,47 +355,27 @@ export function buildQueryString(
   }
 
   const search =
-    params instanceof
-    URLSearchParams
-      ? new URLSearchParams(
-          params,
-        )
+    params instanceof URLSearchParams
+      ? new URLSearchParams(params)
       : new URLSearchParams();
 
-  if (
-    !(
-      params instanceof
-      URLSearchParams
-    )
-  ) {
-    for (const [
-      key,
-      value,
-    ] of Object.entries(
-      params,
-    )) {
+  if (!(params instanceof URLSearchParams)) {
+    for (const [key, value] of Object.entries(params)) {
       if (
-        value ===
-          undefined ||
+        value === undefined ||
         value === null ||
         value === ""
       ) {
         continue;
       }
 
-      search.set(
-        key,
-        String(value),
-      );
+      search.set(key, String(value));
     }
   }
 
-  const query =
-    search.toString();
+  const query = search.toString();
 
-  return query
-    ? `?${query}`
-    : "";
+  return query ? `?${query}` : "";
 }
 
 /* ============================================================================
@@ -424,8 +387,7 @@ function mergeSignals(
     | AbortSignal
     | null
     | undefined,
-  timeoutController:
-    AbortController,
+  timeoutController: AbortController,
 ): AbortSignal {
   if (!externalSignal) {
     return timeoutController.signal;
@@ -435,11 +397,9 @@ function mergeSignals(
    * Modern browsers.
    */
   if (
-    typeof AbortSignal !==
-      "undefined" &&
+    typeof AbortSignal !== "undefined" &&
     "any" in AbortSignal &&
-    typeof AbortSignal.any ===
-      "function"
+    typeof AbortSignal.any === "function"
   ) {
     return AbortSignal.any([
       externalSignal,
@@ -450,21 +410,15 @@ function mergeSignals(
   /*
    * Compatibility fallback.
    */
-  const controller =
-    new AbortController();
+  const controller = new AbortController();
 
   const abort = () => {
-    if (
-      !controller.signal
-        .aborted
-    ) {
+    if (!controller.signal.aborted) {
       controller.abort();
     }
   };
 
-  if (
-    externalSignal.aborted
-  ) {
+  if (externalSignal.aborted) {
     abort();
   }
 
@@ -490,10 +444,7 @@ function mergeSignals(
 function prepareBody(
   body:
     | BodyInit
-    | Record<
-        string,
-        unknown
-      >
+    | Record<string, unknown>
     | null
     | undefined,
 ):
@@ -512,29 +463,22 @@ function prepareBody(
    */
   if (
     typeof body === "string" ||
-    body instanceof
-      FormData ||
-    body instanceof
-      URLSearchParams ||
+    body instanceof FormData ||
+    body instanceof URLSearchParams ||
     body instanceof Blob ||
-    body instanceof
-      ArrayBuffer
+    body instanceof ArrayBuffer
   ) {
     return body;
   }
 
   /*
-   * JSON objects.
+   * JSON-like objects.
    */
   if (
-    typeof body ===
-      "object" &&
-    !(body instanceof
-      ReadableStream)
+    typeof body === "object" &&
+    !(body instanceof ReadableStream)
   ) {
-    return JSON.stringify(
-      body,
-    );
+    return JSON.stringify(body);
   }
 
   return body;
@@ -544,71 +488,54 @@ function prepareBody(
  * Core Request Function
  * ========================================================================== */
 
-export async function apiRequest<
-  T = unknown,
->(
+export async function apiRequest<T = unknown>(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<ApiResponse<T>> {
   const {
-    timeoutMs =
-      DEFAULT_TIMEOUT_MS,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
     skipJsonHeaders = false,
-    signal:
-      externalSignal,
+    signal: externalSignal,
     headers,
     body,
     ...requestInit
   } = options;
 
-  const controller =
-    new AbortController();
+  const controller = new AbortController();
 
-  const timeoutId =
-    window.setTimeout(
-      () => {
-        controller.abort();
-      },
-      timeoutMs,
-    );
+  const timeoutId = globalThis.setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
 
-  const signal =
-    mergeSignals(
-      externalSignal,
-      controller,
-    );
+  const signal = mergeSignals(
+    externalSignal,
+    controller,
+  );
 
-  const preparedBody =
-    prepareBody(body);
+  const preparedBody = prepareBody(body);
 
-  const finalHeaders =
-    new Headers(headers);
+  const finalHeaders = new Headers(headers);
 
   if (!skipJsonHeaders) {
-    if (
-      !finalHeaders.has(
-        "Accept",
-      )
-    ) {
+    if (!finalHeaders.has("Accept")) {
       finalHeaders.set(
         "Accept",
         "application/json",
       );
     }
 
+    /*
+     * JSON body is already serialized by prepareBody()
+     * or by the convenience helpers below.
+     */
     const canSendJson =
-      preparedBody !==
-        undefined &&
-      preparedBody !==
-        null &&
-      typeof preparedBody ===
-        "string";
+      preparedBody !== undefined &&
+      preparedBody !== null &&
+      typeof preparedBody === "string";
 
     if (
       canSendJson &&
-      !finalHeaders.has(
-        "Content-Type",
-      )
+      !finalHeaders.has("Content-Type")
     ) {
       finalHeaders.set(
         "Content-Type",
@@ -617,56 +544,37 @@ export async function apiRequest<
     }
   }
 
-  const url =
-    buildApiUrl(path);
+  const url = buildApiUrl(path);
 
   try {
-    const response =
-      await fetch(
-        url,
-        {
-          ...requestInit,
-          headers:
-            finalHeaders,
-          body:
-            preparedBody,
-          credentials:
-            "include",
-          cache: "no-store",
-          signal,
-        },
-      );
+    const response = await fetch(url, {
+      ...requestInit,
+      headers: finalHeaders,
+      body: preparedBody,
+      credentials: "include",
+      cache: "no-store",
+      signal,
+    });
 
-    let payload: unknown =
-      null;
+    let payload: unknown = null;
 
-    if (
-      response.status !==
-      204
-    ) {
-      if (
-        isJsonResponse(
-          response,
-        )
-      ) {
+    /*
+     * 204 No Content.
+     */
+    if (response.status !== 204) {
+      if (isJsonResponse(response)) {
         try {
-          payload =
-            await response.json();
+          payload = await response.json();
         } catch {
           payload = null;
         }
       } else {
         try {
-          const text =
-            await response.text();
+          const text = await response.text();
 
-          payload =
-            text.trim()
-              ? {
-                  message:
-                    text,
-                }
-              : null;
+          payload = text.trim()
+            ? { message: text }
+            : null;
         } catch {
           payload = null;
         }
@@ -686,14 +594,9 @@ export async function apiRequest<
           fallback,
         ),
         {
-          status:
-            response.status,
-          code:
-            getApiErrorCode(
-              payload,
-            ),
-          details:
-            payload,
+          status: response.status,
+          code: getApiErrorCode(payload),
+          details: payload,
         },
       );
     }
@@ -703,11 +606,8 @@ export async function apiRequest<
      */
     if (
       payload &&
-      isPlainObject(
-        payload,
-      ) &&
-      payload.success ===
-        false
+      isPlainObject(payload) &&
+      payload.success === false
     ) {
       throw new ApiError(
         getErrorMessage(
@@ -715,14 +615,9 @@ export async function apiRequest<
           "The API reported an error.",
         ),
         {
-          status:
-            response.status,
-          code:
-            getApiErrorCode(
-              payload,
-            ),
-          details:
-            payload,
+          status: response.status,
+          code: getApiErrorCode(payload),
+          details: payload,
         },
       );
     }
@@ -732,9 +627,7 @@ export async function apiRequest<
      */
     if (
       payload &&
-      isPlainObject(
-        payload,
-      )
+      isPlainObject(payload)
     ) {
       return payload as ApiResponse<T>;
     }
@@ -750,53 +643,43 @@ export async function apiRequest<
     /*
      * Preserve typed API errors.
      */
-    if (
-      error instanceof ApiError
-    ) {
+    if (error instanceof ApiError) {
       throw error;
     }
 
     /*
      * Timeout / abort.
      */
-    if (
-      error instanceof
-        DOMException &&
-      error.name ===
-        "AbortError"
-    ) {
+    if (isAbortError(error)) {
       throw new ApiError(
         `Request timed out after ${timeoutMs}ms.`,
         {
-          code:
-            "REQUEST_TIMEOUT",
-          details:
-            {
-              url,
-              timeoutMs,
-            },
+          code: "REQUEST_TIMEOUT",
+          details: {
+            url,
+            timeoutMs,
+          },
         },
       );
     }
 
     /*
-     * Network / CORS / server unavailable.
+     * Network / CORS / backend unavailable.
      */
-    if (
-      error instanceof
-      TypeError
-    ) {
+    if (error instanceof TypeError) {
+      const configuredOrigin =
+        API_ORIGIN ||
+        "the current application origin";
+
       throw new ApiError(
-        `Unable to connect to the DivyaDhara API at ${API_ORIGIN || "the current application origin"}. Please check that the backend server is running on port 3001 and that CORS is configured for the frontend.`,
+        `Unable to connect to the DivyaDhara API at ${configuredOrigin}. Please check that the backend API is running, the configured VITE_API_URL is correct, and CORS allows the frontend origin.`,
         {
-          code:
-            "NETWORK_ERROR",
-          details:
-            {
-              url,
-              originalError:
-                error,
-            },
+          code: "NETWORK_ERROR",
+          details: {
+            url,
+            apiOrigin: API_ORIGIN,
+            originalError: error,
+          },
         },
       );
     }
@@ -804,15 +687,12 @@ export async function apiRequest<
     throw new ApiError(
       "An unexpected API error occurred.",
       {
-        code:
-          "UNKNOWN_ERROR",
+        code: "UNKNOWN_ERROR",
         details: error,
       },
     );
   } finally {
-    window.clearTimeout(
-      timeoutId,
-    );
+    globalThis.clearTimeout(timeoutId);
   }
 }
 
@@ -820,18 +700,12 @@ export async function apiRequest<
  * Convenience Methods
  * ========================================================================== */
 
-export async function apiGet<
-  T = unknown,
->(
+export async function apiGet<T = unknown>(
   path: string,
-  params?: Record<
-    string,
-    QueryValue
-  >,
+  params?: Record<string, QueryValue>,
   options: ApiRequestOptions = {},
 ): Promise<ApiResponse<T>> {
-  const query =
-    buildQueryString(params);
+  const query = buildQueryString(params);
 
   return apiRequest<T>(
     `${path}${query}`,
@@ -842,9 +716,7 @@ export async function apiGet<
   );
 }
 
-export async function apiPost<
-  T = unknown,
->(
+export async function apiPost<T = unknown>(
   path: string,
   body?: unknown,
   options: ApiRequestOptions = {},
@@ -862,9 +734,7 @@ export async function apiPost<
   );
 }
 
-export async function apiPut<
-  T = unknown,
->(
+export async function apiPut<T = unknown>(
   path: string,
   body?: unknown,
   options: ApiRequestOptions = {},
@@ -882,9 +752,7 @@ export async function apiPut<
   );
 }
 
-export async function apiPatch<
-  T = unknown,
->(
+export async function apiPatch<T = unknown>(
   path: string,
   body?: unknown,
   options: ApiRequestOptions = {},
@@ -902,9 +770,7 @@ export async function apiPatch<
   );
 }
 
-export async function apiDelete<
-  T = unknown,
->(
+export async function apiDelete<T = unknown>(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<ApiResponse<T>> {
@@ -977,9 +843,7 @@ export type RegisterPayload = {
    */
   title?: string;
   photo?: string;
-  experienceYears?:
-    | number
-    | string;
+  experienceYears?: number | string;
   district?: string;
   languages?: string[];
   specializations?: string[];
@@ -992,12 +856,8 @@ export type RegisterPayload = {
   services?: Array<{
     name: string;
     description?: string;
-    priceAmount?:
-      | number
-      | string;
-    durationMinutes?:
-      | number
-      | string;
+    priceAmount?: number | string;
+    durationMinutes?: number | string;
   }>;
 
   /*
@@ -1011,9 +871,7 @@ export type RegisterPayload = {
 
 export type AuthMeData = {
   authenticated: boolean;
-  user:
-    | AuthUser
-    | null;
+  user: AuthUser | null;
 };
 
 export type AuthLoginData = {
@@ -1115,13 +973,8 @@ export const authApi = {
     );
   },
 
-  async profile<
-    T = AuthUser,
-  >(
-    payload: Record<
-      string,
-      unknown
-    >,
+  async profile<T = AuthUser>(
+    payload: Record<string, unknown>,
   ) {
     return apiPatch<T>(
       "/api/auth/profile",
@@ -1186,10 +1039,7 @@ export type AdminPlanPayload = {
 };
 
 export type AdminSettingsPayload =
-  Record<
-    string,
-    unknown
-  >;
+  Record<string, unknown>;
 
 export type CreateSalesPayload = {
   name: string;
@@ -1203,25 +1053,27 @@ export type CreateSalesPayload = {
  * ========================================================================== */
 
 export const adminApi = {
-  async dashboard<
-    T = unknown,
-  >() {
+  /* --------------------------------------------------------------------------
+   * Dashboard
+   * ------------------------------------------------------------------------ */
+
+  async dashboard<T = unknown>() {
     return apiGet<T>(
       "/api/admin/dashboard",
     );
   },
 
-  async me<
-    T = AuthUser,
-  >() {
+  async me<T = AuthUser>() {
     return apiGet<T>(
       "/api/admin/me",
     );
   },
 
-  async users<
-    T = unknown,
-  >(
+  /* --------------------------------------------------------------------------
+   * Users
+   * ------------------------------------------------------------------------ */
+
+  async users<T = unknown>(
     filters?: AdminUserFilters,
   ) {
     return apiGet<T>(
@@ -1230,35 +1082,39 @@ export const adminApi = {
     );
   },
 
-  async user<
-    T = unknown,
-  >(
+  async user<T = unknown>(
     userId: number | string,
   ) {
+    const id = encodePathId(
+      userId,
+      "user ID",
+    );
+
     return apiGet<T>(
-      `/api/admin/users/${encodeURIComponent(
-        String(userId),
-      )}`,
+      `/api/admin/users/${id}`,
     );
   },
 
-  async updateUserStatus<
-    T = unknown,
-  >(
+  async updateUserStatus<T = unknown>(
     userId: number | string,
     payload: AdminStatusPayload,
   ) {
+    const id = encodePathId(
+      userId,
+      "user ID",
+    );
+
     return apiPatch<T>(
-      `/api/admin/users/${encodeURIComponent(
-        String(userId),
-      )}/status`,
+      `/api/admin/users/${id}/status`,
       payload,
     );
   },
 
-  async createSales<
-    T = unknown,
-  >(
+  /* --------------------------------------------------------------------------
+   * Sales User Creation
+   * ------------------------------------------------------------------------ */
+
+  async createSales<T = unknown>(
     payload: CreateSalesPayload,
   ) {
     return apiPost<T>(
@@ -1267,9 +1123,11 @@ export const adminApi = {
     );
   },
 
-  async pandits<
-    T = unknown,
-  >(
+  /* --------------------------------------------------------------------------
+   * Pandits
+   * ------------------------------------------------------------------------ */
+
+  async pandits<T = unknown>(
     filters?: AdminListFilters,
   ) {
     return apiGet<T>(
@@ -1278,67 +1136,103 @@ export const adminApi = {
     );
   },
 
-  async approvePandit<
-    T = unknown,
-  >(
-    userId: number | string,
+  /**
+   * IMPORTANT:
+   * Backend contract:
+   *
+   *   PATCH /api/admin/pandits/:id/approve
+   *
+   * `id` here means pandit_profiles.id,
+   * NOT users.id.
+   */
+  async approvePandit<T = unknown>(
+    panditId: number | string,
   ) {
-    return apiPost<T>(
-      `/api/admin/pandits/${encodeURIComponent(
-        String(userId),
-      )}/approve`,
+    const id = encodePathId(
+      panditId,
+      "Pandit profile ID",
+    );
+
+    return apiPatch<T>(
+      `/api/admin/pandits/${id}/approve`,
     );
   },
 
-  async rejectPandit<
-    T = unknown,
-  >(
-    userId: number | string,
+  /**
+   * IMPORTANT:
+   * Backend contract:
+   *
+   *   PATCH /api/admin/pandits/:id/reject
+   *
+   * `id` here means pandit_profiles.id,
+   * NOT users.id.
+   */
+  async rejectPandit<T = unknown>(
+    panditId: number | string,
     payload?: AdminRejectPayload,
   ) {
-    return apiPost<T>(
-      `/api/admin/pandits/${encodeURIComponent(
-        String(userId),
-      )}/reject`,
+    const id = encodePathId(
+      panditId,
+      "Pandit profile ID",
+    );
+
+    return apiPatch<T>(
+      `/api/admin/pandits/${id}/reject`,
       payload ?? {},
     );
   },
 
-  async featurePandit<
-    T = unknown,
-  >(
-    userId: number | string,
+  /**
+   * Feature control for an already-approved Pandit.
+   *
+   * Backend contract:
+   *   PATCH /api/admin/pandits/:id/feature
+   */
+  async featurePandit<T = unknown>(
+    panditId: number | string,
     featured: boolean,
   ) {
+    const id = encodePathId(
+      panditId,
+      "Pandit profile ID",
+    );
+
     return apiPatch<T>(
-      `/api/admin/pandits/${encodeURIComponent(
-        String(userId),
-      )}/feature`,
+      `/api/admin/pandits/${id}/feature`,
       {
         featured,
       },
     );
   },
 
-  async togglePanditListing<
-    T = unknown,
-  >(
-    userId: number | string,
+  /**
+   * Public listing control for an already-approved Pandit.
+   *
+   * Backend contract:
+   *   PATCH /api/admin/pandits/:id/listing
+   */
+  async togglePanditListing<T = unknown>(
+    panditId: number | string,
     listingActive: boolean,
   ) {
+    const id = encodePathId(
+      panditId,
+      "Pandit profile ID",
+    );
+
     return apiPatch<T>(
-      `/api/admin/pandits/${encodeURIComponent(
-        String(userId),
-      )}/listing`,
+      `/api/admin/pandits/${id}/listing`,
       {
         listingActive,
       },
     );
   },
 
-  async templeManagers<
-    T = unknown,
-  >(
+  /* --------------------------------------------------------------------------
+   * Temple Managers
+   * ------------------------------------------------------------------------ */
+
+  async templeManagers<T = unknown>(
     filters?: AdminListFilters,
   ) {
     return apiGet<T>(
@@ -1347,57 +1241,69 @@ export const adminApi = {
     );
   },
 
-  async approveTempleManager<
-    T = unknown,
-  >(
+  /*
+   * Manager approval/rejection remains POST because that is the
+   * currently defined frontend/backend contract unless server route
+   * definitions are changed.
+   */
+  async approveTempleManager<T = unknown>(
     userId: number | string,
   ) {
+    const id = encodePathId(
+      userId,
+      "Temple Manager user ID",
+    );
+
     return apiPost<T>(
-      `/api/admin/temple-managers/${encodeURIComponent(
-        String(userId),
-      )}/approve`,
+      `/api/admin/temple-managers/${id}/approve`,
     );
   },
 
-  async rejectTempleManager<
-    T = unknown,
-  >(
+  async rejectTempleManager<T = unknown>(
     userId: number | string,
     payload?: AdminRejectPayload,
   ) {
+    const id = encodePathId(
+      userId,
+      "Temple Manager user ID",
+    );
+
     return apiPost<T>(
-      `/api/admin/temple-managers/${encodeURIComponent(
-        String(userId),
-      )}/reject`,
+      `/api/admin/temple-managers/${id}/reject`,
       payload ?? {},
     );
   },
 
-  async plans<
-    T = unknown,
-  >() {
+  /* --------------------------------------------------------------------------
+   * Plans
+   * ------------------------------------------------------------------------ */
+
+  async plans<T = unknown>() {
     return apiGet<T>(
       "/api/admin/plans",
     );
   },
 
-  async updatePlan<
-    T = unknown,
-  >(
+  async updatePlan<T = unknown>(
     planId: number | string,
     payload: AdminPlanPayload,
   ) {
+    const id = encodePathId(
+      planId,
+      "plan ID",
+    );
+
     return apiPatch<T>(
-      `/api/admin/plans/${encodeURIComponent(
-        String(planId),
-      )}`,
+      `/api/admin/plans/${id}`,
       payload,
     );
   },
 
-  async leads<
-    T = unknown,
-  >(
+  /* --------------------------------------------------------------------------
+   * Leads
+   * ------------------------------------------------------------------------ */
+
+  async leads<T = unknown>(
     filters?: AdminListFilters,
   ) {
     return apiGet<T>(
@@ -1406,9 +1312,11 @@ export const adminApi = {
     );
   },
 
-  async subscriptions<
-    T = unknown,
-  >(
+  /* --------------------------------------------------------------------------
+   * Subscriptions
+   * ------------------------------------------------------------------------ */
+
+  async subscriptions<T = unknown>(
     filters?: AdminListFilters,
   ) {
     return apiGet<T>(
@@ -1417,9 +1325,11 @@ export const adminApi = {
     );
   },
 
-  async temples<
-    T = unknown,
-  >(
+  /* --------------------------------------------------------------------------
+   * Temples
+   * ------------------------------------------------------------------------ */
+
+  async temples<T = unknown>(
     filters?: AdminListFilters,
   ) {
     return apiGet<T>(
@@ -1428,17 +1338,17 @@ export const adminApi = {
     );
   },
 
-  async settings<
-    T = unknown,
-  >() {
+  /* --------------------------------------------------------------------------
+   * Settings
+   * ------------------------------------------------------------------------ */
+
+  async settings<T = unknown>() {
     return apiGet<T>(
       "/api/admin/settings",
     );
   },
 
-  async updateSettings<
-    T = unknown,
-  >(
+  async updateSettings<T = unknown>(
     payload: AdminSettingsPayload,
   ) {
     return apiPatch<T>(
@@ -1447,9 +1357,11 @@ export const adminApi = {
     );
   },
 
-  async auditLogs<
-    T = unknown,
-  >(
+  /* --------------------------------------------------------------------------
+   * Audit Logs
+   * ------------------------------------------------------------------------ */
+
+  async auditLogs<T = unknown>(
     filters?: AdminListFilters,
   ) {
     return apiGet<T>(
@@ -1470,10 +1382,7 @@ export const panditApi = {
     ),
 
   updateProfile: <T = unknown>(
-    payload: Record<
-      string,
-      unknown
-    >,
+    payload: Record<string, unknown>,
   ) =>
     apiPatch<T>(
       "/api/pandit/profile",
@@ -1481,19 +1390,14 @@ export const panditApi = {
     ),
 
   getLeads: <T = unknown>(
-    params?: Record<
-      string,
-      QueryValue
-    >,
+    params?: Record<string, QueryValue>,
   ) =>
     apiGet<T>(
       "/api/pandit/leads",
       params,
     ),
 
-  getSubscription: <
-    T = unknown,
-  >() =>
+  getSubscription: <T = unknown>() =>
     apiGet<T>(
       "/api/pandit/subscription",
     ),
@@ -1510,31 +1414,27 @@ export const templeManagerApi = {
     ),
 
   temples: <T = unknown>(
-    params?: Record<
-      string,
-      QueryValue
-    >,
+    params?: Record<string, QueryValue>,
   ) =>
     apiGet<T>(
       "/api/temple-manager/temples",
       params,
     ),
 
-  updateTemple: <
-    T = unknown,
-  >(
+  updateTemple: <T = unknown>(
     templeId: number | string,
-    payload: Record<
-      string,
-      unknown
-    >,
-  ) =>
-    apiPatch<T>(
-      `/api/temple-manager/temples/${encodeURIComponent(
-        String(templeId),
-      )}`,
+    payload: Record<string, unknown>,
+  ) => {
+    const id = encodePathId(
+      templeId,
+      "Temple ID",
+    );
+
+    return apiPatch<T>(
+      `/api/temple-manager/temples/${id}`,
       payload,
-    ),
+    );
+  },
 };
 
 /* ============================================================================
@@ -1548,37 +1448,29 @@ export const ashramManagerApi = {
     ),
 
   ashrams: <T = unknown>(
-    params?: Record<
-      string,
-      QueryValue
-    >,
+    params?: Record<string, QueryValue>,
   ) =>
     apiGet<T>(
       "/api/ashram-manager/ashrams",
       params,
     ),
 
-  updateAshram: <
-    T = unknown,
-  >(
-    ashramId:
-      | number
-      | string,
-    payload: Record<
-      string,
-      unknown
-    >,
-  ) =>
-    apiPatch<T>(
-      `/api/ashram-manager/ashrams/${encodeURIComponent(
-        String(ashramId),
-      )}`,
-      payload,
-    ),
+  updateAshram: <T = unknown>(
+    ashramId: number | string,
+    payload: Record<string, unknown>,
+  ) => {
+    const id = encodePathId(
+      ashramId,
+      "Ashram ID",
+    );
 
-  getSubscription: <
-    T = unknown,
-  >() =>
+    return apiPatch<T>(
+      `/api/ashram-manager/ashrams/${id}`,
+      payload,
+    );
+  },
+
+  getSubscription: <T = unknown>() =>
     apiGet<T>(
       "/api/ashram-manager/subscription",
     ),
@@ -1595,10 +1487,7 @@ export const salesApi = {
     ),
 
   leads: <T = unknown>(
-    params?: Record<
-      string,
-      QueryValue
-    >,
+    params?: Record<string, QueryValue>,
   ) =>
     apiGet<T>(
       "/api/sales/leads",
@@ -1607,45 +1496,42 @@ export const salesApi = {
 
   lead: <T = unknown>(
     leadId: number | string,
-  ) =>
-    apiGet<T>(
-      `/api/sales/leads/${encodeURIComponent(
-        String(leadId),
-      )}`,
-    ),
+  ) => {
+    const id = encodePathId(
+      leadId,
+      "Lead ID",
+    );
+
+    return apiGet<T>(
+      `/api/sales/leads/${id}`,
+    );
+  },
 
   createLead: <T = unknown>(
-    payload: Record<
-      string,
-      unknown
-    >,
+    payload: Record<string, unknown>,
   ) =>
     apiPost<T>(
       "/api/sales/leads",
       payload,
     ),
 
-  updateLead: <
-    T = unknown,
-  >(
+  updateLead: <T = unknown>(
     leadId: number | string,
-    payload: Record<
-      string,
-      unknown
-    >,
-  ) =>
-    apiPatch<T>(
-      `/api/sales/leads/${encodeURIComponent(
-        String(leadId),
-      )}`,
+    payload: Record<string, unknown>,
+  ) => {
+    const id = encodePathId(
+      leadId,
+      "Lead ID",
+    );
+
+    return apiPatch<T>(
+      `/api/sales/leads/${id}`,
       payload,
-    ),
+    );
+  },
 
   followups: <T = unknown>(
-    params?: Record<
-      string,
-      QueryValue
-    >,
+    params?: Record<string, QueryValue>,
   ) =>
     apiGet<T>(
       "/api/sales/followups",
@@ -1653,10 +1539,7 @@ export const salesApi = {
     ),
 
   activities: <T = unknown>(
-    params?: Record<
-      string,
-      QueryValue
-    >,
+    params?: Record<string, QueryValue>,
   ) =>
     apiGet<T>(
       "/api/sales/activities",
@@ -1664,10 +1547,7 @@ export const salesApi = {
     ),
 
   payments: <T = unknown>(
-    params?: Record<
-      string,
-      QueryValue
-    >,
+    params?: Record<string, QueryValue>,
   ) =>
     apiGet<T>(
       "/api/sales/payments",
@@ -1675,10 +1555,7 @@ export const salesApi = {
     ),
 
   bookings: <T = unknown>(
-    params?: Record<
-      string,
-      QueryValue
-    >,
+    params?: Record<string, QueryValue>,
   ) =>
     apiGet<T>(
       "/api/sales/bookings",
@@ -1686,10 +1563,7 @@ export const salesApi = {
     ),
 
   pandits: <T = unknown>(
-    params?: Record<
-      string,
-      QueryValue
-    >,
+    params?: Record<string, QueryValue>,
   ) =>
     apiGet<T>(
       "/api/sales/pandits",
@@ -1701,30 +1575,25 @@ export const salesApi = {
       "/api/leads/owners",
     ),
 
-  scheduleFollowup: <
-    T = unknown,
-  >(
+  scheduleFollowup: <T = unknown>(
     leadId: number | string,
-    payload: Record<
-      string,
-      unknown
-    >,
-  ) =>
-    apiPost<T>(
-      `/api/leads/${encodeURIComponent(
-        String(leadId),
-      )}/followups`,
+    payload: Record<string, unknown>,
+  ) => {
+    const id = encodePathId(
+      leadId,
+      "Lead ID",
+    );
+
+    return apiPost<T>(
+      `/api/leads/${id}/followups`,
       payload,
-    ),
+    );
+  },
 
   exportLeads: (
-    params?: Record<
-      string,
-      QueryValue
-    >,
+    params?: Record<string, QueryValue>,
   ) => {
-    const query =
-      buildQueryString(params);
+    const query = buildQueryString(params);
 
     return buildApiUrl(
       `/api/sales/leads/export.csv${query}`,

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable react-hooks/set-state-in-effect */
+
 import {
   useCallback,
   useEffect,
@@ -9,6 +10,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+
 import {
   Activity,
   AlertCircle,
@@ -45,6 +47,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
+
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -53,6 +56,7 @@ import {
   type AuthRole,
   type AuthStatus,
 } from "../lib/api";
+
 import { useApp } from "../context/AppContext";
 import { useSEO } from "../lib/seo";
 import { cx } from "../lib/utils";
@@ -85,10 +89,20 @@ type ModalType =
   | "reject"
   | null;
 
+type RejectTarget =
+  | "pandit"
+  | "manager"
+  | null;
+
 type NoticeType =
   | "success"
   | "error"
   | "info";
+
+type BackendStatus =
+  | "checking"
+  | "connected"
+  | "degraded";
 
 type DashboardStats = {
   totalUsers: number;
@@ -290,7 +304,9 @@ const STATUS_OPTIONS: Array<{
  * GENERIC HELPERS
  * ========================================================================== */
 
-function asRecord(value: unknown): GenericRecord {
+function asRecord(
+  value: unknown,
+): GenericRecord {
   if (
     typeof value === "object" &&
     value !== null &&
@@ -349,7 +365,9 @@ function readNumber(
     ) {
       const parsed = Number(value);
 
-      if (Number.isFinite(parsed)) {
+      if (
+        Number.isFinite(parsed)
+      ) {
         return parsed;
       }
     }
@@ -420,10 +438,12 @@ function rowsFromResponse(
     return payload.map(asRecord);
   }
 
-  const root = asRecord(payload);
+  const root =
+    asRecord(payload);
 
   for (const key of preferredKeys) {
-    const value = root[key];
+    const value =
+      root[key];
 
     if (Array.isArray(value)) {
       return value.map(asRecord);
@@ -448,7 +468,8 @@ function rowsFromResponse(
   ];
 
   for (const key of commonKeys) {
-    const value = root[key];
+    const value =
+      root[key];
 
     if (Array.isArray(value)) {
       return value.map(asRecord);
@@ -461,7 +482,8 @@ function rowsFromResponse(
 function dashboardFromResponse(
   payload: unknown,
 ): DashboardStats {
-  const root = asRecord(payload);
+  const root =
+    asRecord(payload);
 
   const nestedCandidates = [
     root.stats,
@@ -472,43 +494,56 @@ function dashboardFromResponse(
 
   let source = root;
 
-  for (const candidate of nestedCandidates) {
-    const record = asRecord(candidate);
+  for (
+    const candidate of
+      nestedCandidates
+  ) {
+    const record =
+      asRecord(candidate);
 
-    if (Object.keys(record).length > 0) {
+    if (
+      Object.keys(record)
+        .length > 0
+    ) {
       source = record;
       break;
     }
   }
 
   return {
-    totalUsers: readNumber(
-      source,
-      [
-        "totalUsers",
-        "users",
-        "usersCount",
-        "total_users",
-      ],
-    ),
-    totalVisitors: readNumber(
-      source,
-      [
-        "totalVisitors",
-        "visitors",
-        "visitorCount",
-        "total_visitors",
-      ],
-    ),
-    totalPandits: readNumber(
-      source,
-      [
-        "totalPandits",
-        "pandits",
-        "panditCount",
-        "total_pandits",
-      ],
-    ),
+    totalUsers:
+      readNumber(
+        source,
+        [
+          "totalUsers",
+          "users",
+          "usersCount",
+          "total_users",
+        ],
+      ),
+
+    totalVisitors:
+      readNumber(
+        source,
+        [
+          "totalVisitors",
+          "visitors",
+          "visitorCount",
+          "total_visitors",
+        ],
+      ),
+
+    totalPandits:
+      readNumber(
+        source,
+        [
+          "totalPandits",
+          "pandits",
+          "panditCount",
+          "total_pandits",
+        ],
+      ),
+
     totalTempleManagers:
       readNumber(
         source,
@@ -519,6 +554,7 @@ function dashboardFromResponse(
           "total_temple_managers",
         ],
       ),
+
     totalSalesUsers:
       readNumber(
         source,
@@ -529,6 +565,7 @@ function dashboardFromResponse(
           "salesCount",
         ],
       ),
+
     pendingPandits:
       readNumber(
         source,
@@ -538,6 +575,7 @@ function dashboardFromResponse(
           "pending_pandits",
         ],
       ),
+
     pendingTempleManagers:
       readNumber(
         source,
@@ -547,14 +585,17 @@ function dashboardFromResponse(
           "pending_temple_managers",
         ],
       ),
-    openLeads: readNumber(
-      source,
-      [
-        "openLeads",
-        "leads",
-        "open_leads",
-      ],
-    ),
+
+    openLeads:
+      readNumber(
+        source,
+        [
+          "openLeads",
+          "leads",
+          "open_leads",
+        ],
+      ),
+
     activeSubscriptions:
       readNumber(
         source,
@@ -564,6 +605,7 @@ function dashboardFromResponse(
           "active_subscriptions",
         ],
       ),
+
     activeTemples:
       readNumber(
         source,
@@ -573,6 +615,7 @@ function dashboardFromResponse(
           "active_temples",
         ],
       ),
+
     featuredPandits:
       readNumber(
         source,
@@ -581,41 +624,53 @@ function dashboardFromResponse(
           "featured_pandits",
         ],
       ),
-    revenue: readNumber(
-      source,
-      [
-        "revenue",
-        "totalRevenue",
-        "subscriptionRevenue",
-        "total_revenue",
-      ],
-    ),
+
+    revenue:
+      readNumber(
+        source,
+        [
+          "revenue",
+          "totalRevenue",
+          "subscriptionRevenue",
+          "total_revenue",
+        ],
+      ),
   };
 }
 
-function humanize(value: string): string {
+function humanize(
+  value: string,
+): string {
   return value
     .replace(/_/g, " ")
     .replace(/-/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .replace(/\b\w/g, (char) =>
-      char.toUpperCase(),
+    .replace(
+      /\b\w/g,
+      (char) =>
+        char.toUpperCase(),
     );
 }
 
-function initials(value: string): string {
+function initials(
+  value: string,
+): string {
   const parts =
     value
       .trim()
       .split(/\s+/)
       .filter(Boolean);
 
-  if (parts.length === 0) {
+  if (
+    parts.length === 0
+  ) {
     return "DD";
   }
 
-  if (parts.length === 1) {
+  if (
+    parts.length === 1
+  ) {
     return parts[0]
       .slice(0, 2)
       .toUpperCase();
@@ -649,7 +704,8 @@ function formatDate(
     return "—";
   }
 
-  const date = new Date(value);
+  const date =
+    new Date(value);
 
   if (
     Number.isNaN(
@@ -672,14 +728,18 @@ function getApiErrorMessage(
   error: unknown,
   fallback: string,
 ): string {
-  if (error instanceof ApiError) {
+  if (
+    error instanceof ApiError
+  ) {
     return (
       error.message ||
       fallback
     );
   }
 
-  if (error instanceof Error) {
+  if (
+    error instanceof Error
+  ) {
     return (
       error.message ||
       fallback
@@ -699,7 +759,9 @@ function StatusBadge({
   status: string;
 }) {
   const normalized =
-    status.trim().toLowerCase();
+    status
+      .trim()
+      .toLowerCase();
 
   const classes =
     normalized === "active" ||
@@ -711,12 +773,14 @@ function StatusBadge({
           normalized === "processing" ||
           normalized === "open"
         ? "bg-amber-100 text-amber-800 ring-amber-200"
-        : normalized === "rejected" ||
+        : normalized ===
+              "rejected" ||
             normalized === "blocked" ||
             normalized === "cancelled" ||
             normalized === "failed"
           ? "bg-rose-100 text-rose-800 ring-rose-200"
-          : normalized === "suspended" ||
+          : normalized ===
+                "suspended" ||
               normalized === "inactive"
             ? "bg-stone-200 text-stone-700 ring-stone-300"
             : "bg-sky-100 text-sky-800 ring-sky-200";
@@ -728,7 +792,9 @@ function StatusBadge({
         classes,
       )}
     >
-      {humanize(status || "unknown")}
+      {humanize(
+        status || "unknown",
+      )}
     </span>
   );
 }
@@ -916,6 +982,7 @@ function SelectField({
   value,
   onChange,
   options,
+  disabled = false,
 }: {
   label: string;
   value: string;
@@ -926,6 +993,7 @@ function SelectField({
     value: string;
     label: string;
   }>;
+  disabled?: boolean;
 }) {
   return (
     <label className="block">
@@ -936,7 +1004,8 @@ function SelectField({
       <select
         value={value}
         onChange={onChange}
-        className="w-full rounded-xl border border-orange-900/15 bg-white px-3.5 py-3 text-sm text-stone-800 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+        disabled={disabled}
+        className="w-full rounded-xl border border-orange-900/15 bg-white px-3.5 py-3 text-sm text-stone-800 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 disabled:cursor-not-allowed disabled:bg-stone-100"
       >
         {options.map(
           (option) => (
@@ -962,17 +1031,20 @@ function Toggle({
   checked,
   onChange,
   description,
+  disabled = false,
 }: {
   label: string;
   checked: boolean;
   onChange: () => void;
   description?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onChange}
-      className="flex w-full items-center justify-between gap-4 rounded-2xl border border-orange-900/10 bg-white p-4 text-left transition hover:border-orange-200"
+      disabled={disabled}
+      className="flex w-full items-center justify-between gap-4 rounded-2xl border border-orange-900/10 bg-white p-4 text-left transition hover:border-orange-200 disabled:cursor-not-allowed disabled:opacity-60"
     >
       <span className="min-w-0">
         <span className="block text-sm font-bold text-stone-800">
@@ -1038,6 +1110,39 @@ function ModalHeader({
   );
 }
 
+function isSensitiveKey(
+  key: string,
+): boolean {
+  const normalized =
+    key
+      .trim()
+      .toLowerCase()
+      .replace(/[-\s]/g, "_");
+
+  const sensitiveTerms = [
+    "password",
+    "password_hash",
+    "token",
+    "token_hash",
+    "access_token",
+    "refresh_token",
+    "api_key",
+    "secret",
+    "secret_key",
+    "otp",
+    "otp_secret",
+    "reset_token",
+  ];
+
+  return sensitiveTerms.some(
+    (term) =>
+      normalized === term ||
+      normalized.includes(
+        term,
+      ),
+  );
+}
+
 function RecordDetail({
   record,
 }: {
@@ -1055,12 +1160,13 @@ function RecordDetail({
   }
 
   const entries =
-    Object.entries(record).filter(
+    Object.entries(
+      record,
+    ).filter(
       ([key]) =>
-        key !== "password_hash" &&
-        key !== "passwordHash" &&
-        key !== "token_hash" &&
-        key !== "tokenHash",
+        !isSensitiveKey(
+          key,
+        ),
     );
 
   return (
@@ -1078,9 +1184,8 @@ function RecordDetail({
               typeof value ===
                 "boolean"
             ) {
-              display = String(
-                value,
-              );
+              display =
+                String(value);
             } else if (
               value !== null &&
               value !== undefined
@@ -1140,16 +1245,32 @@ export default function AdminDashboard() {
     useNavigate();
 
   const [activeTab, setActiveTab] =
-    useState<TabId>("overview");
+    useState<TabId>(
+      "overview",
+    );
 
-  const [mobileMenuOpen, setMobileMenuOpen] =
-    useState(false);
+  const [
+    mobileMenuOpen,
+    setMobileMenuOpen,
+  ] = useState(false);
 
   const [loading, setLoading] =
     useState(true);
 
-  const [refreshing, setRefreshing] =
-    useState(false);
+  const [
+    refreshing,
+    setRefreshing,
+  ] = useState(false);
+
+  const [backendStatus, setBackendStatus] =
+    useState<BackendStatus>(
+      "checking",
+    );
+
+  const [actionKey, setActionKey] =
+    useState<string | null>(
+      null,
+    );
 
   const [notice, setNotice] =
     useState<{
@@ -1163,73 +1284,132 @@ export default function AdminDashboard() {
     );
 
   const [users, setUsers] =
-    useState<GenericRecord[]>([]);
+    useState<GenericRecord[]>(
+      [],
+    );
 
   const [pandits, setPandits] =
-    useState<GenericRecord[]>([]);
+    useState<GenericRecord[]>(
+      [],
+    );
 
-  const [templeManagers, setTempleManagers] =
-    useState<GenericRecord[]>([]);
+  const [
+    templeManagers,
+    setTempleManagers,
+  ] = useState<GenericRecord[]>(
+    [],
+  );
 
   const [plans, setPlans] =
-    useState<GenericRecord[]>([]);
+    useState<GenericRecord[]>(
+      [],
+    );
 
   const [leads, setLeads] =
-    useState<GenericRecord[]>([]);
+    useState<GenericRecord[]>(
+      [],
+    );
 
-  const [subscriptions, setSubscriptions] =
-    useState<GenericRecord[]>([]);
+  const [
+    subscriptions,
+    setSubscriptions,
+  ] = useState<GenericRecord[]>(
+    [],
+  );
 
   const [temples, setTemples] =
-    useState<GenericRecord[]>([]);
+    useState<GenericRecord[]>(
+      [],
+    );
 
   const [settings, setSettings] =
     useState<GenericRecord>({});
 
-  const [auditLogs, setAuditLogs] =
-    useState<GenericRecord[]>([]);
+  const [
+    auditLogs,
+    setAuditLogs,
+  ] = useState<GenericRecord[]>(
+    [],
+  );
 
   const [userSearch, setUserSearch] =
     useState("");
 
-  const [userRoleFilter, setUserRoleFilter] =
-    useState<AuthRole | "">("");
+  const [
+    userRoleFilter,
+    setUserRoleFilter,
+  ] = useState<
+    AuthRole | ""
+  >("");
 
-  const [userStatusFilter, setUserStatusFilter] =
-    useState<AuthStatus | "">("");
+  const [
+    userStatusFilter,
+    setUserStatusFilter,
+  ] = useState<
+    AuthStatus | ""
+  >("");
 
-  const [panditSearch, setPanditSearch] =
-    useState("");
+  const [
+    panditSearch,
+    setPanditSearch,
+  ] = useState("");
 
-  const [panditStatusFilter, setPanditStatusFilter] =
-    useState("");
+  const [
+    panditStatusFilter,
+    setPanditStatusFilter,
+  ] = useState("");
 
-  const [managerSearch, setManagerSearch] =
-    useState("");
+  const [
+    managerSearch,
+    setManagerSearch,
+  ] = useState("");
 
   const [leadSearch, setLeadSearch] =
     useState("");
 
-  const [leadStatusFilter, setLeadStatusFilter] =
-    useState("");
+  const [
+    leadStatusFilter,
+    setLeadStatusFilter,
+  ] = useState("");
 
-  const [subscriptionSearch, setSubscriptionSearch] =
-    useState("");
+  const [
+    subscriptionSearch,
+    setSubscriptionSearch,
+  ] = useState("");
 
-  const [templeSearch, setTempleSearch] =
-    useState("");
+  const [
+    templeSearch,
+    setTempleSearch,
+  ] = useState("");
 
-  const [auditSearch, setAuditSearch] =
-    useState("");
+  const [
+    auditSearch,
+    setAuditSearch,
+  ] = useState("");
 
-  const [modalType, setModalType] =
-    useState<ModalType>(null);
+  const [
+    modalType,
+    setModalType,
+  ] = useState<ModalType>(null);
 
-  const [selectedRecord, setSelectedRecord] =
-    useState<GenericRecord | null>(null);
+  const [
+    selectedRecord,
+    setSelectedRecord,
+  ] = useState<GenericRecord | null>(
+    null,
+  );
 
-  const [rejectReason, setRejectReason] =
-    useState("");
+  const [
+    rejectTarget,
+    setRejectTarget,
+  ] = useState<RejectTarget>(
+    null,
+  );
+
+  const [
+    rejectReason,
+    setRejectReason,
+  ] = useState("");
 
   const [salesForm, setSalesForm] =
     useState<SalesForm>(
@@ -1256,9 +1436,12 @@ export default function AdminDashboard() {
           message,
         });
 
-        window.setTimeout(() => {
-          setNotice(null);
-        }, 5000);
+        window.setTimeout(
+          () => {
+            setNotice(null);
+          },
+          5000,
+        );
       },
       [],
     );
@@ -1443,7 +1626,8 @@ export default function AdminDashboard() {
           );
 
         setSettings(
-          Object.keys(nested).length > 0
+          Object.keys(nested)
+            .length > 0
             ? nested
             : root,
         );
@@ -1475,6 +1659,36 @@ export default function AdminDashboard() {
       [],
     );
 
+  const refreshCore =
+    useCallback(
+      async () => {
+        await Promise.allSettled([
+          loadDashboard(),
+          loadUsers(),
+          loadPandits(),
+          loadManagers(),
+          loadPlans(),
+          loadLeads(),
+          loadSubscriptions(),
+          loadTemples(),
+          loadSettings(),
+          loadAuditLogs(),
+        ]);
+      },
+      [
+        loadDashboard,
+        loadUsers,
+        loadPandits,
+        loadManagers,
+        loadPlans,
+        loadLeads,
+        loadSubscriptions,
+        loadTemples,
+        loadSettings,
+        loadAuditLogs,
+      ],
+    );
+
   const loadAll =
     useCallback(
       async (
@@ -1483,6 +1697,10 @@ export default function AdminDashboard() {
         if (showLoading) {
           setLoading(true);
         }
+
+        setBackendStatus(
+          "checking",
+        );
 
         try {
           const results =
@@ -1510,6 +1728,19 @@ export default function AdminDashboard() {
 
           if (
             failures ===
+            0
+          ) {
+            setBackendStatus(
+              "connected",
+            );
+          } else {
+            setBackendStatus(
+              "degraded",
+            );
+          }
+
+          if (
+            failures ===
             results.length
           ) {
             showNotice(
@@ -1524,10 +1755,16 @@ export default function AdminDashboard() {
               `${failures} admin section(s) could not be loaded.`,
             );
           }
-        } catch (error) {
+        } catch (
+          error
+        ) {
           console.error(
             "Admin load error:",
             error,
+          );
+
+          setBackendStatus(
+            "degraded",
           );
 
           showNotice(
@@ -1564,9 +1801,12 @@ export default function AdminDashboard() {
     }
 
     if (!user) {
-      navigate("/login", {
-        replace: true,
-      });
+      navigate(
+        "/login",
+        {
+          replace: true,
+        },
+      );
 
       return;
     }
@@ -1575,9 +1815,12 @@ export default function AdminDashboard() {
       user.role !==
       "super_admin"
     ) {
-      navigate("/", {
-        replace: true,
-      });
+      navigate(
+        "/",
+        {
+          replace: true,
+        },
+      );
 
       return;
     }
@@ -1605,26 +1848,13 @@ export default function AdminDashboard() {
       try {
         await logout();
       } finally {
-        navigate("/", {
-          replace: true,
-        });
+        navigate(
+          "/",
+          {
+            replace: true,
+          },
+        );
       }
-    };
-
-  const refreshCore =
-    async () => {
-      await Promise.allSettled([
-        loadDashboard(),
-        loadUsers(),
-        loadPandits(),
-        loadManagers(),
-        loadPlans(),
-        loadLeads(),
-        loadSubscriptions(),
-        loadTemples(),
-        loadSettings(),
-        loadAuditLogs(),
-      ]);
     };
 
   const handleUserStatus =
@@ -1640,6 +1870,15 @@ export default function AdminDashboard() {
         return;
       }
 
+      const key =
+        `user-status-${userId}`;
+
+      if (actionKey) {
+        return;
+      }
+
+      setActionKey(key);
+
       try {
         await adminApi.updateUserStatus(
           userId,
@@ -1654,7 +1893,9 @@ export default function AdminDashboard() {
         );
 
         await refreshCore();
-      } catch (error) {
+      } catch (
+        error
+      ) {
         showNotice(
           "error",
           getApiErrorMessage(
@@ -1662,24 +1903,51 @@ export default function AdminDashboard() {
             "Unable to update user status.",
           ),
         );
+      } finally {
+        setActionKey(null);
       }
     };
 
+  /* --------------------------------------------------------------------------
+   * PANDIT APPROVAL
+   *
+   * IMPORTANT:
+   * Admin API identifies a Pandit by `pandit_profiles.id`, NOT users.id.
+   * ---------------------------------------------------------------------- */
+
   const handleApprovePandit =
     async (
-      userId: number,
+      panditId: number,
     ) => {
-      if (!userId) {
+      if (!panditId) {
         showNotice(
           "error",
-          "Invalid Pandit user ID.",
+          "Invalid Pandit profile ID.",
         );
         return;
       }
 
+      if (actionKey) {
+        return;
+      }
+
+      const confirmed =
+        window.confirm(
+          "Approve this Pandit profile?\n\nThe profile will become verified and the user account will become active. Listing remains hidden until explicitly activated.",
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const key =
+        `pandit-approve-${panditId}`;
+
+      setActionKey(key);
+
       try {
         await adminApi.approvePandit(
-          userId,
+          panditId,
         );
 
         showNotice(
@@ -1688,7 +1956,9 @@ export default function AdminDashboard() {
         );
 
         await refreshCore();
-      } catch (error) {
+      } catch (
+        error
+      ) {
         showNotice(
           "error",
           getApiErrorMessage(
@@ -1696,6 +1966,8 @@ export default function AdminDashboard() {
             "Unable to approve Pandit.",
           ),
         );
+      } finally {
+        setActionKey(null);
       }
     };
 
@@ -1705,37 +1977,66 @@ export default function AdminDashboard() {
         return;
       }
 
-      const userId =
+      const panditId =
         readNumber(
           selectedRecord,
           [
-            "user_id",
-            "userId",
             "id",
+            "pandit_id",
+            "panditId",
           ],
+          0,
         );
 
-      if (!userId) {
+      if (!panditId) {
         showNotice(
           "error",
-          "Pandit user ID not found.",
+          "Pandit profile ID not found.",
         );
         return;
       }
 
+      const reason =
+        rejectReason.trim();
+
+      if (
+        reason.length <
+        5
+      ) {
+        showNotice(
+          "error",
+          "Please provide a meaningful rejection reason.",
+        );
+        return;
+      }
+
+      if (actionKey) {
+        return;
+      }
+
+      const key =
+        `pandit-reject-${panditId}`;
+
+      setActionKey(key);
+
       try {
         await adminApi.rejectPandit(
-          userId,
+          panditId,
           {
-            reason:
-              rejectReason.trim() ||
-              undefined,
+            reason,
           },
         );
 
         setModalType(null);
-        setSelectedRecord(null);
-        setRejectReason("");
+        setSelectedRecord(
+          null,
+        );
+        setRejectTarget(
+          null,
+        );
+        setRejectReason(
+          "",
+        );
 
         showNotice(
           "success",
@@ -1743,7 +2044,9 @@ export default function AdminDashboard() {
         );
 
         await refreshCore();
-      } catch (error) {
+      } catch (
+        error
+      ) {
         showNotice(
           "error",
           getApiErrorMessage(
@@ -1751,6 +2054,8 @@ export default function AdminDashboard() {
             "Unable to reject Pandit.",
           ),
         );
+      } finally {
+        setActionKey(null);
       }
     };
 
@@ -1766,6 +2071,24 @@ export default function AdminDashboard() {
         return;
       }
 
+      if (actionKey) {
+        return;
+      }
+
+      const confirmed =
+        window.confirm(
+          "Approve this Temple Manager account?",
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const key =
+        `manager-approve-${userId}`;
+
+      setActionKey(key);
+
       try {
         await adminApi.approveTempleManager(
           userId,
@@ -1777,7 +2100,9 @@ export default function AdminDashboard() {
         );
 
         await refreshCore();
-      } catch (error) {
+      } catch (
+        error
+      ) {
         showNotice(
           "error",
           getApiErrorMessage(
@@ -1785,6 +2110,8 @@ export default function AdminDashboard() {
             "Unable to approve Temple Manager.",
           ),
         );
+      } finally {
+        setActionKey(null);
       }
     };
 
@@ -1802,6 +2129,7 @@ export default function AdminDashboard() {
             "userId",
             "id",
           ],
+          0,
         );
 
       if (!userId) {
@@ -1812,19 +2140,47 @@ export default function AdminDashboard() {
         return;
       }
 
+      const reason =
+        rejectReason.trim();
+
+      if (
+        reason.length <
+        5
+      ) {
+        showNotice(
+          "error",
+          "Please provide a meaningful rejection reason.",
+        );
+        return;
+      }
+
+      if (actionKey) {
+        return;
+      }
+
+      const key =
+        `manager-reject-${userId}`;
+
+      setActionKey(key);
+
       try {
         await adminApi.rejectTempleManager(
           userId,
           {
-            reason:
-              rejectReason.trim() ||
-              undefined,
+            reason,
           },
         );
 
         setModalType(null);
-        setSelectedRecord(null);
-        setRejectReason("");
+        setSelectedRecord(
+          null,
+        );
+        setRejectTarget(
+          null,
+        );
+        setRejectReason(
+          "",
+        );
 
         showNotice(
           "success",
@@ -1832,7 +2188,9 @@ export default function AdminDashboard() {
         );
 
         await refreshCore();
-      } catch (error) {
+      } catch (
+        error
+      ) {
         showNotice(
           "error",
           getApiErrorMessage(
@@ -1840,17 +2198,62 @@ export default function AdminDashboard() {
             "Unable to reject Temple Manager.",
           ),
         );
+      } finally {
+        setActionKey(null);
       }
     };
 
   const handleFeaturePandit =
     async (
-      userId: number,
+      panditId: number,
       featured: boolean,
+      status: string,
     ) => {
+      if (!panditId) {
+        showNotice(
+          "error",
+          "Invalid Pandit profile ID.",
+        );
+        return;
+      }
+
+      if (
+        status !==
+        "approved"
+      ) {
+        showNotice(
+          "info",
+          "Only approved Pandit profiles can be featured.",
+        );
+        return;
+      }
+
+      if (actionKey) {
+        return;
+      }
+
+      const actionText =
+        featured
+          ? "mark this approved Pandit as featured"
+          : "remove this Pandit from featured";
+
+      const confirmed =
+        window.confirm(
+          `Do you want to ${actionText}?`,
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const key =
+        `pandit-feature-${panditId}`;
+
+      setActionKey(key);
+
       try {
         await adminApi.featurePandit(
-          userId,
+          panditId,
           featured,
         );
 
@@ -1862,7 +2265,9 @@ export default function AdminDashboard() {
         );
 
         await refreshCore();
-      } catch (error) {
+      } catch (
+        error
+      ) {
         showNotice(
           "error",
           getApiErrorMessage(
@@ -1870,17 +2275,62 @@ export default function AdminDashboard() {
             "Unable to update featured status.",
           ),
         );
+      } finally {
+        setActionKey(null);
       }
     };
 
   const handleListingPandit =
     async (
-      userId: number,
+      panditId: number,
       listingActive: boolean,
+      status: string,
     ) => {
+      if (!panditId) {
+        showNotice(
+          "error",
+          "Invalid Pandit profile ID.",
+        );
+        return;
+      }
+
+      if (
+        status !==
+        "approved"
+      ) {
+        showNotice(
+          "info",
+          "Only approved Pandit profiles can be listed publicly.",
+        );
+        return;
+      }
+
+      if (actionKey) {
+        return;
+      }
+
+      const actionText =
+        listingActive
+          ? "activate this Pandit listing"
+          : "disable this Pandit listing";
+
+      const confirmed =
+        window.confirm(
+          `Do you want to ${actionText}?`,
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      const key =
+        `pandit-listing-${panditId}`;
+
+      setActionKey(key);
+
       try {
         await adminApi.togglePanditListing(
-          userId,
+          panditId,
           listingActive,
         );
 
@@ -1892,7 +2342,9 @@ export default function AdminDashboard() {
         );
 
         await refreshCore();
-      } catch (error) {
+      } catch (
+        error
+      ) {
         showNotice(
           "error",
           getApiErrorMessage(
@@ -1900,6 +2352,8 @@ export default function AdminDashboard() {
             "Unable to update Pandit listing.",
           ),
         );
+      } finally {
+        setActionKey(null);
       }
     };
 
@@ -1910,7 +2364,14 @@ export default function AdminDashboard() {
       event.preventDefault();
 
       if (
-        salesForm.name.trim()
+        actionKey
+      ) {
+        return;
+      }
+
+      if (
+        salesForm.name
+          .trim()
           .length < 2
       ) {
         showNotice(
@@ -1921,8 +2382,10 @@ export default function AdminDashboard() {
       }
 
       if (
-        salesForm.email.trim()
-          .length === 0
+        salesForm.email
+          .trim()
+          .length ===
+        0
       ) {
         showNotice(
           "error",
@@ -1932,7 +2395,8 @@ export default function AdminDashboard() {
       }
 
       if (
-        salesForm.password.length <
+        salesForm.password
+          .length <
         8
       ) {
         showNotice(
@@ -1941,6 +2405,10 @@ export default function AdminDashboard() {
         );
         return;
       }
+
+      setActionKey(
+        "sales-create",
+      );
 
       try {
         await adminApi.createSales(
@@ -1969,7 +2437,9 @@ export default function AdminDashboard() {
         );
 
         await refreshCore();
-      } catch (error) {
+      } catch (
+        error
+      ) {
         showNotice(
           "error",
           getApiErrorMessage(
@@ -1977,11 +2447,15 @@ export default function AdminDashboard() {
             "Unable to create Sales account.",
           ),
         );
+      } finally {
+        setActionKey(null);
       }
     };
 
   const openPlanEditor =
-    (plan: GenericRecord) => {
+    (
+      plan: GenericRecord,
+    ) => {
       setSelectedRecord(
         plan,
       );
@@ -1991,46 +2465,57 @@ export default function AdminDashboard() {
           plan,
           ["name"],
         ),
+
         code: readString(
           plan,
           ["code"],
         ),
-        priceAmount: String(
-          readNumber(
-            plan,
-            [
-              "price_amount",
-              "priceAmount",
-              "price",
-            ],
+
+        priceAmount:
+          String(
+            readNumber(
+              plan,
+              [
+                "price_amount",
+                "priceAmount",
+                "price",
+              ],
+              0,
+            ),
           ),
-        ),
+
         currency:
           readString(
             plan,
             ["currency"],
           ) || "INR",
-        leadLimit: String(
-          readNumber(
-            plan,
-            [
-              "lead_limit",
-              "leadLimit",
-              "leads",
-            ],
+
+        leadLimit:
+          String(
+            readNumber(
+              plan,
+              [
+                "lead_limit",
+                "leadLimit",
+                "leads",
+              ],
+              0,
+            ),
           ),
-        ),
-        durationDays: String(
-          readNumber(
-            plan,
-            [
-              "duration_days",
-              "durationDays",
-              "days",
-            ],
-            30,
+
+        durationDays:
+          String(
+            readNumber(
+              plan,
+              [
+                "duration_days",
+                "durationDays",
+                "days",
+              ],
+              30,
+            ),
           ),
-        ),
+
         listingEnabled:
           readBoolean(
             plan,
@@ -2040,11 +2525,13 @@ export default function AdminDashboard() {
             ],
             true,
           ),
+
         featured:
           readBoolean(
             plan,
             ["featured"],
           ),
+
         prioritySupport:
           readBoolean(
             plan,
@@ -2053,6 +2540,7 @@ export default function AdminDashboard() {
               "prioritySupport",
             ],
           ),
+
         isActive:
           readBoolean(
             plan,
@@ -2074,6 +2562,10 @@ export default function AdminDashboard() {
     ) => {
       event.preventDefault();
 
+      if (actionKey) {
+        return;
+      }
+
       if (!selectedRecord) {
         return;
       }
@@ -2086,6 +2578,7 @@ export default function AdminDashboard() {
             "plan_id",
             "planId",
           ],
+          0,
         );
 
       if (!planId) {
@@ -2150,38 +2643,61 @@ export default function AdminDashboard() {
         return;
       }
 
+      setActionKey(
+        `plan-update-${planId}`,
+      );
+
       try {
         await adminApi.updatePlan(
           planId,
           {
             name:
               planForm.name.trim(),
+
             code:
               planForm.code.trim(),
+
             priceAmount:
-              Math.floor(price),
+              Math.floor(
+                price,
+              ),
+
             currency:
-              planForm.currency.trim() ||
+              planForm.currency
+                .trim() ||
               "INR",
+
             leadLimit:
-              Math.floor(leadLimit),
+              Math.floor(
+                leadLimit,
+              ),
+
             durationDays:
               Math.floor(
                 durationDays,
               ),
+
             listingEnabled:
               planForm.listingEnabled,
+
             featured:
               planForm.featured,
+
             prioritySupport:
               planForm.prioritySupport,
+
             isActive:
               planForm.isActive,
           },
         );
 
-        setModalType(null);
-        setSelectedRecord(null);
+        setModalType(
+          null,
+        );
+
+        setSelectedRecord(
+          null,
+        );
 
         showNotice(
           "success",
@@ -2189,7 +2705,9 @@ export default function AdminDashboard() {
         );
 
         await refreshCore();
-      } catch (error) {
+      } catch (
+        error
+      ) {
         showNotice(
           "error",
           getApiErrorMessage(
@@ -2197,11 +2715,21 @@ export default function AdminDashboard() {
             "Unable to update subscription plan.",
           ),
         );
+      } finally {
+        setActionKey(null);
       }
     };
 
   const handleSaveSettings =
     async () => {
+      if (actionKey) {
+        return;
+      }
+
+      setActionKey(
+        "settings-save",
+      );
+
       try {
         await adminApi.updateSettings(
           settings,
@@ -2216,7 +2744,9 @@ export default function AdminDashboard() {
           loadSettings(),
           loadAuditLogs(),
         ]);
-      } catch (error) {
+      } catch (
+        error
+      ) {
         showNotice(
           "error",
           getApiErrorMessage(
@@ -2224,6 +2754,8 @@ export default function AdminDashboard() {
             "Unable to save platform settings.",
           ),
         );
+      } finally {
+        setActionKey(null);
       }
     };
 
@@ -2239,7 +2771,9 @@ export default function AdminDashboard() {
           .toLowerCase();
 
       return users.filter(
-        (record) => {
+        (
+          record,
+        ) => {
           const name =
             readString(
               record,
@@ -2275,9 +2809,15 @@ export default function AdminDashboard() {
 
           return (
             (!term ||
-              name.includes(term) ||
-              email.includes(term) ||
-              phone.includes(term)) &&
+              name.includes(
+                term,
+              ) ||
+              email.includes(
+                term,
+              ) ||
+              phone.includes(
+                term,
+              )) &&
             (!userRoleFilter ||
               role ===
                 userRoleFilter) &&
@@ -2302,7 +2842,9 @@ export default function AdminDashboard() {
           .toLowerCase();
 
       return pandits.filter(
-        (record) => {
+        (
+          record,
+        ) => {
           const name =
             readString(
               record,
@@ -2331,8 +2873,12 @@ export default function AdminDashboard() {
 
           return (
             (!term ||
-              name.includes(term) ||
-              email.includes(term)) &&
+              name.includes(
+                term,
+              ) ||
+              email.includes(
+                term,
+              )) &&
             (!panditStatusFilter ||
               status ===
                 panditStatusFilter)
@@ -2353,7 +2899,9 @@ export default function AdminDashboard() {
           .toLowerCase();
 
       return templeManagers.filter(
-        (record) => {
+        (
+          record,
+        ) => {
           const name =
             readString(
               record,
@@ -2382,9 +2930,15 @@ export default function AdminDashboard() {
 
           return (
             !term ||
-            name.includes(term) ||
-            email.includes(term) ||
-            temple.includes(term)
+            name.includes(
+              term,
+            ) ||
+            email.includes(
+              term,
+            ) ||
+            temple.includes(
+              term,
+            )
           );
         },
       );
@@ -2401,7 +2955,9 @@ export default function AdminDashboard() {
           .toLowerCase();
 
       return leads.filter(
-        (record) => {
+        (
+          record,
+        ) => {
           const searchable =
             [
               readString(
@@ -2415,15 +2971,11 @@ export default function AdminDashboard() {
               ),
               readString(
                 record,
-                [
-                  "email",
-                ],
+                ["email"],
               ),
               readString(
                 record,
-                [
-                  "phone",
-                ],
+                ["phone"],
               ),
               readString(
                 record,
@@ -2450,7 +3002,9 @@ export default function AdminDashboard() {
 
           return (
             (!term ||
-              searchable.includes(term)) &&
+              searchable.includes(
+                term,
+              )) &&
             (!leadStatusFilter ||
               status ===
                 leadStatusFilter)
@@ -2471,7 +3025,9 @@ export default function AdminDashboard() {
           .toLowerCase();
 
       return subscriptions.filter(
-        (record) => {
+        (
+          record,
+        ) => {
           const searchable =
             [
               readString(
@@ -2515,7 +3071,9 @@ export default function AdminDashboard() {
           .toLowerCase();
 
       return temples.filter(
-        (record) => {
+        (
+          record,
+        ) => {
           const searchable =
             [
               readString(
@@ -2559,7 +3117,9 @@ export default function AdminDashboard() {
           .toLowerCase();
 
       return auditLogs.filter(
-        (record) => {
+        (
+          record,
+        ) => {
           const searchable =
             [
               readString(
@@ -2624,7 +3184,9 @@ export default function AdminDashboard() {
       value: unknown,
     ) => {
       setSettings(
-        (current) => ({
+        (
+          current,
+        ) => ({
           ...current,
           [key]: value,
         }),
@@ -2674,7 +3236,9 @@ export default function AdminDashboard() {
         <button
           type="button"
           onClick={() =>
-            navigate("/login")
+            navigate(
+              "/login",
+            )
           }
           className="btn-saffron mt-6 rounded-xl px-6 py-3 text-sm font-bold text-white"
         >
@@ -2732,6 +3296,35 @@ export default function AdminDashboard() {
   const ActiveIcon =
     activeMeta.icon;
 
+  const backendBadge =
+    backendStatus ===
+    "connected"
+      ? {
+          text: "Backend Connected",
+          classes:
+            "border-emerald-200 bg-emerald-50 text-emerald-800",
+          dot:
+            "bg-emerald-500",
+        }
+      : backendStatus ===
+          "degraded"
+        ? {
+            text:
+              "Backend Degraded",
+            classes:
+              "border-amber-200 bg-amber-50 text-amber-800",
+            dot:
+              "bg-amber-500",
+          }
+        : {
+            text:
+              "Checking Backend",
+            classes:
+              "border-sky-200 bg-sky-50 text-sky-800",
+            dot:
+              "bg-sky-500",
+          };
+
   /* --------------------------------------------------------------------------
    * MAIN UI
    * ---------------------------------------------------------------------- */
@@ -2748,7 +3341,9 @@ export default function AdminDashboard() {
             type="button"
             onClick={() =>
               setMobileMenuOpen(
-                (value) =>
+                (
+                  value,
+                ) =>
                   !value,
               )
             }
@@ -2758,7 +3353,9 @@ export default function AdminDashboard() {
             {mobileMenuOpen ? (
               <X size={19} />
             ) : (
-              <Menu size={19} />
+              <Menu
+                size={19}
+              />
             )}
           </button>
 
@@ -2786,7 +3383,10 @@ export default function AdminDashboard() {
                 void handleRefresh()
               }
               disabled={
-                refreshing
+                refreshing ||
+                Boolean(
+                  actionKey,
+                )
               }
               className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/5 transition hover:bg-white/10 disabled:opacity-50"
               title="Refresh"
@@ -2824,7 +3424,12 @@ export default function AdminDashboard() {
               onClick={() =>
                 void handleLogout()
               }
-              className="flex h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-xs font-bold hover:bg-white/10"
+              disabled={
+                Boolean(
+                  actionKey,
+                )
+              }
+              className="flex h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-xs font-bold hover:bg-white/10 disabled:opacity-50"
             >
               <LogOut size={16} />
 
@@ -2895,6 +3500,7 @@ export default function AdminDashboard() {
                         setActiveTab(
                           item.id,
                         );
+
                         setMobileMenuOpen(
                           false,
                         );
@@ -3000,7 +3606,9 @@ export default function AdminDashboard() {
               )}
 
               <p className="flex-1 text-sm font-semibold">
-                {notice.message}
+                {
+                  notice.message
+                }
               </p>
 
               <button
@@ -3020,7 +3628,9 @@ export default function AdminDashboard() {
                 <ActiveIcon
                   size={14}
                 />
-                {activeMeta.label}
+                {
+                  activeMeta.label
+                }
               </div>
 
               <h1 className="font-display text-3xl font-semibold tracking-tight text-[#2a1a10] md:text-4xl">
@@ -3041,9 +3651,26 @@ export default function AdminDashboard() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                Backend Connected
+              <span
+                className={cx(
+                  "inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold",
+                  backendBadge.classes,
+                )}
+              >
+                <span
+                  className={cx(
+                    "h-2 w-2 rounded-full",
+                    backendBadge.dot,
+                    backendStatus ===
+                      "checking"
+                      ? "animate-pulse"
+                      : "",
+                  )}
+                />
+
+                {
+                  backendBadge.text
+                }
               </span>
 
               <span className="inline-flex items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-bold text-orange-800">
@@ -3393,7 +4020,9 @@ export default function AdminDashboard() {
                     />
 
                     <input
-                      value={userSearch}
+                      value={
+                        userSearch
+                      }
                       onChange={(
                         event,
                       ) =>
@@ -3451,10 +4080,14 @@ export default function AdminDashboard() {
                     <button
                       type="button"
                       onClick={() => {
-                        setUserSearch("");
+                        setUserSearch(
+                          "",
+                        );
+
                         setUserRoleFilter(
                           "",
                         );
+
                         setUserStatusFilter(
                           "",
                         );
@@ -3483,18 +4116,23 @@ export default function AdminDashboard() {
                           <th className="px-5 py-4">
                             User
                           </th>
+
                           <th className="px-5 py-4">
                             Role
                           </th>
+
                           <th className="px-5 py-4">
                             Contact
                           </th>
+
                           <th className="px-5 py-4">
                             Status
                           </th>
+
                           <th className="px-5 py-4">
                             Created
                           </th>
+
                           <th className="px-5 py-4 text-right">
                             Actions
                           </th>
@@ -3515,8 +4153,7 @@ export default function AdminDashboard() {
                                   "user_id",
                                   "userId",
                                 ],
-                                index +
-                                  1,
+                                0,
                               );
 
                             const name =
@@ -3557,7 +4194,7 @@ export default function AdminDashboard() {
 
                             return (
                               <tr
-                                key={`${id}-${email || index}`}
+                                key={`${id || "missing"}-${email || "user"}-${index}`}
                                 className="hover:bg-orange-50/25"
                               >
                                 <td className="px-5 py-4">
@@ -3576,10 +4213,9 @@ export default function AdminDashboard() {
                                       </p>
 
                                       <p className="text-xs text-stone-500">
-                                        ID #
-                                        {
-                                          id
-                                        }
+                                        {id
+                                          ? `ID #${id}`
+                                          : "ID unavailable"}
                                       </p>
                                     </div>
                                   </div>
@@ -3637,6 +4273,7 @@ export default function AdminDashboard() {
                                         setSelectedRecord(
                                           record,
                                         );
+
                                         setModalType(
                                           "user",
                                         );
@@ -3667,20 +4304,30 @@ export default function AdminDashboard() {
                                               .value as AuthStatus,
                                           )
                                         }
-                                        className="rounded-xl border border-orange-900/10 bg-white px-2.5 py-2 text-xs font-bold outline-none focus:border-orange-500"
+                                        disabled={
+                                          !id ||
+                                          Boolean(
+                                            actionKey,
+                                          )
+                                        }
+                                        className="rounded-xl border border-orange-900/10 bg-white px-2.5 py-2 text-xs font-bold outline-none focus:border-orange-500 disabled:cursor-not-allowed disabled:bg-stone-100"
                                       >
                                         <option value="pending">
                                           Pending
                                         </option>
+
                                         <option value="active">
                                           Active
                                         </option>
+
                                         <option value="suspended">
                                           Suspended
                                         </option>
+
                                         <option value="rejected">
                                           Rejected
                                         </option>
+
                                         <option value="blocked">
                                           Blocked
                                         </option>
@@ -3713,7 +4360,7 @@ export default function AdminDashboard() {
             <div className="space-y-5">
               <SectionHeader
                 title="Pandit Verification"
-                description="Approve, reject, feature and control listing visibility for Pandit profiles."
+                description="Approve, reject, feature and control public listing visibility for Pandit profiles."
               />
 
               <div className="rounded-3xl border border-orange-900/10 bg-white p-4 shadow-sm">
@@ -3793,16 +4440,30 @@ export default function AdminDashboard() {
                       record,
                       index,
                     ) => {
+                      /*
+                       * CRITICAL BUSINESS MAPPING:
+                       * `panditId` = pandit_profiles.id
+                       * `userId`   = users.id
+                       */
+                      const panditId =
+                        readNumber(
+                          record,
+                          [
+                            "id",
+                            "pandit_id",
+                            "panditId",
+                          ],
+                          0,
+                        );
+
                       const userId =
                         readNumber(
                           record,
                           [
                             "user_id",
                             "userId",
-                            "id",
                           ],
-                          index +
-                            1,
+                          0,
                         );
 
                       const name =
@@ -3831,7 +4492,7 @@ export default function AdminDashboard() {
                             "status",
                           ],
                           "pending",
-                        );
+                        ).toLowerCase();
 
                       const city =
                         readString(
@@ -3880,11 +4541,28 @@ export default function AdminDashboard() {
                             "experienceYears",
                             "experience",
                           ],
+                          0,
                         );
+
+                      const approveKey =
+                        `pandit-approve-${panditId}`;
+
+                      const rejectKey =
+                        `pandit-reject-${panditId}`;
+
+                      const featureKey =
+                        `pandit-feature-${panditId}`;
+
+                      const listingKey =
+                        `pandit-listing-${panditId}`;
+
+                      const approved =
+                        status ===
+                        "approved";
 
                       return (
                         <div
-                          key={`${userId}-${index}`}
+                          key={`${panditId || "missing"}-${userId || "missing"}-${index}`}
                           className="rounded-3xl border border-orange-900/10 bg-white p-5 shadow-sm"
                         >
                           <div className="flex items-start gap-4">
@@ -3905,7 +4583,9 @@ export default function AdminDashboard() {
                                 {verified ? (
                                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold text-emerald-800">
                                     <BadgeCheck
-                                      size={11}
+                                      size={
+                                        11
+                                      }
                                     />
                                     Verified
                                   </span>
@@ -3916,8 +4596,10 @@ export default function AdminDashboard() {
                                 {
                                   email ||
                                   "No email"
-                                }{" "}
-                                ·{" "}
+                                }
+
+                                {" · "}
+
                                 {[
                                   city,
                                   state,
@@ -3977,26 +4659,25 @@ export default function AdminDashboard() {
 
                                 <div className="rounded-2xl bg-stone-50 p-3">
                                   <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
-                                    User ID
+                                    Pandit ID
                                   </p>
 
                                   <p className="mt-1 text-sm font-bold">
-                                    #
-                                    {
-                                      userId
-                                    }
+                                    {panditId
+                                      ? `#${panditId}`
+                                      : "Unavailable"}
                                   </p>
                                 </div>
 
                                 <div className="rounded-2xl bg-stone-50 p-3">
                                   <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
-                                    Listing
+                                    User ID
                                   </p>
 
                                   <p className="mt-1 text-sm font-bold">
-                                    {listing
-                                      ? "Visible"
-                                      : "Hidden"}
+                                    {userId
+                                      ? `#${userId}`
+                                      : "Unavailable"}
                                   </p>
                                 </div>
                               </div>
@@ -4010,6 +4691,7 @@ export default function AdminDashboard() {
                                 setSelectedRecord(
                                   record,
                                 );
+
                                 setModalType(
                                   "pandit",
                                 );
@@ -4027,16 +4709,33 @@ export default function AdminDashboard() {
                                   type="button"
                                   onClick={() =>
                                     void handleApprovePandit(
-                                      userId,
+                                      panditId,
                                     )
                                   }
-                                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700"
+                                  disabled={
+                                    !panditId ||
+                                    Boolean(
+                                      actionKey,
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                  <Check
-                                    size={
-                                      14
-                                    }
-                                  />
+                                  {actionKey ===
+                                  approveKey ? (
+                                    <Loader2
+                                      size={
+                                        14
+                                      }
+                                      className="animate-spin"
+                                    />
+                                  ) : (
+                                    <Check
+                                      size={
+                                        14
+                                      }
+                                    />
+                                  )}
+
                                   Approve
                                 </button>
 
@@ -4046,12 +4745,26 @@ export default function AdminDashboard() {
                                     setSelectedRecord(
                                       record,
                                     );
-                                    setRejectReason("");
+
+                                    setRejectReason(
+                                      "",
+                                    );
+
+                                    setRejectTarget(
+                                      "pandit",
+                                    );
+
                                     setModalType(
                                       "reject",
                                     );
                                   }}
-                                  className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white hover:bg-rose-700"
+                                  disabled={
+                                    !panditId ||
+                                    Boolean(
+                                      actionKey,
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   <XCircle
                                     size={
@@ -4067,20 +4780,48 @@ export default function AdminDashboard() {
                               type="button"
                               onClick={() =>
                                 void handleFeaturePandit(
-                                  userId,
+                                  panditId,
                                   !featured,
+                                  status,
                                 )
                               }
+                              disabled={
+                                !approved ||
+                                !panditId ||
+                                Boolean(
+                                  actionKey,
+                                )
+                              }
+                              title={
+                                approved
+                                  ? featured
+                                    ? "Remove featured status"
+                                    : "Feature approved Pandit"
+                                  : "Only approved Pandits can be featured"
+                              }
                               className={cx(
-                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold",
+                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50",
                                 featured
                                   ? "bg-amber-100 text-amber-900 hover:bg-amber-200"
                                   : "border border-orange-900/10 bg-white text-stone-700 hover:bg-orange-50",
                               )}
                             >
-                              <Crown
-                                size={14}
-                              />
+                              {actionKey ===
+                              featureKey ? (
+                                <Loader2
+                                  size={
+                                    14
+                                  }
+                                  className="animate-spin"
+                                />
+                              ) : (
+                                <Crown
+                                  size={
+                                    14
+                                  }
+                                />
+                              )}
+
                               {featured
                                 ? "Unfeature"
                                 : "Feature"}
@@ -4090,25 +4831,63 @@ export default function AdminDashboard() {
                               type="button"
                               onClick={() =>
                                 void handleListingPandit(
-                                  userId,
+                                  panditId,
                                   !listing,
+                                  status,
                                 )
                               }
+                              disabled={
+                                !approved ||
+                                !panditId ||
+                                Boolean(
+                                  actionKey,
+                                )
+                              }
+                              title={
+                                approved
+                                  ? listing
+                                    ? "Disable public Pandit listing"
+                                    : "Activate public Pandit listing"
+                                  : "Only approved Pandits can be listed publicly"
+                              }
                               className={cx(
-                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold",
+                                "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50",
                                 listing
                                   ? "bg-sky-100 text-sky-900 hover:bg-sky-200"
                                   : "border border-orange-900/10 bg-white text-stone-700 hover:bg-orange-50",
                               )}
                             >
-                              <Eye
-                                size={14}
-                              />
+                              {actionKey ===
+                              listingKey ? (
+                                <Loader2
+                                  size={
+                                    14
+                                  }
+                                  className="animate-spin"
+                                />
+                              ) : (
+                                <Eye
+                                  size={
+                                    14
+                                  }
+                                />
+                              )}
+
                               {listing
                                 ? "Disable Listing"
                                 : "Activate Listing"}
                             </button>
                           </div>
+
+                          {!approved ? (
+                            <div className="mt-3 rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                              Public listing and
+                              featured placement
+                              remain unavailable
+                              until the Pandit profile
+                              is approved.
+                            </div>
+                          ) : null}
                         </div>
                       );
                     },
@@ -4176,8 +4955,7 @@ export default function AdminDashboard() {
                             "userId",
                             "id",
                           ],
-                          index +
-                            1,
+                          0,
                         );
 
                       const name =
@@ -4213,20 +4991,11 @@ export default function AdminDashboard() {
                           record,
                           ["status"],
                           "pending",
-                        );
-
-                      const city =
-                        readString(
-                          record,
-                          [
-                            "city",
-                            "location",
-                          ],
-                        );
+                        ).toLowerCase();
 
                       return (
                         <div
-                          key={`${userId}-${index}`}
+                          key={`${userId || "missing"}-${email || "manager"}-${index}`}
                           className="rounded-3xl border border-orange-900/10 bg-white p-5 shadow-sm"
                         >
                           <div className="flex items-start gap-4">
@@ -4260,7 +5029,7 @@ export default function AdminDashboard() {
                             </div>
                           </div>
 
-                          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                          <div className="mt-4 grid gap-3 sm:grid-cols-3">
                             <div className="rounded-2xl bg-stone-50 p-3">
                               <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
                                 Temple
@@ -4280,9 +5049,27 @@ export default function AdminDashboard() {
 
                               <p className="mt-1 text-sm font-bold">
                                 {
-                                  city ||
+                                  readString(
+                                    record,
+                                    [
+                                      "city",
+                                      "location",
+                                    ],
+                                  ) ||
                                   "—"
                                 }
+                              </p>
+                            </div>
+
+                            <div className="rounded-2xl bg-stone-50 p-3">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                                User ID
+                              </p>
+
+                              <p className="mt-1 text-sm font-bold">
+                                {userId
+                                  ? `#${userId}`
+                                  : "Unavailable"}
                               </p>
                             </div>
                           </div>
@@ -4294,6 +5081,7 @@ export default function AdminDashboard() {
                                 setSelectedRecord(
                                   record,
                                 );
+
                                 setModalType(
                                   "manager",
                                 );
@@ -4314,7 +5102,13 @@ export default function AdminDashboard() {
                                       userId,
                                     )
                                   }
-                                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700"
+                                  disabled={
+                                    !userId ||
+                                    Boolean(
+                                      actionKey,
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   <Check
                                     size={
@@ -4330,14 +5124,26 @@ export default function AdminDashboard() {
                                     setSelectedRecord(
                                       record,
                                     );
+
                                     setRejectReason(
                                       "",
                                     );
+
+                                    setRejectTarget(
+                                      "manager",
+                                    );
+
                                     setModalType(
                                       "reject",
                                     );
                                   }}
-                                  className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white hover:bg-rose-700"
+                                  disabled={
+                                    !userId ||
+                                    Boolean(
+                                      actionKey,
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   <XCircle
                                     size={
@@ -4375,11 +5181,17 @@ export default function AdminDashboard() {
                       setSalesForm(
                         EMPTY_SALES_FORM,
                       );
+
                       setModalType(
                         "sales",
                       );
                     }}
-                    className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-bold text-white hover:bg-orange-700"
+                    disabled={
+                      Boolean(
+                        actionKey,
+                      )
+                    }
+                    className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <UserCog size={16} />
                     Create Sales User
@@ -4480,8 +5292,7 @@ export default function AdminDashboard() {
                             "plan_id",
                             "planId",
                           ],
-                          index +
-                            1,
+                          0,
                         );
 
                       const name =
@@ -4505,6 +5316,7 @@ export default function AdminDashboard() {
                             "priceAmount",
                             "price",
                           ],
+                          0,
                         );
 
                       const leadLimit =
@@ -4515,6 +5327,7 @@ export default function AdminDashboard() {
                             "leadLimit",
                             "leads",
                           ],
+                          0,
                         );
 
                       const duration =
@@ -4541,9 +5354,7 @@ export default function AdminDashboard() {
                       const featured =
                         readBoolean(
                           plan,
-                          [
-                            "featured",
-                          ],
+                          ["featured"],
                         );
 
                       const active =
@@ -4569,7 +5380,8 @@ export default function AdminDashboard() {
                       return (
                         <div
                           key={
-                            id
+                            id ||
+                            `${name}-${index}`
                           }
                           className="relative overflow-hidden rounded-3xl border border-orange-900/10 bg-white p-6 shadow-sm"
                         >
@@ -4597,7 +5409,7 @@ export default function AdminDashboard() {
                             </span>
 
                             <span className="ml-1 text-sm text-stone-400">
-                              /{" "}
+                              /
                               {
                                 duration
                               }{" "}
@@ -4659,7 +5471,13 @@ export default function AdminDashboard() {
                                   plan,
                                 )
                               }
-                              className="inline-flex items-center gap-2 rounded-xl border border-orange-900/10 bg-white px-3 py-2 text-xs font-bold hover:bg-orange-50"
+                              disabled={
+                                !id ||
+                                Boolean(
+                                  actionKey,
+                                )
+                              }
+                              className="inline-flex items-center gap-2 rounded-xl border border-orange-900/10 bg-white px-3 py-2 text-xs font-bold hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               <Pencil
                                 size={14}
@@ -4771,15 +5589,19 @@ export default function AdminDashboard() {
                           <th className="px-5 py-4">
                             Lead
                           </th>
+
                           <th className="px-5 py-4">
                             Service
                           </th>
+
                           <th className="px-5 py-4">
                             Source
                           </th>
+
                           <th className="px-5 py-4">
                             Status
                           </th>
+
                           <th className="px-5 py-4">
                             Created
                           </th>
@@ -4847,19 +5669,19 @@ export default function AdminDashboard() {
                                 "open",
                               );
 
+                            const leadId =
+                              readNumber(
+                                record,
+                                [
+                                  "id",
+                                  "lead_id",
+                                ],
+                                0,
+                              );
+
                             return (
                               <tr
-                                key={
-                                  readNumber(
-                                    record,
-                                    [
-                                      "id",
-                                      "lead_id",
-                                    ],
-                                    index +
-                                      1,
-                                  )
-                                }
+                                key={`${leadId || "lead"}-${index}`}
                               >
                                 <td className="px-5 py-4">
                                   <p className="text-sm font-bold">
@@ -4972,18 +5794,23 @@ export default function AdminDashboard() {
                           <th className="px-5 py-4">
                             Pandit
                           </th>
+
                           <th className="px-5 py-4">
                             Plan
                           </th>
+
                           <th className="px-5 py-4">
                             Amount
                           </th>
+
                           <th className="px-5 py-4">
                             Start
                           </th>
+
                           <th className="px-5 py-4">
                             Expiry
                           </th>
+
                           <th className="px-5 py-4">
                             Status
                           </th>
@@ -5033,6 +5860,7 @@ export default function AdminDashboard() {
                                   "price_amount",
                                   "priceAmount",
                                 ],
+                                0,
                               );
 
                             const status =
@@ -5045,19 +5873,19 @@ export default function AdminDashboard() {
                                 "active",
                               );
 
+                            const id =
+                              readNumber(
+                                record,
+                                [
+                                  "id",
+                                  "subscription_id",
+                                ],
+                                0,
+                              );
+
                             return (
                               <tr
-                                key={
-                                  readNumber(
-                                    record,
-                                    [
-                                      "id",
-                                      "subscription_id",
-                                    ],
-                                    index +
-                                      1,
-                                  )
-                                }
+                                key={`${id || "subscription"}-${index}`}
                               >
                                 <td className="px-5 py-4">
                                   <p className="text-sm font-bold">
@@ -5191,8 +6019,7 @@ export default function AdminDashboard() {
                             "temple_id",
                             "templeId",
                           ],
-                          index +
-                            1,
+                          0,
                         );
 
                       const name =
@@ -5247,7 +6074,8 @@ export default function AdminDashboard() {
                       return (
                         <div
                           key={
-                            id
+                            id ||
+                            `${name}-${index}`
                           }
                           className="rounded-3xl border border-orange-900/10 bg-white p-5 shadow-sm"
                         >
@@ -5295,7 +6123,8 @@ export default function AdminDashboard() {
 
                           <p className="mt-4 text-xs text-stone-400">
                             Temple ID #
-                            {id}
+                            {id ||
+                              "unavailable"}
                           </p>
                         </div>
                       );
@@ -5322,9 +6151,23 @@ export default function AdminDashboard() {
                     onClick={() =>
                       void handleSaveSettings()
                     }
-                    className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-bold text-white hover:bg-orange-700"
+                    disabled={
+                      Boolean(
+                        actionKey,
+                      )
+                    }
+                    className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <Check size={16} />
+                    {actionKey ===
+                    "settings-save" ? (
+                      <Loader2
+                        size={16}
+                        className="animate-spin"
+                      />
+                    ) : (
+                      <Check size={16} />
+                    )}
+
                     Save Settings
                   </button>
                 }
@@ -5406,6 +6249,11 @@ export default function AdminDashboard() {
                                     !value,
                                   )
                                 }
+                                disabled={
+                                  Boolean(
+                                    actionKey,
+                                  )
+                                }
                                 description="Toggle this configuration value."
                               />
                             ) : (
@@ -5421,6 +6269,11 @@ export default function AdminDashboard() {
                                         value,
                                       )
                                     : textValue
+                                }
+                                disabled={
+                                  Boolean(
+                                    actionKey,
+                                  )
                                 }
                                 onChange={(
                                   event,
@@ -5438,7 +6291,7 @@ export default function AdminDashboard() {
                                           .value,
                                   );
                                 }}
-                                className="w-full rounded-xl border border-orange-900/15 bg-stone-50 px-3.5 py-3 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                                className="w-full rounded-xl border border-orange-900/15 bg-stone-50 px-3.5 py-3 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 disabled:cursor-not-allowed disabled:bg-stone-100"
                               />
                             )}
                           </div>
@@ -5568,19 +6421,19 @@ export default function AdminDashboard() {
                             ],
                           );
 
+                        const id =
+                          readNumber(
+                            record,
+                            [
+                              "id",
+                              "audit_id",
+                            ],
+                            0,
+                          );
+
                         return (
                           <div
-                            key={
-                              readNumber(
-                                record,
-                                [
-                                  "id",
-                                  "audit_id",
-                                ],
-                                index +
-                                  1,
-                              )
-                            }
+                            key={`${id || "audit"}-${index}`}
                             className="flex gap-4 p-5"
                           >
                             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-orange-100 text-orange-800">
@@ -5670,6 +6523,7 @@ export default function AdminDashboard() {
                     setModalType(
                       null,
                     );
+
                     setSelectedRecord(
                       null,
                     );
@@ -5697,6 +6551,7 @@ export default function AdminDashboard() {
                     setModalType(
                       null,
                     );
+
                     setSelectedRecord(
                       null,
                     );
@@ -5724,6 +6579,7 @@ export default function AdminDashboard() {
                     setModalType(
                       null,
                     );
+
                     setSelectedRecord(
                       null,
                     );
@@ -5746,14 +6602,25 @@ export default function AdminDashboard() {
             "reject" ? (
               <>
                 <ModalHeader
-                  title="Reject Application"
+                  title={
+                    rejectTarget ===
+                    "manager"
+                      ? "Reject Temple Manager"
+                      : "Reject Pandit Application"
+                  }
                   onClose={() => {
                     setModalType(
                       null,
                     );
+
                     setSelectedRecord(
                       null,
                     );
+
+                    setRejectTarget(
+                      null,
+                    );
+
                     setRejectReason(
                       "",
                     );
@@ -5776,13 +6643,46 @@ export default function AdminDashboard() {
                         </p>
 
                         <p className="mt-1 text-xs leading-5 text-rose-700">
-                          Provide a reason for
-                          useful administrative
-                          records.
+                          A rejection reason is
+                          required for audit,
+                          support and applicant
+                          communication workflows.
                         </p>
                       </div>
                     </div>
                   </div>
+
+                  {selectedRecord ? (
+                    <div className="mt-5 rounded-2xl border border-orange-900/10 bg-white p-4">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-orange-700">
+                        Application
+                      </p>
+
+                      <p className="mt-1 text-lg font-bold text-[#2a1a10]">
+                        {readString(
+                          selectedRecord,
+                          [
+                            "display_name",
+                            "displayName",
+                            "name",
+                            "manager_name",
+                            "managerName",
+                          ],
+                          rejectTarget ===
+                            "manager"
+                            ? "Temple Manager"
+                            : "Pandit",
+                        )}
+                      </p>
+
+                      <p className="mt-1 text-xs text-stone-500">
+                        {rejectTarget ===
+                        "manager"
+                          ? `User ID: ${readNumber(selectedRecord, ["user_id", "userId", "id"], 0) || "Unavailable"}`
+                          : `Pandit ID: ${readNumber(selectedRecord, ["id", "pandit_id", "panditId"], 0) || "Unavailable"}`}
+                      </p>
+                    </div>
+                  ) : null}
 
                   <label className="mt-5 block">
                     <span className="mb-1.5 block text-xs font-bold text-stone-600">
@@ -5802,9 +6702,22 @@ export default function AdminDashboard() {
                         )
                       }
                       rows={5}
-                      placeholder="Enter rejection reason…"
-                      className="w-full resize-none rounded-2xl border border-orange-900/15 bg-white px-4 py-3 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                      maxLength={1000}
+                      placeholder="Enter the reason for rejection…"
+                      disabled={
+                        Boolean(
+                          actionKey,
+                        )
+                      }
+                      className="w-full resize-none rounded-2xl border border-orange-900/15 bg-white px-4 py-3 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 disabled:cursor-not-allowed disabled:bg-stone-100"
                     />
+
+                    <p className="mt-1 text-right text-[11px] text-stone-400">
+                      {
+                        rejectReason.length
+                      }
+                      /1000
+                    </p>
                   </label>
 
                   <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -5814,14 +6727,25 @@ export default function AdminDashboard() {
                         setModalType(
                           null,
                         );
+
                         setSelectedRecord(
                           null,
                         );
+
+                        setRejectTarget(
+                          null,
+                        );
+
                         setRejectReason(
                           "",
                         );
                       }}
-                      className="rounded-xl border border-orange-900/10 bg-white px-4 py-3 text-sm font-bold text-stone-600 hover:bg-orange-50"
+                      disabled={
+                        Boolean(
+                          actionKey,
+                        )
+                      }
+                      className="rounded-xl border border-orange-900/10 bg-white px-4 py-3 text-sm font-bold text-stone-600 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Cancel
                     </button>
@@ -5829,28 +6753,41 @@ export default function AdminDashboard() {
                     <button
                       type="button"
                       onClick={() => {
-                        const role =
-                          readString(
-                            selectedRecord ??
-                              {},
-                            [
-                              "role",
-                              "role_code",
-                            ],
-                          );
-
                         if (
-                          role ===
-                          "temple_manager"
+                          rejectTarget ===
+                          "manager"
                         ) {
                           void handleRejectManager();
-                        } else {
+                        } else if (
+                          rejectTarget ===
+                          "pandit"
+                        ) {
                           void handleRejectPandit();
                         }
                       }}
-                      className="rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-700"
+                      disabled={
+                        Boolean(
+                          actionKey,
+                        ) ||
+                        rejectReason
+                          .trim()
+                          .length <
+                          5
+                      }
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      Reject
+                      {actionKey ? (
+                        <Loader2
+                          size={15}
+                          className="animate-spin"
+                        />
+                      ) : (
+                        <XCircle
+                          size={15}
+                        />
+                      )}
+
+                      Reject Application
                     </button>
                   </div>
                 </div>
@@ -5891,14 +6828,20 @@ export default function AdminDashboard() {
                           current,
                         ) => ({
                           ...current,
-                          name: event
-                            .target
-                            .value,
+                          name:
+                            event
+                              .target
+                              .value,
                         }),
                       )
                     }
                     placeholder="Sales executive name"
                     required
+                    disabled={
+                      Boolean(
+                        actionKey,
+                      )
+                    }
                   />
 
                   <InputField
@@ -5914,15 +6857,21 @@ export default function AdminDashboard() {
                           current,
                         ) => ({
                           ...current,
-                          email: event
-                            .target
-                            .value,
+                          email:
+                            event
+                              .target
+                              .value,
                         }),
                       )
                     }
                     type="email"
                     placeholder="sales@example.com"
                     required
+                    disabled={
+                      Boolean(
+                        actionKey,
+                      )
+                    }
                   />
 
                   <InputField
@@ -5938,13 +6887,19 @@ export default function AdminDashboard() {
                           current,
                         ) => ({
                           ...current,
-                          phone: event
-                            .target
-                            .value,
+                          phone:
+                            event
+                              .target
+                              .value,
                         }),
                       )
                     }
                     placeholder="+91 XXXXX XXXXX"
+                    disabled={
+                      Boolean(
+                        actionKey,
+                      )
+                    }
                   />
 
                   <InputField
@@ -5969,6 +6924,11 @@ export default function AdminDashboard() {
                     type="password"
                     placeholder="Minimum 8 characters"
                     required
+                    disabled={
+                      Boolean(
+                        actionKey,
+                      )
+                    }
                   />
 
                   <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4 md:col-span-2">
@@ -5993,16 +6953,37 @@ export default function AdminDashboard() {
                           null,
                         )
                       }
-                      className="rounded-xl border border-orange-900/10 bg-white px-4 py-3 text-sm font-bold text-stone-600 hover:bg-orange-50"
+                      disabled={
+                        Boolean(
+                          actionKey,
+                        )
+                      }
+                      className="rounded-xl border border-orange-900/10 bg-white px-4 py-3 text-sm font-bold text-stone-600 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Cancel
                     </button>
 
                     <button
                       type="submit"
-                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-bold text-white hover:bg-orange-700"
+                      disabled={
+                        Boolean(
+                          actionKey,
+                        )
+                      }
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <UserCog size={15} />
+                      {actionKey ===
+                      "sales-create" ? (
+                        <Loader2
+                          size={15}
+                          className="animate-spin"
+                        />
+                      ) : (
+                        <UserCog
+                          size={15}
+                        />
+                      )}
+
                       Create Sales Account
                     </button>
                   </div>
@@ -6027,6 +7008,7 @@ export default function AdminDashboard() {
                     setModalType(
                       null,
                     );
+
                     setSelectedRecord(
                       null,
                     );
@@ -6047,13 +7029,19 @@ export default function AdminDashboard() {
                           current,
                         ) => ({
                           ...current,
-                          name: event
-                            .target
-                            .value,
+                          name:
+                            event
+                              .target
+                              .value,
                         }),
                       )
                     }
                     required
+                    disabled={
+                      Boolean(
+                        actionKey,
+                      )
+                    }
                   />
 
                   <InputField
@@ -6069,13 +7057,19 @@ export default function AdminDashboard() {
                           current,
                         ) => ({
                           ...current,
-                          code: event
-                            .target
-                            .value,
+                          code:
+                            event
+                              .target
+                              .value,
                         }),
                       )
                     }
                     required
+                    disabled={
+                      Boolean(
+                        actionKey,
+                      )
+                    }
                   />
 
                   <InputField
@@ -6100,6 +7094,11 @@ export default function AdminDashboard() {
                     }
                     type="number"
                     required
+                    disabled={
+                      Boolean(
+                        actionKey,
+                      )
+                    }
                   />
 
                   <InputField
@@ -6123,6 +7122,11 @@ export default function AdminDashboard() {
                       )
                     }
                     required
+                    disabled={
+                      Boolean(
+                        actionKey,
+                      )
+                    }
                   />
 
                   <InputField
@@ -6147,6 +7151,11 @@ export default function AdminDashboard() {
                     }
                     type="number"
                     required
+                    disabled={
+                      Boolean(
+                        actionKey,
+                      )
+                    }
                   />
 
                   <InputField
@@ -6171,6 +7180,11 @@ export default function AdminDashboard() {
                     }
                     type="number"
                     required
+                    disabled={
+                      Boolean(
+                        actionKey,
+                      )
+                    }
                   />
 
                   <div className="space-y-2 md:col-span-2">
@@ -6188,6 +7202,11 @@ export default function AdminDashboard() {
                             listingEnabled:
                               !current.listingEnabled,
                           }),
+                        )
+                      }
+                      disabled={
+                        Boolean(
+                          actionKey,
                         )
                       }
                     />
@@ -6208,6 +7227,11 @@ export default function AdminDashboard() {
                           }),
                         )
                       }
+                      disabled={
+                        Boolean(
+                          actionKey,
+                        )
+                      }
                     />
 
                     <Toggle
@@ -6224,6 +7248,11 @@ export default function AdminDashboard() {
                             prioritySupport:
                               !current.prioritySupport,
                           }),
+                        )
+                      }
+                      disabled={
+                        Boolean(
+                          actionKey,
                         )
                       }
                     />
@@ -6244,6 +7273,11 @@ export default function AdminDashboard() {
                           }),
                         )
                       }
+                      disabled={
+                        Boolean(
+                          actionKey,
+                        )
+                      }
                     />
                   </div>
 
@@ -6254,20 +7288,41 @@ export default function AdminDashboard() {
                         setModalType(
                           null,
                         );
+
                         setSelectedRecord(
                           null,
                         );
                       }}
-                      className="rounded-xl border border-orange-900/10 bg-white px-4 py-3 text-sm font-bold text-stone-600 hover:bg-orange-50"
+                      disabled={
+                        Boolean(
+                          actionKey,
+                        )
+                      }
+                      className="rounded-xl border border-orange-900/10 bg-white px-4 py-3 text-sm font-bold text-stone-600 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Cancel
                     </button>
 
                     <button
                       type="submit"
-                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-bold text-white hover:bg-orange-700"
+                      disabled={
+                        Boolean(
+                          actionKey,
+                        )
+                      }
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-3 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <Check size={15} />
+                      {actionKey ? (
+                        <Loader2
+                          size={15}
+                          className="animate-spin"
+                        />
+                      ) : (
+                        <Check
+                          size={15}
+                        />
+                      )}
+
                       Save Plan
                     </button>
                   </div>

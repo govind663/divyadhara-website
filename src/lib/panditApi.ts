@@ -22,6 +22,11 @@
  * URL handling:
  *   Uses the centralized `buildApiUrl()` from ./api.
  *   This guarantees the `/api` prefix is not duplicated.
+ *
+ * Cache / CORS:
+ *   - Never manually send Cache-Control / Pragma / Expires request headers.
+ *   - Do not force fetch cache mode to `no-store`.
+ *   - The backend controls response caching with Cache-Control: no-store.
  * ========================================================================== */
 
 import { buildApiUrl } from "./api";
@@ -30,16 +35,26 @@ import { buildApiUrl } from "./api";
  * Constants
  * ========================================================================== */
 
-const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 2_000_000;
 
 const JSON_CONTENT_TYPE = "application/json";
 
-const NO_STORE_HEADERS = {
-  Accept: JSON_CONTENT_TYPE,
-  "Cache-Control": "no-store, max-age=0",
-  Pragma: "no-cache",
-};
+/*
+ * These are intentionally removed from outbound application headers.
+ *
+ * IMPORTANT:
+ * `Cache-Control`, `Pragma`, and `Expires` are not application headers
+ * that this API client should manually inject. Doing so can make a
+ * cross-origin request trigger a CORS preflight.
+ *
+ * The backend is responsible for response-side cache policy.
+ */
+const REQUEST_CACHE_HEADERS_TO_REMOVE = [
+  "cache-control",
+  "pragma",
+  "expires",
+] as const;
 
 /* ============================================================================
  * Shared API Types
@@ -431,18 +446,6 @@ export type PanditApiResult<
  * Listing Response
  * ========================================================================== */
 
-/**
- * GET /api/pandit/listing
- *
- * Backend currently returns:
- *   - success
- *   - listing
- *   - profileListingActive
- *   - subscription
- *
- * Keep listingActive optional here because the GET endpoint uses
- * `profileListingActive`.
- */
 export type PanditListingResponse = {
   success?: boolean;
 
@@ -463,13 +466,6 @@ export type PanditListingResponse = {
   code?: string;
 };
 
-/**
- * PATCH /api/pandit/listing
- *
- * Backend guarantees `listingActive` in the PATCH response.
- * This separate type removes the `boolean | undefined` problem
- * in PanditDashboard.
- */
 export type PanditSetListingResponse = {
   success?: boolean;
 
@@ -1018,6 +1014,9 @@ function getErrorMessage(
     case 504:
       return "The DivyaDhara service is temporarily unavailable. Please try again shortly.";
 
+    case 499:
+      return "The Pandit request was cancelled.";
+
     default:
       return status > 0
         ? `Request failed with status ${status}.`
@@ -1035,7 +1034,8 @@ function contentLengthTooLarge(
     return false;
   }
 
-  const numericLength = Number(length);
+  const numericLength =
+    Number(length);
 
   return (
     Number.isFinite(numericLength) &&
@@ -1056,7 +1056,8 @@ async function readResponse(
     );
   }
 
-  const raw = await response.text();
+  const raw =
+    await response.text();
 
   if (
     new TextEncoder()
@@ -1086,8 +1087,19 @@ async function readResponse(
 function buildHeaders(
   init: RequestInit,
 ): Headers {
+  /*
+   * Only application-level headers belong here.
+   *
+   * NOTE:
+   * Do NOT put Cache-Control / Pragma / Expires here.
+   */
   const headers =
-    new Headers(NO_STORE_HEADERS);
+    new Headers();
+
+  headers.set(
+    "Accept",
+    JSON_CONTENT_TYPE,
+  );
 
   if (init.headers) {
     const incoming =
@@ -1100,8 +1112,27 @@ function buildHeaders(
     );
   }
 
+  /*
+   * Defensive protection:
+   * even if a caller accidentally passes one of these headers,
+   * remove it before fetch.
+   */
+  for (
+    const headerName of REQUEST_CACHE_HEADERS_TO_REMOVE
+  ) {
+    headers.delete(headerName);
+  }
+
+  /*
+   * JSON bodies automatically receive Content-Type unless:
+   * - body is FormData
+   * - body is Blob
+   * - body is URLSearchParams
+   * - caller already specified Content-Type
+   */
   if (
-    init.body &&
+    init.body !== undefined &&
+    init.body !== null &&
     !(init.body instanceof FormData) &&
     !(init.body instanceof Blob) &&
     !(init.body instanceof URLSearchParams) &&
@@ -1133,12 +1164,15 @@ function appendQuery(
     return path;
   }
 
-  const search = new URLSearchParams();
+  const search =
+    new URLSearchParams();
 
-  for (const [
-    key,
-    value,
-  ] of Object.entries(params)) {
+  for (
+    const [
+      key,
+      value,
+    ] of Object.entries(params)
+  ) {
     if (
       value === undefined ||
       value === null ||
@@ -1147,10 +1181,14 @@ function appendQuery(
       continue;
     }
 
-    search.set(key, String(value));
+    search.set(
+      key,
+      String(value),
+    );
   }
 
-  const query = search.toString();
+  const query =
+    search.toString();
 
   return query
     ? `${path}?${query}`
@@ -1183,7 +1221,18 @@ function validateRequiredString(
   value: string,
   fieldName: string,
 ): string {
-  const cleaned = value.trim();
+  if (
+    typeof value !== "string"
+  ) {
+    throw new PanditApiError(
+      `${fieldName} is required.`,
+      400,
+      "VALIDATION_ERROR",
+    );
+  }
+
+  const cleaned =
+    value.trim();
 
   if (!cleaned) {
     throw new PanditApiError(
@@ -1201,7 +1250,8 @@ function jsonBody(
 ): RequestInit {
   return {
     headers: {
-      "Content-Type": JSON_CONTENT_TYPE,
+      "Content-Type":
+        JSON_CONTENT_TYPE,
     },
     body: JSON.stringify(value),
   };
@@ -1220,26 +1270,94 @@ async function request<
   const controller =
     new AbortController();
 
+  const callerSignal =
+    init.signal;
+
+  let timedOut = false;
+
+  let removeCallerAbortListener:
+    | (() => void)
+    | undefined;
+
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      controller.abort();
+    } else {
+      const onCallerAbort =
+        () => {
+          controller.abort();
+        };
+
+      callerSignal.addEventListener(
+        "abort",
+        onCallerAbort,
+        {
+          once: true,
+        },
+      );
+
+      removeCallerAbortListener =
+        () => {
+          callerSignal.removeEventListener(
+            "abort",
+            onCallerAbort,
+          );
+        };
+    }
+  }
+
   const timeoutId =
     window.setTimeout(
-      () => controller.abort(),
+      () => {
+        timedOut = true;
+        controller.abort();
+      },
       REQUEST_TIMEOUT_MS,
     );
 
-  const url = buildUrl(path);
+  const url =
+    buildUrl(path);
 
   try {
     const response =
       await fetch(url, {
         ...init,
 
-        credentials: "include",
+        /*
+         * Pandit API uses cookie/session authentication.
+         * Preserve a caller override when explicitly provided.
+         */
+        credentials:
+          init.credentials ??
+          "include",
 
-        cache: "no-store",
+        /*
+         * IMPORTANT:
+         *
+         * Do not use `cache: "no-store"` here.
+         *
+         * Fetch implementations can translate no-store/reload
+         * cache modes into Cache-Control / Pragma request headers.
+         * Those headers can participate in CORS preflight.
+         *
+         * The backend already controls response caching using
+         * Cache-Control: no-store.
+         */
+        cache: "default",
 
-        headers: buildHeaders(init),
+        mode:
+          init.mode ?? "cors",
 
-        signal: controller.signal,
+        headers:
+          buildHeaders(init),
+
+        /*
+         * Use our own controller so we can support both:
+         * - caller cancellation
+         * - automatic timeout
+         */
+        signal:
+          controller.signal,
       });
 
     const data =
@@ -1253,7 +1371,8 @@ async function request<
 
       const code =
         payload &&
-        typeof payload.code === "string"
+        typeof payload.code ===
+          "string"
           ? payload.code
           : undefined;
 
@@ -1278,7 +1397,8 @@ async function request<
           response.status,
         ),
         response.status,
-        typeof data.code === "string"
+        typeof data.code ===
+          "string"
           ? data.code
           : undefined,
         data,
@@ -1294,8 +1414,8 @@ async function request<
      *
      * The generic PanditApiResult<T> represents object-shaped API
      * responses, while the backend may technically return a primitive
-     * JSON value. The double cast is intentional and resolves the
-     * TypeScript TS2352 warning safely at this boundary.
+     * JSON value. The double cast is intentional and resolves
+     * TypeScript's structural incompatibility at this boundary.
      */
     return {
       success: true,
@@ -1309,18 +1429,46 @@ async function request<
     }
 
     if (
-      typeof DOMException !== "undefined" &&
+      typeof DOMException !==
+        "undefined" &&
       error instanceof DOMException &&
-      error.name === "AbortError"
+      error.name ===
+        "AbortError"
     ) {
+      if (
+        timedOut
+      ) {
+        throw new PanditApiError(
+          "Request timed out. Please make sure the DivyaDhara API server is running.",
+          408,
+          "REQUEST_TIMEOUT",
+          {
+            url,
+            timeoutMs:
+              REQUEST_TIMEOUT_MS,
+          },
+        );
+      }
+
+      if (
+        callerSignal?.aborted
+      ) {
+        throw new PanditApiError(
+          "The Pandit request was cancelled.",
+          499,
+          "REQUEST_ABORTED",
+          {
+            url,
+          },
+        );
+      }
+
       throw new PanditApiError(
-        "Request timed out. Please make sure the DivyaDhara API server is running.",
-        408,
-        "REQUEST_TIMEOUT",
+        "The Pandit request was aborted.",
+        0,
+        "REQUEST_ABORTED",
         {
           url,
-          timeoutMs:
-            REQUEST_TIMEOUT_MS,
         },
       );
     }
@@ -1334,7 +1482,8 @@ async function request<
         "API_CONNECTION_ERROR",
         {
           url,
-          originalError: error,
+          originalError:
+            error,
         },
       );
     }
@@ -1352,7 +1501,11 @@ async function request<
       error,
     );
   } finally {
-    window.clearTimeout(timeoutId);
+    window.clearTimeout(
+      timeoutId,
+    );
+
+    removeCallerAbortListener?.();
   }
 }
 
@@ -1554,9 +1707,8 @@ export const panditApi = {
       {
         method: "PATCH",
         ...jsonBody({
-          listingActive: Boolean(
-            listingActive,
-          ),
+          listingActive:
+            Boolean(listingActive),
         }),
       },
     ) as Promise<PanditSetListingResponse>;
@@ -1603,7 +1755,8 @@ export const panditApi = {
           documentType,
 
           documentName:
-            input.documentName?.trim() ||
+            input.documentName
+              ?.trim() ||
             undefined,
 
           documentUrl,
@@ -1635,14 +1788,16 @@ export const panditApi = {
             input.documentName ===
             undefined
               ? undefined
-              : input.documentName?.trim() ||
+              : input.documentName
+                  ?.trim() ||
                 null,
 
           documentUrl:
             input.documentUrl ===
             undefined
               ? undefined
-              : input.documentUrl?.trim() ||
+              : input.documentUrl
+                  ?.trim() ||
                 null,
         }),
       },
@@ -1724,7 +1879,8 @@ export const panditApi = {
       {
         method: "PATCH",
         ...jsonBody({
-          autoRenew: Boolean(autoRenew),
+          autoRenew:
+            Boolean(autoRenew),
         }),
       },
     ) as Promise<AutoRenewResponse>;
@@ -1814,7 +1970,9 @@ export const panditApi = {
       ];
 
     if (
-      !allowedStatuses.includes(status)
+      !allowedStatuses.includes(
+        status,
+      )
     ) {
       throw new PanditApiError(
         "Invalid lead status.",
@@ -1859,9 +2017,10 @@ export const panditApi = {
         method: "POST",
         ...jsonBody({
           note,
-          isPinned: Boolean(
-            input.isPinned,
-          ),
+          isPinned:
+            Boolean(
+              input.isPinned,
+            ),
         }),
       },
     ) as Promise<PanditLeadNoteResponse>;
@@ -1915,11 +2074,13 @@ export const panditApi = {
           followupType,
 
           subject:
-            input.subject?.trim() ||
+            input.subject
+              ?.trim() ||
             undefined,
 
           notes:
-            input.notes?.trim() ||
+            input.notes
+              ?.trim() ||
             undefined,
         }),
       },
@@ -1959,14 +2120,23 @@ export const panditApi = {
     limit = 25,
   ):
     Promise<PanditNotificationsResponse> {
+    const numericLimit =
+      Number(limit);
+
     const safeLimit =
-      Math.min(
-        100,
-        Math.max(
-          1,
-          Number(limit) || 25,
-        ),
-      );
+      Number.isFinite(
+        numericLimit,
+      )
+        ? Math.min(
+            100,
+            Math.max(
+              1,
+              Math.trunc(
+                numericLimit,
+              ),
+            ),
+          )
+        : 25;
 
     return request<PanditNotificationsResponse>(
       appendQuery(
@@ -2018,7 +2188,9 @@ export function getPanditApiErrorMessage(
     return error.message;
   }
 
-  if (error instanceof Error) {
+  if (
+    error instanceof Error
+  ) {
     return error.message;
   }
 

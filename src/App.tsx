@@ -69,6 +69,16 @@ import {
 } from "./pages/Info";
 
 /* ============================================================================
+ * SUBSCRIPTIONS / PRICING
+ *
+ * Public page:
+ * - Users can view subscription plans without login.
+ * - Actual checkout / activation remains controlled by backend/payment flow.
+ * ========================================================================== */
+
+import Subscriptions from "./pages/Subscriptions";
+
+/* ============================================================================
  * AUTH
  * ========================================================================== */
 
@@ -188,8 +198,11 @@ function RequireRole({
     );
   }
 
-  // Read the runtime value defensively so the router also supports a role that
-  // has been added on the backend before the shared context types are updated.
+  /**
+   * Read runtime role defensively.
+   * This keeps routing safe even if backend/context types are temporarily
+   * out of sync with the role value returned by the server.
+   */
   const role: unknown = user.role;
 
   if (!isSupportedRole(role)) {
@@ -225,9 +238,14 @@ function AppRoutes() {
       <Routes>
         {/* ====================================================================
          * PUBLIC WEBSITE + AUTH + VISITOR ACCOUNT
+         *
+         * All routes inside Layout render through the site's common layout.
          * ================================================================== */}
         <Route element={<Layout />}>
-          {/* Home */}
+
+          {/* ------------------------------------------------------------------
+           * HOME
+           * ---------------------------------------------------------------- */}
           <Route
             index
             element={<Home />}
@@ -326,6 +344,36 @@ function AppRoutes() {
           <Route
             path="courses/:slug"
             element={<CourseDetail />}
+          />
+
+          {/* ------------------------------------------------------------------
+           * SUBSCRIPTIONS / PRICING
+           *
+           * Canonical:
+           *   /subscriptions
+           *
+           * Public:
+           *   No RequireRole wrapper here.
+           *
+           * Business rule:
+           *   - Plan catalogue can be viewed publicly.
+           *   - Fallback plans are informational only.
+           *   - Purchase/activation is controlled by the payment/backend flow.
+           * ---------------------------------------------------------------- */}
+          <Route
+            path="subscriptions"
+            element={<Subscriptions />}
+          />
+
+          {/* Legacy / singular URL -> canonical URL */}
+          <Route
+            path="subscription"
+            element={
+              <Navigate
+                to="/subscriptions"
+                replace
+              />
+            }
           />
 
           {/* ------------------------------------------------------------------
@@ -521,9 +569,14 @@ function AppRoutes() {
 
         {/* ====================================================================
          * TEMPLE MANAGER DASHBOARD
-         * Canonical: /temple/dashboard
-         * Legacy:    /temple-manager/dashboard
+         *
+         * Canonical:
+         *   /temple/dashboard
+         *
+         * Legacy:
+         *   /temple-manager/dashboard
          * ================================================================== */}
+
         <Route
           path="temple/dashboard"
           element={
@@ -545,9 +598,14 @@ function AppRoutes() {
 
         {/* ====================================================================
          * ASHRAM MANAGER DASHBOARD
-         * Canonical: /ashram/dashboard
-         * Legacy:    /ashram-manager/dashboard
+         *
+         * Canonical:
+         *   /ashram/dashboard
+         *
+         * Legacy:
+         *   /ashram-manager/dashboard
          * ================================================================== */}
+
         <Route
           path="ashram/dashboard"
           element={
@@ -570,6 +628,7 @@ function AppRoutes() {
         {/* ====================================================================
          * SALES DASHBOARD
          * ================================================================== */}
+
         <Route
           path="sales/dashboard"
           element={
@@ -582,6 +641,7 @@ function AppRoutes() {
         {/* ====================================================================
          * SUPER ADMIN
          * ================================================================== */}
+
         <Route
           path="admin/dashboard"
           element={
@@ -591,6 +651,7 @@ function AppRoutes() {
           }
         />
 
+        {/* Legacy admin URL */}
         <Route
           path="admin"
           element={
@@ -603,6 +664,9 @@ function AppRoutes() {
 
         {/* ====================================================================
          * 404
+         *
+         * IMPORTANT:
+         * This catch-all route must stay LAST.
          * ================================================================== */}
         <Route
           path="*"

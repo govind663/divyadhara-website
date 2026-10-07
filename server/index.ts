@@ -77,23 +77,35 @@ const app = express();
 |--------------------------------------------------------------------------
 */
 
-const rawPort = process.env.PORT?.trim() || "3001";
+const rawPort =
+  process.env.PORT?.trim() || "3001";
+
 const PORT = Number(rawPort);
 
-const HOST = process.env.HOST?.trim() || "0.0.0.0";
+const HOST =
+  process.env.HOST?.trim() ||
+  "0.0.0.0";
 
 const NODE_ENV =
-  process.env.NODE_ENV?.trim().toLowerCase() || "development";
+  process.env.NODE_ENV
+    ?.trim()
+    .toLowerCase() ||
+  "development";
 
-const IS_PRODUCTION = NODE_ENV === "production";
+const IS_PRODUCTION =
+  NODE_ENV === "production";
 
-const API_VERSION = process.env.API_VERSION?.trim() || "1.0.0";
+const API_VERSION =
+  process.env.API_VERSION?.trim() ||
+  "1.0.0";
 
 const BODY_LIMIT =
-  process.env.API_BODY_LIMIT?.trim() || "1mb";
+  process.env.API_BODY_LIMIT?.trim() ||
+  "1mb";
 
 const WEBHOOK_BODY_LIMIT =
-  process.env.RAZORPAY_WEBHOOK_BODY_LIMIT?.trim() || "1mb";
+  process.env.RAZORPAY_WEBHOOK_BODY_LIMIT?.trim() ||
+  "1mb";
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
@@ -106,8 +118,10 @@ const SHUTDOWN_TIMEOUT_MS = 10_000;
 app.disable("x-powered-by");
 
 /*
- * Only trust the first reverse-proxy hop in production. In development we
- * leave Express at its default so local forwarded headers cannot spoof req.ip.
+ * Only trust the first reverse-proxy hop in production.
+ *
+ * In development Express keeps its default trust-proxy behaviour so locally
+ * supplied forwarded headers do not become trusted automatically.
  */
 if (IS_PRODUCTION) {
   app.set("trust proxy", 1);
@@ -120,12 +134,32 @@ if (IS_PRODUCTION) {
 |
 | Credentials are used because authentication/session cookies are part of the
 | application flow. Origins must therefore be explicit rather than '*'.
+|
+| Development:
+| - localhost:5173
+| - 127.0.0.1:5173
+| - localhost:4173
+| - 127.0.0.1:4173
+|
+| Production:
+| - only origins explicitly configured in CORS_ORIGINS are allowed
 |--------------------------------------------------------------------------
 */
 
-function normalizeOrigin(value: string): string {
-  return value.trim().replace(/\/$/, "");
+function normalizeOrigin(
+  value: string,
+): string {
+  return value
+    .trim()
+    .replace(/\/$/, "");
 }
+
+const LOCAL_DEVELOPMENT_ORIGINS = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:4173",
+  "http://127.0.0.1:4173",
+];
 
 function getAllowedOrigins(): Set<string> {
   const configured =
@@ -134,19 +168,39 @@ function getAllowedOrigins(): Set<string> {
       .map(normalizeOrigin)
       .filter(Boolean) ?? [];
 
-  if (configured.length > 0) {
-    return new Set(configured);
+  const origins =
+    new Set<string>(configured);
+
+  /*
+   * In development, local Vite origins are always allowed even when an
+   * existing CORS_ORIGINS value contains only production domains.
+   */
+  if (!IS_PRODUCTION) {
+    for (
+      const origin of
+        LOCAL_DEVELOPMENT_ORIGINS
+    ) {
+      origins.add(origin);
+    }
   }
 
-  return new Set([
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:4173",
-    "http://127.0.0.1:4173",
-  ]);
+  /*
+   * In production, DO NOT silently enable localhost CORS.
+   *
+   * If CORS_ORIGINS is missing in production, the API remains same-origin
+   * accessible but does not grant cross-origin browser access.
+   */
+  return origins;
 }
 
-const ALLOWED_ORIGINS = getAllowedOrigins();
+const ALLOWED_ORIGINS =
+  getAllowedOrigins();
+
+/*
+|--------------------------------------------------------------------------
+| CORS middleware
+|--------------------------------------------------------------------------
+*/
 
 app.use(
   (
@@ -154,29 +208,59 @@ app.use(
     res: Response,
     next: NextFunction,
   ) => {
-    const originHeader = req.headers.origin;
+    const originHeader =
+      req.headers.origin;
 
     const origin =
       typeof originHeader === "string"
         ? normalizeOrigin(originHeader)
         : null;
 
-    if (origin && ALLOWED_ORIGINS.has(origin)) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
+    const isAllowedOrigin =
+      !origin ||
+      ALLOWED_ORIGINS.has(origin);
+
+    /*
+     * Explicitly grant CORS only to configured origins.
+     */
+    if (
+      origin &&
+      isAllowedOrigin
+    ) {
+      res.setHeader(
+        "Access-Control-Allow-Origin",
+        origin,
+      );
+
       res.setHeader(
         "Access-Control-Allow-Credentials",
         "true",
       );
-      res.setHeader("Vary", "Origin");
+
+      res.setHeader(
+        "Vary",
+        "Origin",
+      );
     }
 
+    /*
+     * Keep the allow-list explicit.
+     *
+     * Cache-Control is particularly important for fetch requests using
+     * cache: "no-store" / cache: "no-cache", because some browsers may send
+     * a Cache-Control request header during preflight.
+     */
     res.setHeader(
       "Access-Control-Allow-Headers",
       [
+        "Accept",
         "Content-Type",
         "Authorization",
         "X-Requested-With",
         "X-Request-ID",
+        "Cache-Control",
+        "Pragma",
+        "Expires",
       ].join(", "),
     );
 
@@ -185,9 +269,31 @@ app.use(
       "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
     );
 
-    if (req.method === "OPTIONS") {
-      if (origin && !ALLOWED_ORIGINS.has(origin)) {
-        res.status(403).end();
+    res.setHeader(
+      "Access-Control-Max-Age",
+      "600",
+    );
+
+    /*
+     * Preflight request.
+     */
+    if (
+      req.method === "OPTIONS"
+    ) {
+      /*
+       * Requests without Origin are not browser CORS requests and therefore
+       * do not need an Origin allow-list decision.
+       */
+      if (
+        origin &&
+        !isAllowedOrigin
+      ) {
+        res.status(403).json({
+          success: false,
+          error:
+            "CORS origin not allowed.",
+        });
+
         return;
       }
 
@@ -195,6 +301,11 @@ app.use(
       return;
     }
 
+    /*
+     * A browser will enforce the missing ACAO header for disallowed origins.
+     * The request itself can still reach the application for same-origin,
+     * server-to-server and non-browser callers.
+     */
     next();
   },
 );
@@ -206,8 +317,13 @@ app.use(
 */
 
 function makeRequestId(): string {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).slice(2, 10);
+  const timestamp =
+    Date.now().toString(36);
+
+  const random =
+    Math.random()
+      .toString(36)
+      .slice(2, 10);
 
   return `${timestamp}-${random}`;
 }
@@ -218,23 +334,34 @@ app.use(
     res: Response,
     next: NextFunction,
   ) => {
-    const suppliedRequestId = req.get("x-request-id");
+    const suppliedRequestId =
+      req.get("x-request-id");
 
     const requestId =
-      suppliedRequestId?.trim().slice(0, 200) ||
+      suppliedRequestId
+        ?.trim()
+        .slice(0, 200) ||
       makeRequestId();
 
-    res.setHeader("X-Request-ID", requestId);
-    res.locals.requestId = requestId;
+    res.setHeader(
+      "X-Request-ID",
+      requestId,
+    );
 
-    const startedAt = process.hrtime.bigint();
+    res.locals.requestId =
+      requestId;
+
+    const startedAt =
+      process.hrtime.bigint();
 
     res.on("finish", () => {
       const elapsedNs =
-        process.hrtime.bigint() - startedAt;
+        process.hrtime.bigint() -
+        startedAt;
 
       const durationMs =
-        Number(elapsedNs) / 1_000_000;
+        Number(elapsedNs) /
+        1_000_000;
 
       console.log(
         `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} ${durationMs.toFixed(
@@ -252,8 +379,9 @@ app.use(
 | Razorpay webhook raw-body middleware
 |--------------------------------------------------------------------------
 |
-| MUST run before express.json(). Razorpay signatures are calculated against
-| the exact raw request body.
+| MUST run before express.json().
+|
+| Razorpay signatures are calculated against the exact raw request body.
 |--------------------------------------------------------------------------
 */
 
@@ -265,7 +393,8 @@ app.use(
       "application/*+json",
       "text/json",
     ],
-    limit: WEBHOOK_BODY_LIMIT,
+    limit:
+      WEBHOOK_BODY_LIMIT,
   }),
 );
 
@@ -334,8 +463,12 @@ app.use(
      * opt into caching later when that is implemented.
      */
     if (
-      !req.path.startsWith("/api/dev") &&
-      !req.path.startsWith("/api/health")
+      !req.path.startsWith(
+        "/api/dev",
+      ) &&
+      !req.path.startsWith(
+        "/api/health",
+      )
     ) {
       res.setHeader(
         "Cache-Control",
@@ -355,7 +488,10 @@ app.use(
 
 app.get(
   "/api",
-  (_req: Request, res: Response) => {
+  (
+    _req: Request,
+    res: Response,
+  ) => {
     res.json({
       success: true,
       name: "DivyaDhara API",
@@ -369,30 +505,44 @@ app.get(
         pandit: "/api/pandit",
         temples: "/api/temples",
         leads: "/api/leads",
-        analytics: "/api/analytics",
+        analytics:
+          "/api/analytics",
         sales: "/api/sales",
-        subscriptions: "/api/subscriptions",
-        payments: "/api/payments",
-        ashrams: "/api/ashrams",
-        bookings: "/api/bookings",
-        pujaServices: "/api/puja-services",
+        subscriptions:
+          "/api/subscriptions",
+        payments:
+          "/api/payments",
+        ashrams:
+          "/api/ashrams",
+        bookings:
+          "/api/bookings",
+        pujaServices:
+          "/api/puja-services",
         yatra: "/api/yatra",
         events: "/api/events",
         courses: "/api/courses",
-        spiritualPlaces: "/api/spiritual-places",
+        spiritualPlaces:
+          "/api/spiritual-places",
         seo: "/api/seo",
-        youtube: "/api/youtube",
+        youtube:
+          "/api/youtube",
       },
 
       notes: {
-        paymentAuthority: "payments",
-        leadAuthority: "leads",
-        subscriptionAuthority: "subscriptions",
-        analyticsAuthority: "analytics",
-        youtubeLiveCount: "youtube",
+        paymentAuthority:
+          "payments",
+        leadAuthority:
+          "leads",
+        subscriptionAuthority:
+          "subscriptions",
+        analyticsAuthority:
+          "analytics",
+        youtubeLiveCount:
+          "youtube",
       },
 
-      message: "DivyaDhara backend is running.",
+      message:
+        "DivyaDhara backend is running.",
     });
   },
 );
@@ -405,8 +555,12 @@ app.get(
 
 app.get(
   "/api/health",
-  (_req: Request, res: Response) => {
-    const connected = isDatabaseConnected();
+  (
+    _req: Request,
+    res: Response,
+  ) => {
+    const connected =
+      isDatabaseConnected();
 
     const stats = connected
       ? getDatabaseStats()
@@ -417,16 +571,25 @@ app.get(
       Number.isInteger(PORT) &&
       PORT >= 1 &&
       PORT <= 65_535 &&
-      (!stats || stats.connected);
+      (!stats ||
+        stats.connected);
 
-    res.status(healthy ? 200 : 503).json({
+    res.status(
+      healthy ? 200 : 503,
+    ).json({
       success: healthy,
-      service: "divyadhara-api",
-      status: healthy ? "healthy" : "degraded",
+      service:
+        "divyadhara-api",
+      status: healthy
+        ? "healthy"
+        : "degraded",
       environment: NODE_ENV,
       version: API_VERSION,
-      timestamp: new Date().toISOString(),
-      requestId: res.locals.requestId ?? null,
+      timestamp:
+        new Date().toISOString(),
+      requestId:
+        res.locals.requestId ??
+        null,
 
       database: {
         engine: "SQLite",
@@ -447,21 +610,30 @@ app.get(
         auth: "/api/auth",
         admin: "/api/admin",
         pandit: "/api/pandit",
-        temples: "/api/temples",
+        temples:
+          "/api/temples",
         leads: "/api/leads",
-        analytics: "/api/analytics",
+        analytics:
+          "/api/analytics",
         sales: "/api/sales",
-        subscriptions: "/api/subscriptions",
-        payments: "/api/payments",
-        ashrams: "/api/ashrams",
-        bookings: "/api/bookings",
-        pujaServices: "/api/puja-services",
+        subscriptions:
+          "/api/subscriptions",
+        payments:
+          "/api/payments",
+        ashrams:
+          "/api/ashrams",
+        bookings:
+          "/api/bookings",
+        pujaServices:
+          "/api/puja-services",
         yatra: "/api/yatra",
         events: "/api/events",
         courses: "/api/courses",
-        spiritualPlaces: "/api/spiritual-places",
+        spiritualPlaces:
+          "/api/spiritual-places",
         seo: "/api/seo",
-        youtube: "/api/youtube",
+        youtube:
+          "/api/youtube",
         youtubeLiveCount:
           "/api/youtube/live-count",
       },
@@ -481,13 +653,18 @@ app.get(
 if (!IS_PRODUCTION) {
   app.get(
     "/api/dev/database",
-    (_req: Request, res: Response) => {
-      const stats = getDatabaseStats();
+    (
+      _req: Request,
+      res: Response,
+    ) => {
+      const stats =
+        getDatabaseStats();
 
       res.json({
         success: true,
         database: "SQLite",
-        connected: isDatabaseConnected(),
+        connected:
+          isDatabaseConnected(),
         path: databasePath,
         stats,
       });
@@ -647,13 +824,18 @@ app.use(
 
 app.use(
   "/api",
-  (req: Request, res: Response) => {
+  (
+    req: Request,
+    res: Response,
+  ) => {
     res.status(404).json({
       success: false,
-      error: "API route not found",
+      error:
+        "API route not found",
       path: req.originalUrl,
       requestId:
-        res.locals.requestId ?? null,
+        res.locals.requestId ??
+        null,
     });
   },
 );
@@ -674,28 +856,33 @@ type ApiError = {
 function statusFromError(
   error: unknown,
 ): number {
-  const apiError = error as ApiError;
+  const apiError =
+    error as ApiError;
 
   if (
-    typeof apiError.statusCode === "number"
+    typeof apiError.statusCode ===
+    "number"
   ) {
     return apiError.statusCode;
   }
 
   if (
-    typeof apiError.status === "number"
+    typeof apiError.status ===
+    "number"
   ) {
     return apiError.status;
   }
 
   if (
-    apiError.type === "entity.parse.failed"
+    apiError.type ===
+    "entity.parse.failed"
   ) {
     return 400;
   }
 
   if (
-    apiError.type === "entity.too.large"
+    apiError.type ===
+    "entity.too.large"
   ) {
     return 413;
   }
@@ -731,31 +918,49 @@ app.use(
       "Internal server error.";
 
     if (status === 400) {
-      message = "Invalid request body.";
-    } else if (status === 401) {
-      message = "Authentication required.";
-    } else if (status === 403) {
-      message = "Access denied.";
-    } else if (status === 404) {
-      message = "Resource not found.";
-    } else if (status === 409) {
+      message =
+        "Invalid request body.";
+    } else if (
+      status === 401
+    ) {
+      message =
+        "Authentication required.";
+    } else if (
+      status === 403
+    ) {
+      message =
+        "Access denied.";
+    } else if (
+      status === 404
+    ) {
+      message =
+        "Resource not found.";
+    } else if (
+      status === 409
+    ) {
       message =
         "Request conflicts with the current resource state.";
-    } else if (status === 413) {
-      message = "Request body is too large.";
+    } else if (
+      status === 413
+    ) {
+      message =
+        "Request body is too large.";
     } else if (
       !IS_PRODUCTION &&
-      typeof apiError.message === "string" &&
+      typeof apiError.message ===
+        "string" &&
       apiError.message.trim()
     ) {
-      message = apiError.message;
+      message =
+        apiError.message;
     }
 
     res.status(status).json({
       success: false,
       error: message,
       requestId:
-        res.locals.requestId ?? null,
+        res.locals.requestId ??
+        null,
     });
   },
 );
@@ -767,7 +972,9 @@ app.use(
 */
 
 let httpServer:
-  | ReturnType<typeof app.listen>
+  | ReturnType<
+      typeof app.listen
+    >
   | undefined;
 
 let shuttingDown = false;
@@ -810,7 +1017,9 @@ function shutdown(
   }
 
   httpServer.close(
-    (error?: Error) => {
+    (
+      error?: Error,
+    ) => {
       if (error) {
         console.error(
           "Error while stopping HTTP server:",
@@ -996,7 +1205,7 @@ function startServer(): void {
       );
 
       console.log(
-        `Database        : SQLite`,
+        "Database        : SQLite",
       );
 
       console.log(
@@ -1030,6 +1239,16 @@ function startServer(): void {
       );
 
       console.log(
+        "CORS            : enabled",
+      );
+
+      console.log(
+        `CORS Origins    : ${
+          ALLOWED_ORIGINS.size
+        } configured`,
+      );
+
+      console.log(
         "==============================================",
       );
 
@@ -1048,7 +1267,8 @@ function startServer(): void {
       );
 
       if (
-        error.code === "EADDRINUSE"
+        error.code ===
+        "EADDRINUSE"
       ) {
         console.error(
           `❌ Port ${PORT} is already in use.`,
@@ -1084,7 +1304,9 @@ process.on(
 
 process.on(
   "uncaughtException",
-  (error: Error) => {
+  (
+    error: Error,
+  ) => {
     console.error(
       "Uncaught exception:",
       error,
@@ -1098,7 +1320,9 @@ process.on(
 
 process.on(
   "unhandledRejection",
-  (reason: unknown) => {
+  (
+    reason: unknown,
+  ) => {
     console.error(
       "Unhandled promise rejection:",
       reason,

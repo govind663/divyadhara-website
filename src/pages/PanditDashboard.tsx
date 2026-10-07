@@ -1,3 +1,4 @@
+/* eslint-disable no-extra-boolean-cast */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable react-hooks/preserve-manual-memoization */
 /* eslint-disable react-hooks/set-state-in-effect */
@@ -6,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -47,10 +49,19 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { Link, useNavigate } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+} from "react-router-dom";
 
-import { useApp } from "../context/AppContext";
-import { useSEO } from "../lib/seo";
+import {
+  useApp,
+} from "../context/AppContext";
+
+import {
+  useSEO,
+} from "../lib/seo";
+
 import {
   confirmAction,
   showError,
@@ -93,6 +104,9 @@ type LoadingState = {
   page: boolean;
   savingProfile: boolean;
   savingService: boolean;
+  deletingService: boolean;
+  changingServiceId: number | null;
+  changingListing: boolean;
   analytics: boolean;
 };
 
@@ -114,17 +128,23 @@ function createEmptyProfile(): PanditProfileInput {
     district: "",
     state: "",
     country: "India",
+
     displayName: "",
     title: "",
     photo: "",
+
     experienceYears: 0,
+
     location: "",
+
     languages: [],
     specializations: [],
     pujaTypes: [],
+
     associatedWith: "",
     about: "",
     availability: "",
+
     serviceAreas: [],
   };
 }
@@ -144,46 +164,83 @@ function createEmptyService(): PanditServiceInput {
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
-function csvToArray(value: string): string[] {
+function csvToArray(
+  value: string,
+): string[] {
   return value
     .split(",")
-    .map((item) => item.trim())
+    .map(
+      (item) =>
+        item.trim(),
+    )
     .filter(Boolean)
     .filter(
-      (item, index, all) =>
-        all.indexOf(item) === index,
+      (
+        item,
+        index,
+        all,
+      ) =>
+        all.indexOf(item) ===
+        index,
     );
 }
 
 function arrayToCsv(
-  value: string[] | undefined,
+  value:
+    | string[]
+    | undefined,
 ): string {
-  return (value ?? []).join(", ");
+  return (
+    value ?? []
+  ).join(", ");
 }
 
 function prettyStatus(
-  value?: string | null,
+  value?:
+    | string
+    | null,
 ): string {
   if (!value) {
     return "Pending";
   }
 
   return value
-    .replace(/[_-]+/g, " ")
+    .replace(
+      /[_-]+/g,
+      " ",
+    )
     .replace(
       /\b\w/g,
-      (letter) => letter.toUpperCase(),
+      (letter) =>
+        letter.toUpperCase(),
+    );
+}
+
+function normalizeStatus(
+  value?:
+    | string
+    | null,
+): string {
+  return String(
+    value ?? "",
+  )
+    .trim()
+    .toLowerCase()
+    .replace(
+      /[-\s]+/g,
+      "_",
     );
 }
 
 function statusClass(
-  status?: string | null,
+  status?:
+    | string
+    | null,
 ): string {
-  const normalized = String(
-    status ?? "",
-  )
-    .trim()
-    .toLowerCase();
+  const normalized =
+    normalizeStatus(
+      status,
+    );
 
   if (
     [
@@ -191,7 +248,9 @@ function statusClass(
       "verified",
       "active",
       "converted",
-    ].includes(normalized)
+    ].includes(
+      normalized,
+    )
   ) {
     return "bg-emerald-100 text-emerald-800";
   }
@@ -203,7 +262,10 @@ function statusClass(
       "blocked",
       "expired",
       "cancelled",
-    ].includes(normalized)
+      "canceled",
+    ].includes(
+      normalized,
+    )
   ) {
     return "bg-rose-100 text-rose-800";
   }
@@ -212,8 +274,13 @@ function statusClass(
 }
 
 function displayCurrency(
-  amount: number | null | undefined,
-  currency: string | undefined,
+  amount:
+    | number
+    | null
+    | undefined,
+  currency:
+    | string
+    | undefined,
 ): string {
   if (
     amount === null ||
@@ -227,23 +294,29 @@ function displayCurrency(
       "en-IN",
       {
         style: "currency",
-        currency: currency || "INR",
+        currency:
+          currency || "INR",
         maximumFractionDigits: 0,
       },
     ).format(amount);
   } catch {
-    return `${currency || "INR"} ${amount}`;
+    return `${
+      currency || "INR"
+    } ${amount}`;
   }
 }
 
 function dateLabel(
-  value?: string | null,
+  value?:
+    | string
+    | null,
 ): string {
   if (!value) {
     return "Not available";
   }
 
-  const parsed = new Date(value);
+  const parsed =
+    new Date(value);
 
   if (
     Number.isNaN(
@@ -264,17 +337,20 @@ function dateLabel(
 }
 
 function daysRemaining(
-  value?: string | null,
+  value?:
+    | string
+    | null,
 ): number | null {
   if (!value) {
     return null;
   }
 
-  const time = new Date(
-    value,
-  ).getTime();
+  const time =
+    new Date(value).getTime();
 
-  if (!Number.isFinite(time)) {
+  if (
+    !Number.isFinite(time)
+  ) {
     return null;
   }
 
@@ -290,25 +366,33 @@ function daysRemaining(
 function isValidPhotoUrl(
   value: string,
 ): boolean {
-  const trimmed = value.trim();
+  const trimmed =
+    value.trim();
 
   if (!trimmed) {
     return true;
   }
 
   if (
-    trimmed.startsWith("/") ||
-    trimmed.startsWith("./")
+    trimmed.startsWith(
+      "/",
+    ) ||
+    trimmed.startsWith(
+      "./",
+    )
   ) {
     return true;
   }
 
   try {
-    const url = new URL(trimmed);
+    const url =
+      new URL(trimmed);
 
     return (
-      url.protocol === "http:" ||
-      url.protocol === "https:"
+      url.protocol ===
+        "http:" ||
+      url.protocol ===
+        "https:"
     );
   } catch {
     return false;
@@ -349,6 +433,100 @@ function safeNumber(
     : 0;
 }
 
+function getUnknownRecord(
+  value: unknown,
+): Record<
+  string,
+  unknown
+> | null {
+  if (
+    typeof value !==
+      "object" ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    return null;
+  }
+
+  return value as Record<
+    string,
+    unknown
+  >;
+}
+
+function getNotificationValue(
+  value: unknown,
+  keys: string[],
+): unknown {
+  const record =
+    getUnknownRecord(
+      value,
+    );
+
+  if (!record) {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    if (
+      record[key] !==
+      undefined &&
+      record[key] !== null
+    ) {
+      return record[key];
+    }
+  }
+
+  return undefined;
+}
+
+function notificationText(
+  value: unknown,
+): string {
+  const result =
+    getNotificationValue(
+      value,
+      [
+        "text",
+        "message",
+        "title",
+        "body",
+      ],
+    );
+
+  return typeof result ===
+    "string" &&
+    result.trim()
+    ? result.trim()
+    : "You have a new DivyaDhara account notification.";
+}
+
+function notificationDate(
+  value: unknown,
+): string {
+  const result =
+    getNotificationValue(
+      value,
+      [
+        "date",
+        "createdAt",
+        "created_at",
+        "timestamp",
+      ],
+    );
+
+  if (
+    typeof result ===
+    "string"
+  ) {
+    return dateLabel(
+      result,
+    );
+  }
+
+  return "";
+}
+
 /* -------------------------------------------------------------------------- */
 /* Component                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -361,7 +539,8 @@ export default function PanditDashboard() {
     description:
       "Manage your DivyaDhara Pandit profile, Puja services, enquiry leads, verification, subscription and public listing.",
 
-    path: "/pandit/dashboard",
+    path:
+      "/pandit/dashboard",
   });
 
   const {
@@ -374,15 +553,19 @@ export default function PanditDashboard() {
   const navigate =
     useNavigate();
 
-  const [tab, setTab] =
-    useState<TabId>(
-      "overview",
-    );
+  const [
+    tab,
+    setTab,
+  ] = useState<TabId>(
+    "overview",
+  );
 
   const [
     mobileNavOpen,
     setMobileNavOpen,
-  ] = useState(false);
+  ] = useState(
+    false,
+  );
 
   const [
     profile,
@@ -394,21 +577,23 @@ export default function PanditDashboard() {
   const [
     profileMissing,
     setProfileMissing,
-  ] = useState(false);
+  ] = useState(
+    false,
+  );
 
   const [
     pageError,
     setPageError,
-  ] = useState<string | null>(
-    null,
-  );
+  ] = useState<
+    string | null
+  >(null);
 
   const [
     services,
     setServices,
-  ] = useState<PanditService[]>(
-    [],
-  );
+  ] = useState<
+    PanditService[]
+  >([]);
 
   const [
     stats,
@@ -434,9 +619,9 @@ export default function PanditDashboard() {
   const [
     plans,
     setPlans,
-  ] = useState<PanditPlan[]>(
-    [],
-  );
+  ] = useState<
+    PanditPlan[]
+  >([]);
 
   const [
     analytics,
@@ -455,12 +640,18 @@ export default function PanditDashboard() {
   const [
     loading,
     setLoading,
-  ] = useState<LoadingState>({
-    page: true,
-    savingProfile: false,
-    savingService: false,
-    analytics: false,
-  });
+  ] = useState<LoadingState>(
+    {
+      page: true,
+      savingProfile: false,
+      savingService: false,
+      deletingService: false,
+      changingServiceId:
+        null,
+      changingListing: false,
+      analytics: false,
+    },
+  );
 
   const [
     profileForm,
@@ -479,14 +670,51 @@ export default function PanditDashboard() {
   const [
     editingServiceId,
     setEditingServiceId,
-  ] = useState<number | null>(
-    null,
-  );
+  ] = useState<
+    number | null
+  >(null);
 
   const [
     serviceModalOpen,
     setServiceModalOpen,
-  ] = useState(false);
+  ] = useState(
+    false,
+  );
+
+  /* ------------------------------------------------------------------------ */
+  /* Runtime guards                                                           */
+  /* ------------------------------------------------------------------------ */
+
+  const mountedRef =
+    useRef(true);
+
+  const dashboardLoadingRef =
+    useRef(false);
+
+  const analyticsLoadingRef =
+    useRef(false);
+
+  const dashboardRequestIdRef =
+    useRef(0);
+
+  const autoLoadedUserKeyRef =
+    useRef<
+      string | null
+    >(null);
+
+  useEffect(() => {
+    mountedRef.current =
+      true;
+
+    return () => {
+      mountedRef.current =
+        false;
+    };
+  }, []);
+
+  /* ------------------------------------------------------------------------ */
+  /* Shared form classes                                                      */
+  /* ------------------------------------------------------------------------ */
 
   const formInput =
     "w-full rounded-xl border border-orange-900/10 bg-white px-3.5 py-3 text-sm outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-200 disabled:cursor-not-allowed disabled:bg-stone-100";
@@ -538,23 +766,35 @@ export default function PanditDashboard() {
             "",
 
           experienceYears:
-            nextProfile.experienceYears,
+            Number(
+              nextProfile.experienceYears ??
+                0,
+            ),
 
           location:
             nextProfile.location ??
             "",
 
           languages:
-            nextProfile.languages ??
-            [],
+            Array.isArray(
+              nextProfile.languages,
+            )
+              ? nextProfile.languages
+              : [],
 
           specializations:
-            nextProfile.specializations ??
-            [],
+            Array.isArray(
+              nextProfile.specializations,
+            )
+              ? nextProfile.specializations
+              : [],
 
           pujaTypes:
-            nextProfile.pujaTypes ??
-            [],
+            Array.isArray(
+              nextProfile.pujaTypes,
+            )
+              ? nextProfile.pujaTypes
+              : [],
 
           associatedWith:
             nextProfile.associatedWith ??
@@ -569,8 +809,11 @@ export default function PanditDashboard() {
             "",
 
           serviceAreas:
-            nextProfile.serviceAreas ??
-            [],
+            Array.isArray(
+              nextProfile.serviceAreas,
+            )
+              ? nextProfile.serviceAreas
+              : [],
         });
       },
       [
@@ -583,56 +826,77 @@ export default function PanditDashboard() {
     );
 
   const resetProfileForm =
-    useCallback(
-      () => {
-        if (profile) {
-          fillProfileFormFromProfile(
-            profile,
-          );
-          return;
-        }
+    useCallback(() => {
+      if (profile) {
+        fillProfileFormFromProfile(
+          profile,
+        );
+        return;
+      }
 
-        setProfileForm({
-          ...createEmptyProfile(),
+      setProfileForm({
+        ...createEmptyProfile(),
 
-          name:
-            user?.name ?? "",
+        name:
+          user?.name ?? "",
 
-          phone:
-            user?.phone ?? "",
+        phone:
+          user?.phone ?? "",
 
-          city:
-            user?.city ?? "",
+        city:
+          user?.city ?? "",
 
-          state:
-            user?.state ?? "",
+        state:
+          user?.state ?? "",
 
-          country:
-            user?.country ??
-            "India",
+        country:
+          user?.country ??
+          "India",
 
-          displayName:
-            user?.name ?? "",
-        });
-      },
-      [
-        fillProfileFormFromProfile,
-        profile,
-        user?.city,
-        user?.country,
-        user?.name,
-        user?.phone,
-        user?.state,
-      ],
-    );
+        displayName:
+          user?.name ?? "",
+      });
+    }, [
+      fillProfileFormFromProfile,
+      profile,
+      user?.city,
+      user?.country,
+      user?.name,
+      user?.phone,
+      user?.state,
+    ]);
 
   /* ------------------------------------------------------------------------ */
   /* Dashboard loading                                                        */
   /* ------------------------------------------------------------------------ */
 
   const loadDashboard =
-    useCallback(
-      async () => {
+    useCallback(async () => {
+      /*
+       * Prevent duplicate requests from:
+       * - React StrictMode
+       * - double clicks
+       * - quick tab/navigation changes
+       */
+      if (
+        dashboardLoadingRef.current
+      ) {
+        return;
+      }
+
+      dashboardLoadingRef.current =
+        true;
+
+      const requestId =
+        dashboardRequestIdRef.current +
+        1;
+
+      dashboardRequestIdRef.current =
+        requestId;
+
+      if (
+        mountedRef.current
+      ) {
         setLoading(
           (current) => ({
             ...current,
@@ -640,152 +904,220 @@ export default function PanditDashboard() {
           }),
         );
 
-        setPageError(null);
+        setPageError(
+          null,
+        );
+      }
 
-        try {
-          const raw: PanditDashboardResponse =
-            await panditApi.dashboard();
+      try {
+        const raw: PanditDashboardResponse =
+          await panditApi.dashboard();
 
-          const nextServices =
-            raw.services ?? [];
+        /*
+         * Ignore stale responses.
+         */
+        if (
+          !mountedRef.current ||
+          requestId !==
+            dashboardRequestIdRef.current
+        ) {
+          return;
+        }
 
-          setProfile(
-            raw.profile ?? null,
-          );
+        const nextServices =
+          Array.isArray(
+            raw.services,
+          )
+            ? raw.services
+            : [];
 
-          setProfileMissing(
-            !raw.profile,
-          );
-
-          setServices(
+        const nextStats =
+          raw.stats ??
+          calculateStats(
             nextServices,
           );
 
+        setProfile(
+          raw.profile ?? null,
+        );
+
+        setProfileMissing(
+          !raw.profile,
+        );
+
+        setServices(
+          nextServices,
+        );
+
+        setStats(
+          nextStats,
+        );
+
+        setVerificationDocuments(
+          Array.isArray(
+            raw.verificationDocuments,
+          )
+            ? raw.verificationDocuments
+            : [],
+        );
+
+        setSubscription(
+          raw.subscription ??
+            null,
+        );
+
+        setPlans(
+          Array.isArray(
+            raw.plans,
+          )
+            ? raw.plans
+            : [],
+        );
+
+        if (raw.profile) {
+          fillProfileFormFromProfile(
+            raw.profile,
+          );
+        } else {
+          setProfileForm({
+            ...createEmptyProfile(),
+
+            name:
+              user?.name ?? "",
+
+            phone:
+              user?.phone ?? "",
+
+            city:
+              user?.city ?? "",
+
+            state:
+              user?.state ?? "",
+
+            country:
+              user?.country ??
+              "India",
+
+            displayName:
+              user?.name ?? "",
+          });
+
+          setTab(
+            "profile",
+          );
+        }
+      } catch (error) {
+        if (
+          !mountedRef.current ||
+          requestId !==
+            dashboardRequestIdRef.current
+        ) {
+          return;
+        }
+
+        const profileNotFound =
+          error instanceof
+            PanditApiError &&
+          (
+            error.status ===
+              404 ||
+            error.code ===
+              "PANDIT_PROFILE_NOT_FOUND"
+          );
+
+        if (
+          profileNotFound
+        ) {
+          setProfile(null);
+          setProfileMissing(
+            true,
+          );
+
+          setServices(
+            [],
+          );
+
           setStats(
-            raw.stats ??
-              calculateStats(
-                nextServices,
-              ),
+            calculateStats(
+              [],
+            ),
           );
 
           setVerificationDocuments(
-            raw.verificationDocuments ??
-              [],
+            [],
           );
 
           setSubscription(
-            raw.subscription ??
-              null,
+            null,
           );
 
           setPlans(
-            raw.plans ?? [],
+            [],
           );
 
-          if (raw.profile) {
-            fillProfileFormFromProfile(
-              raw.profile,
-            );
-          } else {
-            setProfileForm({
-              ...createEmptyProfile(),
+          setProfileForm({
+            ...createEmptyProfile(),
 
-              name:
-                user?.name ?? "",
+            name:
+              user?.name ?? "",
 
-              phone:
-                user?.phone ?? "",
+            phone:
+              user?.phone ?? "",
 
-              city:
-                user?.city ?? "",
+            city:
+              user?.city ?? "",
 
-              state:
-                user?.state ?? "",
+            state:
+              user?.state ?? "",
 
-              country:
-                user?.country ??
-                "India",
+            country:
+              user?.country ??
+              "India",
 
-              displayName:
-                user?.name ?? "",
-            });
+            displayName:
+              user?.name ?? "",
+          });
 
-            setTab("profile");
-          }
-        } catch (error) {
-          if (
-            error instanceof
-              PanditApiError &&
-            (
-              error.status ===
-                404 ||
-              error.code ===
-                "PANDIT_PROFILE_NOT_FOUND"
-            )
-          ) {
-            setProfile(null);
-            setProfileMissing(true);
-            setServices([]);
-            setStats(
-              calculateStats([]),
-            );
-            setVerificationDocuments(
-              [],
-            );
-            setSubscription(null);
-            setPlans([]);
-
-            setTab("profile");
-
-            setProfileForm({
-              ...createEmptyProfile(),
-
-              name:
-                user?.name ?? "",
-
-              phone:
-                user?.phone ?? "",
-
-              city:
-                user?.city ?? "",
-
-              state:
-                user?.state ?? "",
-
-              country:
-                user?.country ??
-                "India",
-
-              displayName:
-                user?.name ?? "",
-            });
-
-            return;
-          }
-
-          setPageError(
-            error instanceof Error
-              ? error.message
-              : "Please try again.",
+          setTab(
+            "profile",
           );
-        } finally {
-          setLoading(
-            (current) => ({
-              ...current,
-              page: false,
-            }),
-          );
+
+          return;
         }
-      },
-      [
-        fillProfileFormFromProfile,
-        user?.city,
-        user?.country,
-        user?.name,
-        user?.phone,
-        user?.state,
-      ],
-    );
+
+        setPageError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load your Pandit dashboard.",
+        );
+      } finally {
+        if (
+          requestId ===
+          dashboardRequestIdRef.current
+        ) {
+          dashboardLoadingRef.current =
+            false;
+
+          if (
+            mountedRef.current
+          ) {
+            setLoading(
+              (current) => ({
+                ...current,
+                page: false,
+              }),
+            );
+          }
+        }
+      }
+    }, [
+      fillProfileFormFromProfile,
+      user?.city,
+      user?.country,
+      user?.name,
+      user?.phone,
+      user?.state,
+    ]);
 
   /* ------------------------------------------------------------------------ */
   /* Role guard                                                               */
@@ -804,19 +1136,30 @@ export default function PanditDashboard() {
         string,
         string
       > = {
-        visitor: "/dashboard",
-        pandit: "/pandit/dashboard",
+        visitor:
+          "/dashboard",
+
+        pandit:
+          "/pandit/dashboard",
+
         temple_manager:
           "/temple/dashboard",
+
         ashram_manager:
           "/ashram/dashboard",
-        sales: "/sales/dashboard",
-        super_admin: "/admin",
+
+        sales:
+          "/sales/dashboard",
+
+        super_admin:
+          "/admin",
       };
 
       navigate(
         rolePaths[
-          String(user.role)
+          String(
+            user.role,
+          )
         ] ?? "/",
         {
           replace: true,
@@ -834,14 +1177,99 @@ export default function PanditDashboard() {
 
   useEffect(() => {
     if (
-      user?.role ===
+      user?.role !==
       "pandit"
     ) {
-      void loadDashboard();
+      return;
     }
+
+    /*
+     * StrictMode can re-run effects during development.
+     * Use a stable account key so the initial automatic request
+     * only happens once for the current authenticated user.
+     */
+    const userKey =
+      `${String(
+        user.email ?? "",
+      )}|${String(
+        user.role ?? "",
+      )}`;
+
+    if (
+      autoLoadedUserKeyRef.current ===
+      userKey
+    ) {
+      return;
+    }
+
+    autoLoadedUserKeyRef.current =
+      userKey;
+
+    void loadDashboard();
   }, [
     loadDashboard,
+    user?.email,
     user?.role,
+  ]);
+
+  /* ------------------------------------------------------------------------ */
+  /* Service modal Escape handler                                             */
+  /* ------------------------------------------------------------------------ */
+
+  const closeServiceModal =
+    useCallback(() => {
+      if (
+        loading.savingService
+      ) {
+        return;
+      }
+
+      setServiceModalOpen(
+        false,
+      );
+
+      setEditingServiceId(
+        null,
+      );
+
+      setServiceForm(
+        createEmptyService(),
+      );
+    }, [
+      loading.savingService,
+    ]);
+
+  useEffect(() => {
+    if (
+      !serviceModalOpen
+    ) {
+      return;
+    }
+
+    const handleEscape =
+      (event: KeyboardEvent) => {
+        if (
+          event.key ===
+          "Escape"
+        ) {
+          closeServiceModal();
+        }
+      };
+
+    window.addEventListener(
+      "keydown",
+      handleEscape,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "keydown",
+        handleEscape,
+      );
+    };
+  }, [
+    closeServiceModal,
+    serviceModalOpen,
   ]);
 
   /* ------------------------------------------------------------------------ */
@@ -853,7 +1281,9 @@ export default function PanditDashboard() {
       () =>
         services.filter(
           (service) =>
-            service.isActive,
+            Boolean(
+              service.isActive,
+            ),
         ),
       [services],
     );
@@ -864,22 +1294,38 @@ export default function PanditDashboard() {
         return 0;
       }
 
-      const values = [
+      const values: Array<
+        string | number | undefined
+      > = [
         profile.displayName,
-        profile.title,
-        profile.about,
-        profile.city,
-        profile.state,
-        profile.photo,
-        profile.languages?.length,
-        profile.specializations?.length,
-        profile.pujaTypes?.length,
-        profile.serviceAreas?.length,
+        profile.title ??
+          undefined,
+        profile.about ??
+          undefined,
+        profile.city ??
+          undefined,
+        profile.state ??
+          undefined,
+        profile.photo ??
+          undefined,
+        profile.languages
+          ?.length,
+        profile.specializations
+          ?.length,
+        profile.pujaTypes
+          ?.length,
+        profile.serviceAreas
+          ?.length,
       ];
 
+      const completed =
+        values.filter(
+          (value) =>
+            Boolean(value),
+        ).length;
+
       return Math.round(
-        (values.filter(Boolean)
-          .length /
+        (completed /
           values.length) *
           100,
       );
@@ -895,8 +1341,9 @@ export default function PanditDashboard() {
     );
 
   const hasActiveSubscription =
-    subscription?.status ===
-    "active";
+    normalizeStatus(
+      subscription?.status,
+    ) === "active";
 
   const subscriptionDays =
     daysRemaining(
@@ -904,22 +1351,46 @@ export default function PanditDashboard() {
     );
 
   const serviceLimit =
-    subscription?.serviceLimit ??
-    stats.serviceLimit ??
-    0;
+    Number.isFinite(
+      Number(
+        subscription?.serviceLimit,
+      ),
+    )
+      ? Number(
+          subscription?.serviceLimit ??
+            stats.serviceLimit ??
+            0,
+        )
+      : Number(
+          stats.serviceLimit ??
+            0,
+        );
 
   const serviceAreasLimit =
-    subscription?.serviceAreaLimit ??
-    stats.serviceAreaLimit ??
-    0;
+    Number(
+      subscription?.serviceAreaLimit ??
+        stats.serviceAreaLimit ??
+        0,
+    );
 
   const servicesUsed =
-    stats.activeServices;
+    Math.max(
+      0,
+      safeNumber(
+        stats.activeServices,
+      ),
+    );
 
   const serviceAreasUsed =
-    stats.serviceAreasUsed ??
-    profile?.serviceAreas?.length ??
-    0;
+    Math.max(
+      0,
+      safeNumber(
+        stats.serviceAreasUsed ??
+          profile?.serviceAreas
+            ?.length ??
+          0,
+      ),
+    );
 
   const servicesRemaining =
     serviceLimit > 0
@@ -940,34 +1411,52 @@ export default function PanditDashboard() {
       : null;
 
   const leadsTotal =
-    safeNumber(
-      stats.leadsTotal,
+    Math.max(
+      0,
+      safeNumber(
+        stats.leadsTotal,
+      ),
     );
 
   const openLeads =
-    safeNumber(
-      stats.openLeads,
+    Math.max(
+      0,
+      safeNumber(
+        stats.openLeads,
+      ),
     );
 
   const convertedLeads =
-    safeNumber(
-      stats.convertedLeads,
+    Math.max(
+      0,
+      safeNumber(
+        stats.convertedLeads,
+      ),
     );
 
   const followUps =
-    safeNumber(
-      stats.followUps,
+    Math.max(
+      0,
+      safeNumber(
+        stats.followUps,
+      ),
     );
 
   const creditedLeads =
-    safeNumber(
-      stats.creditedLeads,
+    Math.max(
+      0,
+      safeNumber(
+        stats.creditedLeads,
+      ),
     );
 
   const leadsRemaining =
-    subscription?.leadsRemaining ??
-    safeNumber(
-      stats.leadsRemaining,
+    Math.max(
+      0,
+      safeNumber(
+        subscription?.leadsRemaining ??
+          stats.leadsRemaining,
+      ),
     );
 
   const openServiceCapacity =
@@ -977,30 +1466,32 @@ export default function PanditDashboard() {
 
   const openLeadCapacity =
     subscription
-      ? `${creditedLeads}/${subscription.leadLimit}`
+      ? `${creditedLeads}/${Math.max(
+          0,
+          subscription.leadLimit,
+        )}`
       : "0/—";
 
+  const analyticsDays =
+    Math.max(
+      1,
+      safeNumber(
+        analytics?.range?.days,
+      ) || 30,
+    );
+
   /* ------------------------------------------------------------------------ */
-  /* Service modal                                                            */
+  /* Service modal                                                             */
   /* ------------------------------------------------------------------------ */
-
-  const closeServiceModal =
-    useCallback(() => {
-      setServiceModalOpen(
-        false,
-      );
-
-      setEditingServiceId(
-        null,
-      );
-
-      setServiceForm(
-        createEmptyService(),
-      );
-    }, []);
 
   const openCreateService =
     useCallback(() => {
+      if (
+        loading.savingService
+      ) {
+        return;
+      }
+
       setEditingServiceId(
         null,
       );
@@ -1012,38 +1503,56 @@ export default function PanditDashboard() {
       setServiceModalOpen(
         true,
       );
-    }, []);
+    }, [
+      loading.savingService,
+    ]);
 
   const openEditService =
     useCallback(
       (
         service: PanditService,
       ) => {
+        if (
+          loading.savingService
+        ) {
+          return;
+        }
+
         setEditingServiceId(
           service.id,
         );
 
         setServiceForm({
-          name: service.name,
+          name:
+            service.name,
+
           description:
             service.description ??
             "",
+
           priceAmount:
             service.priceAmount,
+
           currency:
             service.currency ||
             "INR",
+
           durationMinutes:
             service.durationMinutes,
+
           isActive:
-            service.isActive,
+            Boolean(
+              service.isActive,
+            ),
         });
 
         setServiceModalOpen(
           true,
         );
       },
-      [],
+      [
+        loading.savingService,
+      ],
     );
 
   /* ------------------------------------------------------------------------ */
@@ -1053,12 +1562,19 @@ export default function PanditDashboard() {
   const saveProfile =
     useCallback(
       async () => {
+        if (
+          loading.savingProfile
+        ) {
+          return;
+        }
+
         const displayName =
-          profileForm.displayName?.trim() ??
-          "";
+          profileForm.displayName
+            ?.trim() ?? "";
 
         if (
-          displayName.length < 2
+          displayName.length <
+          2
         ) {
           toast(
             "warning",
@@ -1117,33 +1633,40 @@ export default function PanditDashboard() {
           const payload: PanditProfileInput =
             {
               name:
-                profileForm.name?.trim() ||
+                profileForm.name
+                  ?.trim() ||
                 undefined,
 
               phone:
-                profileForm.phone?.trim() ||
+                profileForm.phone
+                  ?.trim() ||
                 undefined,
 
               city:
-                profileForm.city?.trim() ||
+                profileForm.city
+                  ?.trim() ||
                 undefined,
 
               district:
-                profileForm.district?.trim() ||
+                profileForm.district
+                  ?.trim() ||
                 undefined,
 
               state:
-                profileForm.state?.trim() ||
+                profileForm.state
+                  ?.trim() ||
                 undefined,
 
               country:
-                profileForm.country?.trim() ||
+                profileForm.country
+                  ?.trim() ||
                 "India",
 
               displayName,
 
               title:
-                profileForm.title?.trim() ||
+                profileForm.title
+                  ?.trim() ||
                 undefined,
 
               photo:
@@ -1156,7 +1679,8 @@ export default function PanditDashboard() {
                 ),
 
               location:
-                profileForm.location?.trim() ||
+                profileForm.location
+                  ?.trim() ||
                 undefined,
 
               languages:
@@ -1172,15 +1696,18 @@ export default function PanditDashboard() {
                 [],
 
               associatedWith:
-                profileForm.associatedWith?.trim() ||
+                profileForm.associatedWith
+                  ?.trim() ||
                 undefined,
 
               about:
-                profileForm.about?.trim() ||
+                profileForm.about
+                  ?.trim() ||
                 undefined,
 
               availability:
-                profileForm.availability?.trim() ||
+                profileForm.availability
+                  ?.trim() ||
                 undefined,
 
               serviceAreas:
@@ -1209,6 +1736,12 @@ export default function PanditDashboard() {
             );
           }
 
+          if (
+            !mountedRef.current
+          ) {
+            return;
+          }
+
           setProfile(
             response.profile,
           );
@@ -1217,19 +1750,20 @@ export default function PanditDashboard() {
             false,
           );
 
-          await refreshUser().catch(
-            (error) => {
-              console.warn(
-                "Unable to refresh authenticated user after Pandit profile save:",
-                error,
-              );
-            },
-          );
+          try {
+            await refreshUser();
+          } catch (error) {
+            console.warn(
+              "Unable to refresh authenticated user after Pandit profile save:",
+              error,
+            );
+          }
 
           await showSuccess(
             creating
               ? "Profile created"
               : "Profile updated",
+
             creating
               ? "Your Pandit profile has been created and submitted for Admin review."
               : "Your Pandit profile has been saved successfully.",
@@ -1237,31 +1771,41 @@ export default function PanditDashboard() {
 
           await loadDashboard();
 
-          setTab(
-            "overview",
-          );
+          if (
+            mountedRef.current
+          ) {
+            setTab(
+              "overview",
+            );
+          }
         } catch (error) {
           await showError(
             profileMissing ||
               !profile
               ? "Profile creation failed"
               : "Profile update failed",
+
             error instanceof Error
               ? error.message
               : "Please try again.",
           );
         } finally {
-          setLoading(
-            (current) => ({
-              ...current,
-              savingProfile:
-                false,
-            }),
-          );
+          if (
+            mountedRef.current
+          ) {
+            setLoading(
+              (current) => ({
+                ...current,
+                savingProfile:
+                  false,
+              }),
+            );
+          }
         }
       },
       [
         loadDashboard,
+        loading.savingProfile,
         profile,
         profileForm,
         profileMissing,
@@ -1276,11 +1820,18 @@ export default function PanditDashboard() {
   const saveService =
     useCallback(
       async () => {
+        if (
+          loading.savingService
+        ) {
+          return;
+        }
+
         const name =
           serviceForm.name.trim();
 
         if (
-          name.length < 2
+          name.length <
+          2
         ) {
           toast(
             "warning",
@@ -1364,10 +1915,13 @@ export default function PanditDashboard() {
           return;
         }
 
-        if (
-          !hasActiveSubscription &&
+        const wantsActive =
           serviceForm.isActive !==
-            false
+          false;
+
+        if (
+          wantsActive &&
+          !hasActiveSubscription
         ) {
           await showWarning(
             "Active subscription required",
@@ -1377,8 +1931,7 @@ export default function PanditDashboard() {
         }
 
         if (
-          serviceForm.isActive !==
-            false &&
+          wantsActive &&
           serviceLimit > 0 &&
           editingServiceId ===
             null &&
@@ -1406,12 +1959,13 @@ export default function PanditDashboard() {
               name,
 
               description:
-                serviceForm.description?.trim() ||
+                serviceForm.description
+                  ?.trim() ||
                 undefined,
 
               priceAmount:
                 priceAmount ===
-                  null ||
+                    null ||
                 priceAmount ===
                   undefined
                   ? null
@@ -1434,8 +1988,7 @@ export default function PanditDashboard() {
                     ),
 
               isActive:
-                serviceForm.isActive !==
-                false,
+                wantsActive,
             };
 
           if (
@@ -1447,6 +2000,14 @@ export default function PanditDashboard() {
                 editingServiceId,
                 payload,
               );
+
+            if (
+              !response.service
+            ) {
+              throw new Error(
+                "The server did not return the updated service.",
+              );
+            }
 
             setServices(
               (current) =>
@@ -1471,8 +2032,18 @@ export default function PanditDashboard() {
                 payload,
               );
 
+            if (
+              !response.service
+            ) {
+              throw new Error(
+                "The server did not return the created service.",
+              );
+            }
+
             setServices(
-              (current) => [
+              (
+                current,
+              ) => [
                 response.service,
                 ...current,
               ],
@@ -1493,18 +2064,23 @@ export default function PanditDashboard() {
               null
               ? "Service update failed"
               : "Service creation failed",
+
             error instanceof Error
               ? error.message
               : "Please try again.",
           );
         } finally {
-          setLoading(
-            (current) => ({
-              ...current,
-              savingService:
-                false,
-            }),
-          );
+          if (
+            mountedRef.current
+          ) {
+            setLoading(
+              (current) => ({
+                ...current,
+                savingService:
+                  false,
+              }),
+            );
+          }
         }
       },
       [
@@ -1512,6 +2088,7 @@ export default function PanditDashboard() {
         editingServiceId,
         hasActiveSubscription,
         loadDashboard,
+        loading.savingService,
         serviceForm,
         serviceLimit,
         servicesUsed,
@@ -1527,10 +2104,18 @@ export default function PanditDashboard() {
       async (
         service: PanditService,
       ) => {
+        if (
+          loading.deletingService
+        ) {
+          return;
+        }
+
         const confirmed =
           await confirmAction(
             "Delete this Puja service?",
+
             `${service.name} will be permanently removed from your service list.`,
+
             "Yes, delete it",
           );
 
@@ -1538,19 +2123,31 @@ export default function PanditDashboard() {
           return;
         }
 
+        setLoading(
+          (current) => ({
+            ...current,
+            deletingService:
+              true,
+          }),
+        );
+
         try {
           await panditApi.deleteService(
             service.id,
           );
 
-          setServices(
-            (current) =>
-              current.filter(
-                (item) =>
-                  item.id !==
-                  service.id,
-              ),
-          );
+          if (
+            mountedRef.current
+          ) {
+            setServices(
+              (current) =>
+                current.filter(
+                  (item) =>
+                    item.id !==
+                    service.id,
+                ),
+            );
+          }
 
           await showSuccess(
             "Service deleted",
@@ -1565,9 +2162,24 @@ export default function PanditDashboard() {
               ? error.message
               : "Please try again.",
           );
+        } finally {
+          if (
+            mountedRef.current
+          ) {
+            setLoading(
+              (current) => ({
+                ...current,
+                deletingService:
+                  false,
+              }),
+            );
+          }
         }
       },
-      [loadDashboard],
+      [
+        loadDashboard,
+        loading.deletingService,
+      ],
     );
 
   /* ------------------------------------------------------------------------ */
@@ -1579,6 +2191,13 @@ export default function PanditDashboard() {
       async (
         service: PanditService,
       ) => {
+        if (
+          loading.changingServiceId ===
+          service.id
+        ) {
+          return;
+        }
+
         const nextValue =
           !service.isActive;
 
@@ -1626,6 +2245,14 @@ export default function PanditDashboard() {
           return;
         }
 
+        setLoading(
+          (current) => ({
+            ...current,
+            changingServiceId:
+              service.id,
+          }),
+        );
+
         try {
           const response =
             await panditApi.updateService(
@@ -1636,16 +2263,28 @@ export default function PanditDashboard() {
               },
             );
 
-          setServices(
-            (current) =>
-              current.map(
-                (item) =>
-                  item.id ===
-                  service.id
-                    ? response.service
-                    : item,
-              ),
-          );
+          if (
+            !response.service
+          ) {
+            throw new Error(
+              "The server did not return the updated service.",
+            );
+          }
+
+          if (
+            mountedRef.current
+          ) {
+            setServices(
+              (current) =>
+                current.map(
+                  (item) =>
+                    item.id ===
+                    service.id
+                      ? response.service
+                      : item,
+                ),
+            );
+          }
 
           toast(
             "success",
@@ -1659,15 +2298,29 @@ export default function PanditDashboard() {
         } catch (error) {
           await showError(
             "Service status update failed",
+
             error instanceof Error
               ? error.message
               : "Please try again.",
           );
+        } finally {
+          if (
+            mountedRef.current
+          ) {
+            setLoading(
+              (current) => ({
+                ...current,
+                changingServiceId:
+                  null,
+              }),
+            );
+          }
         }
       },
       [
         hasActiveSubscription,
         loadDashboard,
+        loading.changingServiceId,
         serviceLimit,
         servicesUsed,
       ],
@@ -1678,100 +2331,140 @@ export default function PanditDashboard() {
   /* ------------------------------------------------------------------------ */
 
   const toggleListing =
-    useCallback(
-      async () => {
-        if (!profile) {
-          return;
-        }
+    useCallback(async () => {
+      if (
+        loading.changingListing
+      ) {
+        return;
+      }
 
-        const nextValue =
-          !profile.listingActive;
+      if (!profile) {
+        return;
+      }
+
+      const nextValue =
+        !profile.listingActive;
+
+      if (
+        nextValue &&
+        !listingReady
+      ) {
+        await showWarning(
+          "Listing is not ready yet",
+
+          "Public listing requires an active account, approved profile, completed verification and an eligible paid plan. The backend remains the final authority.",
+        );
+
+        return;
+      }
+
+      const confirmed =
+        await confirmAction(
+          nextValue
+            ? "Activate your public listing?"
+            : "Deactivate your public listing?",
+
+          nextValue
+            ? "Your eligible Pandit profile will be made visible wherever active listings are supported."
+            : "Visitors will no longer see your profile as an active listing.",
+
+          nextValue
+            ? "Activate listing"
+            : "Deactivate listing",
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setLoading(
+        (current) => ({
+          ...current,
+          changingListing:
+            true,
+        }),
+      );
+
+      try {
+        const response =
+          await panditApi.setListing(
+            nextValue,
+          );
 
         if (
-          nextValue &&
-          !listingReady
+          mountedRef.current
         ) {
-          await showWarning(
-            "Listing is not ready yet",
-            "Public listing requires an active account, approved profile, completed verification and an eligible paid plan. The backend remains the final authority.",
-          );
-          return;
-        }
-
-        const confirmed =
-          await confirmAction(
-            nextValue
-              ? "Activate your public listing?"
-              : "Deactivate your public listing?",
-
-            nextValue
-              ? "Your eligible Pandit profile will be made visible wherever active listings are supported."
-              : "Visitors will no longer see your profile as an active listing.",
-
-            nextValue
-              ? "Activate listing"
-              : "Deactivate listing",
-          );
-
-        if (!confirmed) {
-          return;
-        }
-
-        try {
-          const response =
-            await panditApi.setListing(
-              nextValue,
-            );
-
-          /*
-           * setListing() now returns a required boolean `listingActive`,
-           * so this update is type-safe.
-           */
           setProfile(
             (current) =>
               current
                 ? {
                     ...current,
                     listingActive:
-                      response.listingActive,
+                      Boolean(
+                        response.listingActive,
+                      ),
                   }
                 : current,
           );
+        }
 
-          await showSuccess(
-            response.listingActive
-              ? "Listing activated"
-              : "Listing deactivated",
+        await showSuccess(
+          response.listingActive
+            ? "Listing activated"
+            : "Listing deactivated",
 
-            response.listingActive
-              ? "Your Pandit listing is active."
-              : "Your Pandit listing is now hidden.",
-          );
+          response.listingActive
+            ? "Your Pandit listing is active."
+            : "Your Pandit listing is now hidden.",
+        );
 
-          await loadDashboard();
-        } catch (error) {
-          await showWarning(
-            "Listing update blocked",
-            error instanceof Error
-              ? error.message
-              : "Your listing could not be updated.",
+        await loadDashboard();
+      } catch (error) {
+        await showWarning(
+          "Listing update blocked",
+
+          error instanceof Error
+            ? error.message
+            : "Your listing could not be updated.",
+        );
+      } finally {
+        if (
+          mountedRef.current
+        ) {
+          setLoading(
+            (current) => ({
+              ...current,
+              changingListing:
+                false,
+            }),
           );
         }
-      },
-      [
-        listingReady,
-        loadDashboard,
-        profile,
-      ],
-    );
+      }
+    }, [
+      listingReady,
+      loadDashboard,
+      loading.changingListing,
+      profile,
+    ]);
 
   /* ------------------------------------------------------------------------ */
   /* Analytics                                                                */
   /* ------------------------------------------------------------------------ */
 
   const loadAnalytics =
-    useCallback(
-      async () => {
+    useCallback(async () => {
+      if (
+        analyticsLoadingRef.current
+      ) {
+        return;
+      }
+
+      analyticsLoadingRef.current =
+        true;
+
+      if (
+        mountedRef.current
+      ) {
         setAnalyticsError(
           null,
         );
@@ -1779,50 +2472,74 @@ export default function PanditDashboard() {
         setLoading(
           (current) => ({
             ...current,
-            analytics: true,
+            analytics:
+              true,
           }),
         );
+      }
 
-        try {
-          const response =
-            await panditApi.analytics();
+      try {
+        const response =
+          await panditApi.analytics();
 
-          setAnalytics(
-            response,
-          );
-        } catch (error) {
+        if (
+          !mountedRef.current
+        ) {
+          return;
+        }
+
+        setAnalytics(
+          response,
+        );
+      } catch (error) {
+        if (
+          mountedRef.current
+        ) {
           setAnalyticsError(
             error instanceof Error
               ? error.message
               : "Unable to load analytics.",
           );
-        } finally {
+        }
+      } finally {
+        analyticsLoadingRef.current =
+          false;
+
+        if (
+          mountedRef.current
+        ) {
           setLoading(
             (current) => ({
               ...current,
-              analytics: false,
+              analytics:
+                false,
             }),
           );
         }
-      },
-      [],
-    );
+      }
+    }, []);
 
-  /*
-   * Only request analytics when the current plan actually includes
-   * analytics. This avoids an unnecessary 403 request when the feature
-   * is not entitled.
-   */
   useEffect(() => {
     if (
-      tab ===
-        "analytics" &&
-      subscription?.analyticsAccess &&
-      !analytics &&
-      !analyticsError
+      tab !== "analytics"
     ) {
-      void loadAnalytics();
+      return;
     }
+
+    if (
+      !subscription?.analyticsAccess
+    ) {
+      return;
+    }
+
+    if (
+      analytics ||
+      analyticsError
+    ) {
+      return;
+    }
+
+    void loadAnalytics();
   }, [
     analytics,
     analyticsError,
@@ -1836,42 +2553,39 @@ export default function PanditDashboard() {
   /* ------------------------------------------------------------------------ */
 
   const handleLogout =
-    useCallback(
-      async () => {
-        const confirmed =
-          await confirmAction(
-            "Logout from Pandit dashboard?",
-            "Your active browser session will be closed.",
-            "Logout",
-          );
+    useCallback(async () => {
+      const confirmed =
+        await confirmAction(
+          "Logout from Pandit dashboard?",
+          "Your active browser session will be closed.",
+          "Logout",
+        );
 
-        if (!confirmed) {
-          return;
-        }
+      if (!confirmed) {
+        return;
+      }
 
-        try {
-          await logout();
+      try {
+        await logout();
 
-          navigate(
-            "/",
-            {
-              replace: true,
-            },
-          );
-        } catch (error) {
-          await showError(
-            "Logout failed",
-            error instanceof Error
-              ? error.message
-              : "Please try again.",
-          );
-        }
-      },
-      [
-        logout,
-        navigate,
-      ],
-    );
+        navigate(
+          "/",
+          {
+            replace: true,
+          },
+        );
+      } catch (error) {
+        await showError(
+          "Logout failed",
+          error instanceof Error
+            ? error.message
+            : "Please try again.",
+        );
+      }
+    }, [
+      logout,
+      navigate,
+    ]);
 
   /* ------------------------------------------------------------------------ */
   /* Navigation                                                               */
@@ -1935,8 +2649,11 @@ export default function PanditDashboard() {
       label: "Notifications",
       icon: Mail,
       badge:
-        notifications?.length ??
-        0,
+        Array.isArray(
+          notifications,
+        )
+          ? notifications.length
+          : 0,
     },
   ];
 
@@ -2032,7 +2749,11 @@ export default function PanditDashboard() {
     return null;
   }
 
-  if (loading.page) {
+  if (
+    loading.page &&
+    !profile &&
+    !profileMissing
+  ) {
     return (
       <div className="min-h-screen bg-[#f7f2ea] p-6 md:p-10">
         <div className="mx-auto flex min-h-[80vh] max-w-6xl items-center justify-center">
@@ -2055,7 +2776,9 @@ export default function PanditDashboard() {
     );
   }
 
-  if (pageError) {
+  if (
+    pageError
+  ) {
     return (
       <div className="min-h-screen bg-[#f7f2ea] p-6 md:p-10">
         <div className="mx-auto flex min-h-[80vh] max-w-xl items-center justify-center">
@@ -2078,12 +2801,22 @@ export default function PanditDashboard() {
               onClick={() =>
                 void loadDashboard()
               }
-              className="btn-saffron mt-6 inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-bold text-white"
+              disabled={
+                loading.page
+              }
+              className="btn-saffron mt-6 inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               <RefreshCw
                 size={16}
+                className={
+                  loading.page
+                    ? "animate-spin"
+                    : ""
+                }
               />
-              Try Again
+              {loading.page
+                ? "Trying…"
+                : "Try Again"}
             </button>
           </div>
         </div>
@@ -2106,6 +2839,9 @@ export default function PanditDashboard() {
               }
               className="rounded-xl border border-white/10 p-2 text-orange-100 md:hidden"
               aria-label="Open Pandit navigation"
+              aria-expanded={
+                mobileNavOpen
+              }
             >
               {mobileNavOpen ? (
                 <X size={19} />
@@ -2151,11 +2887,20 @@ export default function PanditDashboard() {
               onClick={() =>
                 void loadDashboard()
               }
-              className="rounded-xl border border-white/10 p-2 text-orange-100 transition hover:bg-white/10"
+              disabled={
+                loading.page
+              }
+              className="rounded-xl border border-white/10 p-2 text-orange-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
               title="Refresh dashboard"
+              aria-label="Refresh dashboard"
             >
               <RefreshCw
                 size={16}
+                className={
+                  loading.page
+                    ? "animate-spin"
+                    : ""
+                }
               />
             </button>
 
@@ -2181,6 +2926,7 @@ export default function PanditDashboard() {
               <LogOut
                 size={14}
               />
+
               <span className="hidden sm:inline">
                 Logout
               </span>
@@ -2193,6 +2939,7 @@ export default function PanditDashboard() {
         <aside
           className={[
             "border-r border-orange-900/10 bg-[#f2eadf] p-4 md:min-h-[calc(100vh-64px)] md:block",
+
             mobileNavOpen
               ? "block"
               : "hidden",
@@ -2217,7 +2964,9 @@ export default function PanditDashboard() {
             aria-label="Pandit dashboard"
           >
             {navItems.map(
-              (item) => {
+              (
+                item,
+              ) => {
                 const Icon =
                   item.icon;
 
@@ -2260,9 +3009,11 @@ export default function PanditDashboard() {
                     }}
                     className={[
                       "flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-bold transition",
+
                       active
                         ? "bg-[#2a1a10] text-orange-200 shadow"
                         : "text-stone-700 hover:bg-white",
+
                       disabled
                         ? "cursor-not-allowed opacity-40"
                         : "",
@@ -2285,6 +3036,7 @@ export default function PanditDashboard() {
                         <span
                           className={[
                             "rounded-full px-2 py-0.5 text-[10px] font-black",
+
                             active
                               ? "bg-orange-500 text-white"
                               : "bg-orange-100 text-orange-800",
@@ -2311,7 +3063,10 @@ export default function PanditDashboard() {
               </span>
 
               <span className="text-sm font-black text-orange-800">
-                {profileCompleteness}%
+                {
+                  profileCompleteness
+                }
+                %
               </span>
             </div>
 
@@ -2356,9 +3111,11 @@ export default function PanditDashboard() {
         <main className="min-w-0 p-4 md:p-6 lg:p-8">
           <div className="mx-auto max-w-[1200px]">
 
-            {/* Overview */}
-            {tab ===
-              "overview" && (
+            {/* ---------------------------------------------------------------- */
+            /* Overview                                                         */
+            /* ---------------------------------------------------------------- */}
+
+            {tab === "overview" && (
               <div className="space-y-6">
                 {!profile ? (
                   <section className="rounded-[2rem] border border-orange-900/10 bg-white p-8 text-center shadow-sm">
@@ -2400,7 +3157,9 @@ export default function PanditDashboard() {
                               Pandit Workspace
                             </p>
 
-                            {profile.verificationStatus ===
+                            {normalizeStatus(
+                              profile.verificationStatus,
+                            ) ===
                               "verified" && (
                               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[10px] font-black text-emerald-100 ring-1 ring-emerald-300/20">
                                 <BadgeCheck
@@ -2461,9 +3220,17 @@ export default function PanditDashboard() {
                             onClick={() =>
                               void toggleListing()
                             }
-                            className="flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-black text-white"
+                            disabled={
+                              loading.changingListing
+                            }
+                            className="flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            {profile.listingActive ? (
+                            {loading.changingListing ? (
+                              <RefreshCw
+                                size={16}
+                                className="animate-spin"
+                              />
+                            ) : profile.listingActive ? (
                               <CircleOff
                                 size={16}
                               />
@@ -2473,9 +3240,11 @@ export default function PanditDashboard() {
                               />
                             )}
 
-                            {profile.listingActive
-                              ? "Hide Listing"
-                              : "Go Live"}
+                            {loading.changingListing
+                              ? "Updating…"
+                              : profile.listingActive
+                                ? "Hide Listing"
+                                : "Go Live"}
                           </button>
                         </div>
                       </div>
@@ -2693,7 +3462,10 @@ export default function PanditDashboard() {
                                 onClick={
                                   openCreateService
                                 }
-                                className="btn-saffron mt-4 rounded-xl px-4 py-2 text-xs font-black text-white"
+                                disabled={
+                                  loading.savingService
+                                }
+                                className="btn-saffron mt-4 rounded-xl px-4 py-2 text-xs font-black text-white disabled:opacity-60"
                               >
                                 Add service
                               </button>
@@ -2739,7 +3511,10 @@ export default function PanditDashboard() {
                                           service,
                                         )
                                       }
-                                      className="rounded-lg p-2 text-orange-700 hover:bg-orange-50"
+                                      disabled={
+                                        loading.savingService
+                                      }
+                                      className="rounded-lg p-2 text-orange-700 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
                                       title="Edit service"
                                     >
                                       <Edit3
@@ -2767,6 +3542,8 @@ export default function PanditDashboard() {
                                   profile.displayName
                                 }
                                 className="h-full w-full object-cover"
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
                               />
                             ) : (
                               profile.displayName
@@ -2928,9 +3705,11 @@ export default function PanditDashboard() {
               </div>
             )}
 
-            {/* Profile */}
-            {tab ===
-              "profile" && (
+            {/* ---------------------------------------------------------------- */
+            /* Profile                                                          */
+            /* ---------------------------------------------------------------- */}
+
+            {tab === "profile" && (
               <section className="rounded-3xl border border-orange-900/10 bg-white p-6 shadow-sm md:p-8">
                 <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
                   <div>
@@ -3082,7 +3861,11 @@ export default function PanditDashboard() {
                             formInput
                           }
                           type={
-                            type
+                            type as
+                              | "text"
+                              | "tel"
+                              | "url"
+                              | "number"
                           }
                           min={
                             type ===
@@ -3104,6 +3887,9 @@ export default function PanditDashboard() {
                           )}
                           placeholder={
                             placeholder
+                          }
+                          disabled={
+                            loading.savingProfile
                           }
                           onChange={(
                             event,
@@ -3184,6 +3970,9 @@ export default function PanditDashboard() {
                           className={
                             formInput
                           }
+                          disabled={
+                            loading.savingProfile
+                          }
                           value={arrayToCsv(
                             profileForm[
                               key
@@ -3220,6 +4009,9 @@ export default function PanditDashboard() {
                       className={
                         formInput
                       }
+                      disabled={
+                        loading.savingProfile
+                      }
                       placeholder="Mon–Sat · 9 AM–7 PM"
                       value={
                         profileForm.availability ??
@@ -3248,7 +4040,12 @@ export default function PanditDashboard() {
 
                     <textarea
                       rows={6}
-                      maxLength={5000}
+                      maxLength={
+                        5000
+                      }
+                      disabled={
+                        loading.savingProfile
+                      }
                       className={
                         formInput
                       }
@@ -3307,11 +4104,18 @@ export default function PanditDashboard() {
                     }
                     className="btn-saffron flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-black text-white disabled:opacity-60"
                   >
-                    <Save
-                      size={
-                        16
-                      }
-                    />
+                    {loading.savingProfile ? (
+                      <RefreshCw
+                        size={16}
+                        className="animate-spin"
+                      />
+                    ) : (
+                      <Save
+                        size={
+                          16
+                        }
+                      />
+                    )}
 
                     {loading.savingProfile
                       ? "Saving…"
@@ -3323,9 +4127,11 @@ export default function PanditDashboard() {
               </section>
             )}
 
-            {/* Services */}
-            {tab ===
-              "services" && (
+            {/* ---------------------------------------------------------------- */
+            /* Services                                                         */
+            /* ---------------------------------------------------------------- */}
+
+            {tab === "services" && (
               <section className="space-y-5">
                 <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
                   <div>
@@ -3347,7 +4153,11 @@ export default function PanditDashboard() {
                     onClick={
                       openCreateService
                     }
-                    className="btn-saffron flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-black text-white"
+                    disabled={
+                      loading.savingService ||
+                      loading.deletingService
+                    }
+                    className="btn-saffron flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Plus
                       size={
@@ -3469,7 +4279,11 @@ export default function PanditDashboard() {
                         onClick={
                           openCreateService
                         }
-                        className="btn-saffron mt-5 rounded-xl px-5 py-3 text-sm font-bold text-white"
+                        disabled={
+                          loading.savingService ||
+                          loading.deletingService
+                        }
+                        className="btn-saffron mt-5 rounded-xl px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         Create Service
                       </button>
@@ -3479,111 +4293,153 @@ export default function PanditDashboard() {
                       {services.map(
                         (
                           service,
-                        ) => (
-                          <div
-                            key={
-                              service.id
-                            }
-                            className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between"
-                          >
-                            <div className="flex min-w-0 gap-4">
-                              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-orange-50 text-orange-700">
-                                <IndianRupee
-                                  size={
-                                    18
-                                  }
-                                />
-                              </div>
+                        ) => {
+                          const serviceBusy =
+                            loading.changingServiceId ===
+                            service.id;
 
-                              <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <h2 className="font-bold text-stone-900">
-                                    {
-                                      service.name
+                          return (
+                            <div
+                              key={
+                                service.id
+                              }
+                              className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between"
+                            >
+                              <div className="flex min-w-0 gap-4">
+                                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-orange-50 text-orange-700">
+                                  <IndianRupee
+                                    size={
+                                      18
                                     }
-                                  </h2>
-
-                                  <span
-                                    className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${
-                                      service.isActive
-                                        ? "bg-emerald-100 text-emerald-800"
-                                        : "bg-stone-100 text-stone-600"
-                                    }`}
-                                  >
-                                    {service.isActive
-                                      ? "active"
-                                      : "inactive"}
-                                  </span>
+                                  />
                                 </div>
 
-                                <p className="mt-1 line-clamp-2 text-sm text-stone-500">
-                                  {service.description ||
-                                    "No description"}
-                                </p>
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <h2 className="font-bold text-stone-900">
+                                      {
+                                        service.name
+                                      }
+                                    </h2>
 
-                                <p className="mt-2 text-xs font-bold text-orange-800">
-                                  {displayCurrency(
-                                    service.priceAmount,
-                                    service.currency,
+                                    <span
+                                      className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${
+                                        service.isActive
+                                          ? "bg-emerald-100 text-emerald-800"
+                                          : "bg-stone-100 text-stone-600"
+                                      }`}
+                                    >
+                                      {service.isActive
+                                        ? "active"
+                                        : "inactive"}
+                                    </span>
+                                  </div>
+
+                                  <p className="mt-1 line-clamp-2 text-sm text-stone-500">
+                                    {service.description ||
+                                      "No description"}
+                                  </p>
+
+                                  <p className="mt-2 text-xs font-bold text-orange-800">
+                                    {displayCurrency(
+                                      service.priceAmount,
+                                      service.currency,
+                                    )}
+
+                                    {service.durationMinutes
+                                      ? ` · ${service.durationMinutes} min`
+                                      : ""}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2 md:shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void toggleService(
+                                      service,
+                                    )
+                                  }
+                                  disabled={
+                                    serviceBusy ||
+                                    loading.deletingService ||
+                                    loading.savingService
+                                  }
+                                  className="inline-flex min-w-[105px] items-center justify-center gap-1.5 rounded-xl border border-orange-900/10 px-3 py-2 text-xs font-bold text-stone-700 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {serviceBusy && (
+                                    <RefreshCw
+                                      size={
+                                        13
+                                      }
+                                      className="animate-spin"
+                                    />
                                   )}
-                                  {service.durationMinutes
-                                    ? ` · ${service.durationMinutes} min`
-                                    : ""}
-                                </p>
+
+                                  {service.isActive
+                                    ? "Deactivate"
+                                    : "Activate"}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openEditService(
+                                      service,
+                                    )
+                                  }
+                                  disabled={
+                                    serviceBusy ||
+                                    loading.deletingService ||
+                                    loading.savingService
+                                  }
+                                  className="rounded-xl border border-orange-900/10 p-2.5 text-orange-700 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                  title="Edit"
+                                  aria-label={`Edit ${service.name}`}
+                                >
+                                  <Edit3
+                                    size={
+                                      16
+                                    }
+                                  />
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void deleteService(
+                                      service,
+                                    )
+                                  }
+                                  disabled={
+                                    loading.deletingService ||
+                                    serviceBusy ||
+                                    loading.savingService
+                                  }
+                                  className="rounded-xl border border-rose-100 p-2.5 text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                  title="Delete"
+                                  aria-label={`Delete ${service.name}`}
+                                >
+                                  {loading.deletingService ? (
+                                    <RefreshCw
+                                      size={
+                                        16
+                                      }
+                                      className="animate-spin"
+                                    />
+                                  ) : (
+                                    <Trash2
+                                      size={
+                                        16
+                                      }
+                                    />
+                                  )}
+                                </button>
                               </div>
                             </div>
-
-                            <div className="flex flex-wrap items-center gap-2 md:shrink-0">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void toggleService(
-                                    service,
-                                  )
-                                }
-                                className="rounded-xl border border-orange-900/10 px-3 py-2 text-xs font-bold text-stone-700 hover:bg-orange-50"
-                              >
-                                {service.isActive
-                                  ? "Deactivate"
-                                  : "Activate"}
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  openEditService(
-                                    service,
-                                  )
-                                }
-                                className="rounded-xl border border-orange-900/10 p-2.5 text-orange-700 hover:bg-orange-50"
-                                title="Edit"
-                              >
-                                <Edit3
-                                  size={
-                                    16
-                                  }
-                                />
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void deleteService(
-                                    service,
-                                  )
-                                }
-                                className="rounded-xl border border-rose-100 p-2.5 text-rose-700 hover:bg-rose-50"
-                                title="Delete"
-                              >
-                                <Trash2
-                                  size={
-                                    16
-                                  }
-                                />
-                              </button>
-                            </div>
-                          </div>
-                        ),
+                          );
+                        },
                       )}
                     </div>
                   )}
@@ -3591,9 +4447,11 @@ export default function PanditDashboard() {
               </section>
             )}
 
-            {/* Leads */}
-            {tab ===
-              "leads" && (
+            {/* ---------------------------------------------------------------- */
+            /* Leads                                                            */
+            /* ---------------------------------------------------------------- */}
+
+            {tab === "leads" && (
               <section className="space-y-5">
                 <div className="rounded-3xl bg-gradient-to-br from-[#2a1a10] via-orange-900 to-orange-700 p-6 text-white shadow-lg md:p-8">
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-200">
@@ -3695,9 +4553,12 @@ export default function PanditDashboard() {
                           subscription?.leadLimit
                             ? Math.min(
                                 100,
-                                (creditedLeads /
-                                  subscription.leadLimit) *
-                                  100,
+                                Math.max(
+                                  0,
+                                  (creditedLeads /
+                                    subscription.leadLimit) *
+                                    100,
+                                ),
                               )
                             : 0
                         }%`,
@@ -3738,10 +4599,13 @@ export default function PanditDashboard() {
                       <p className="mt-1 text-lg font-black">
                         {leadsTotal >
                         0
-                          ? `${Math.round(
-                              (convertedLeads /
-                                leadsTotal) *
-                                100,
+                          ? `${Math.min(
+                              100,
+                              Math.round(
+                                (convertedLeads /
+                                  leadsTotal) *
+                                  100,
+                              ),
                             )}%`
                           : "0%"}
                       </p>
@@ -3800,9 +4664,11 @@ export default function PanditDashboard() {
               </section>
             )}
 
-            {/* Subscription */}
-            {tab ===
-              "subscription" && (
+            {/* ---------------------------------------------------------------- */
+            /* Subscription                                                     */
+            /* ---------------------------------------------------------------- */}
+
+            {tab === "subscription" && (
               <section className="space-y-5">
                 <div className="rounded-3xl bg-gradient-to-br from-[#2a1a10] via-orange-900 to-orange-700 p-6 text-white shadow-lg md:p-8">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -3977,7 +4843,9 @@ export default function PanditDashboard() {
                             )}
                             className="flex items-center gap-2 rounded-2xl bg-orange-50 p-3"
                           >
-                            {enabled ? (
+                            {Boolean(
+                              enabled,
+                            ) ? (
                               <CheckCircle2
                                 className="text-emerald-600"
                                 size={
@@ -4036,7 +4904,9 @@ export default function PanditDashboard() {
 
                 <div className="grid gap-5 lg:grid-cols-2">
                   {plans.map(
-                    (plan) => {
+                    (
+                      plan,
+                    ) => {
                       const isCurrent =
                         subscription?.planId ===
                         plan.id;
@@ -4079,6 +4949,7 @@ export default function PanditDashboard() {
                               plan.priceAmount,
                               plan.currency,
                             )}
+
                             <span className="text-sm font-semibold text-stone-500">
                               {" "}
                               /{" "}
@@ -4157,11 +5028,10 @@ export default function PanditDashboard() {
                               .map(
                                 (
                                   feature,
+                                  index,
                                 ) => (
                                   <p
-                                    key={
-                                      feature
-                                    }
+                                    key={`${feature}-${index}`}
                                     className="flex items-start gap-2 text-xs text-stone-600"
                                   >
                                     <CheckCircle2
@@ -4215,9 +5085,11 @@ export default function PanditDashboard() {
               </section>
             )}
 
-            {/* Verification */}
-            {tab ===
-              "verification" && (
+            {/* ---------------------------------------------------------------- */
+            /* Verification                                                     */
+            /* ---------------------------------------------------------------- */}
+
+            {tab === "verification" && (
               <section className="space-y-5">
                 <div className="rounded-3xl border border-orange-900/10 bg-white p-6 shadow-sm">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -4252,7 +5124,9 @@ export default function PanditDashboard() {
                     {[
                       [
                         "Profile approval",
-                        profile?.profileStatus ===
+                        normalizeStatus(
+                          profile?.profileStatus,
+                        ) ===
                           "approved",
                         prettyStatus(
                           profile?.profileStatus,
@@ -4307,7 +5181,9 @@ export default function PanditDashboard() {
                               }
                             </span>
 
-                            {ok ? (
+                            {Boolean(
+                              ok,
+                            ) ? (
                               <CheckCircle2
                                 className="text-emerald-600"
                                 size={
@@ -4359,7 +5235,9 @@ export default function PanditDashboard() {
 
                   <div className="mt-4 space-y-2">
                     {readinessItems.map(
-                      (item) => (
+                      (
+                        item,
+                      ) => (
                         <div
                           key={
                             item.label
@@ -4518,7 +5396,7 @@ export default function PanditDashboard() {
                                   document.documentUrl
                                 }
                                 target="_blank"
-                                rel="noreferrer"
+                                rel="noopener noreferrer"
                                 className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-orange-800 underline"
                               >
                                 Open document{" "}
@@ -4559,11 +5437,25 @@ export default function PanditDashboard() {
                         onClick={() =>
                           void toggleListing()
                         }
-                        className="btn-saffron mt-4 rounded-xl px-5 py-3 text-sm font-black text-white"
+                        disabled={
+                          loading.changingListing
+                        }
+                        className="btn-saffron mt-4 inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        {profile?.listingActive
-                          ? "Deactivate Listing"
-                          : "Activate Listing"}
+                        {loading.changingListing && (
+                          <RefreshCw
+                            size={
+                              15
+                            }
+                            className="animate-spin"
+                          />
+                        )}
+
+                        {loading.changingListing
+                          ? "Updating…"
+                          : profile?.listingActive
+                            ? "Deactivate Listing"
+                            : "Activate Listing"}
                       </button>
                     </div>
                   </div>
@@ -4571,9 +5463,11 @@ export default function PanditDashboard() {
               </section>
             )}
 
-            {/* Analytics */}
-            {tab ===
-              "analytics" && (
+            {/* ---------------------------------------------------------------- */
+            /* Analytics                                                        */
+            /* ---------------------------------------------------------------- */}
+
+            {tab === "analytics" && (
               <section className="space-y-5">
                 <div className="rounded-3xl border border-orange-900/10 bg-white p-6 shadow-sm">
                   <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -4596,7 +5490,10 @@ export default function PanditDashboard() {
                       onClick={() =>
                         void loadAnalytics()
                       }
-                      className="rounded-xl border border-orange-900/10 px-4 py-2.5 text-xs font-black text-orange-900 hover:bg-orange-50"
+                      disabled={
+                        loading.analytics
+                      }
+                      className="inline-flex items-center rounded-xl border border-orange-900/10 px-4 py-2.5 text-xs font-black text-orange-900 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <RefreshCw
                         size={
@@ -4604,11 +5501,13 @@ export default function PanditDashboard() {
                         }
                         className={
                           loading.analytics
-                            ? "mr-1.5 inline animate-spin"
-                            : "mr-1.5 inline"
+                            ? "mr-1.5 animate-spin"
+                            : "mr-1.5"
                         }
                       />
-                      Refresh
+                      {loading.analytics
+                        ? "Refreshing…"
+                        : "Refresh"}
                     </button>
                   </div>
                 </div>
@@ -4679,6 +5578,16 @@ export default function PanditDashboard() {
                         <p className="mt-2 text-xs text-amber-900/70">
                           The backend analytics endpoint is subscription-gated. Please refresh or verify your current plan entitlement.
                         </p>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void loadAnalytics()
+                          }
+                          className="mt-4 rounded-xl bg-white px-4 py-2.5 text-xs font-black text-orange-900 ring-1 ring-amber-200"
+                        >
+                          Try again
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -4697,8 +5606,7 @@ export default function PanditDashboard() {
                                 ?.pageViews,
                             ),
 
-                          sub:
-                            "Last 30 days",
+                          sub: `Last ${analyticsDays} days`,
 
                           Icon: Eye,
                         },
@@ -4714,8 +5622,7 @@ export default function PanditDashboard() {
                                 ?.uniqueVisitors,
                             ),
 
-                          sub:
-                            "Last 30 days",
+                          sub: `Last ${analyticsDays} days`,
 
                           Icon: User,
                         },
@@ -4731,8 +5638,7 @@ export default function PanditDashboard() {
                                 ?.events,
                             ),
 
-                          sub:
-                            "Last 30 days",
+                          sub: `Last ${analyticsDays} days`,
 
                           Icon: TrendingUp,
                         },
@@ -4820,12 +5726,16 @@ export default function PanditDashboard() {
                             No tracked conversions in this period yet.
                           </p>
                         ) : (
-                          analytics.conversions?.map(
-                            (item) => (
+                          (
+                            analytics.conversions ??
+                            []
+                          ).map(
+                            (
+                              item,
+                              index,
+                            ) => (
                               <div
-                                key={
-                                  item.conversion_type
-                                }
+                                key={`${item.conversion_type ?? "conversion"}-${index}`}
                                 className="flex items-center justify-between rounded-2xl bg-stone-50 px-4 py-3"
                               >
                                 <span className="text-sm font-bold">
@@ -4846,13 +5756,28 @@ export default function PanditDashboard() {
                       </div>
                     </div>
                   </>
-                ) : null}
+                ) : (
+                  <div className="rounded-3xl border border-orange-900/10 bg-white p-8 text-center">
+                    <BarChart3
+                      className="mx-auto text-stone-400"
+                      size={
+                        28
+                      }
+                    />
+
+                    <p className="mt-3 text-sm font-bold text-stone-700">
+                      Analytics data is not available yet.
+                    </p>
+                  </div>
+                )}
               </section>
             )}
 
-            {/* Notifications */}
-            {tab ===
-              "notifications" && (
+            {/* ---------------------------------------------------------------- */
+            /* Notifications                                                    */
+            /* ---------------------------------------------------------------- */}
+
+            {tab === "notifications" && (
               <section className="space-y-4">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-700">
@@ -4868,8 +5793,13 @@ export default function PanditDashboard() {
                   </p>
                 </div>
 
-                {(notifications?.length ??
-                  0) ===
+                {(
+                  Array.isArray(
+                    notifications,
+                  )
+                    ? notifications
+                    : []
+                ).length ===
                 0 ? (
                   <div className="rounded-3xl border border-orange-900/10 bg-white p-10 text-center shadow-sm">
                     <Mail
@@ -4889,47 +5819,83 @@ export default function PanditDashboard() {
                   </div>
                 ) : (
                   (
-                    notifications ??
-                    []
+                    Array.isArray(
+                      notifications,
+                    )
+                      ? notifications
+                      : []
                   ).map(
                     (
                       notification,
-                    ) => (
-                      <div
-                        key={
-                          notification.id
-                        }
-                        className="rounded-2xl border border-orange-900/10 bg-white p-4 shadow-sm"
-                      >
-                        <div className="flex items-start gap-3">
-                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-orange-50 text-orange-600">
-                            <Mail
-                              size={
-                                16
-                              }
-                            />
-                          </span>
+                      index,
+                    ) => {
+                      const rawId =
+                        getNotificationValue(
+                          notification,
+                          [
+                            "id",
+                            "notificationId",
+                          ],
+                        );
 
-                          <div className="min-w-0">
-                            <p className="text-sm font-black text-stone-800">
-                              DivyaDhara update
-                            </p>
+                      const key =
+                        rawId !==
+                          undefined &&
+                        rawId !== null
+                          ? String(
+                              rawId,
+                            )
+                          : `notification-${index}`;
 
-                            <p className="mt-1 text-sm leading-6 text-stone-600">
-                              {
-                                notification.text
-                              }
-                            </p>
+                      const textValue =
+                        notificationText(
+                          notification,
+                        );
 
-                            <p className="mt-1 text-[11px] text-stone-400">
-                              {
-                                notification.date
-                              }
-                            </p>
+                      const dateValue =
+                        notificationDate(
+                          notification,
+                        );
+
+                      return (
+                        <div
+                          key={
+                            key
+                          }
+                          className="rounded-2xl border border-orange-900/10 bg-white p-4 shadow-sm"
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-orange-50 text-orange-600">
+                              <Mail
+                                size={
+                                  16
+                                }
+                              />
+                            </span>
+
+                            <div className="min-w-0">
+                              <p className="text-sm font-black text-stone-800">
+                                DivyaDhara update
+                              </p>
+
+                              <p className="mt-1 text-sm leading-6 text-stone-600">
+                                {
+                                  textValue
+                                }
+                              </p>
+
+                              {dateValue && (
+                                <p className="mt-1 text-[11px] text-stone-400">
+                                  {
+                                    dateValue
+                                  }
+                                </p>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ),
+                      );
+                    },
                   )
                 )}
               </section>
@@ -4938,18 +5904,47 @@ export default function PanditDashboard() {
         </main>
       </div>
 
-      {/* Service modal */}
+      {/* -------------------------------------------------------------------- */}
+      {/* Service modal                                                        */}
+      {/* -------------------------------------------------------------------- */}
+
       {serviceModalOpen &&
         profile && (
-          <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4 backdrop-blur-[2px]">
-            <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-[#fffaf5] shadow-2xl">
+          <div
+            className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4 backdrop-blur-[2px]"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pandit-service-modal-title"
+            onMouseDown={(
+              event,
+            ) => {
+              if (
+                event.target ===
+                  event.currentTarget &&
+                !loading.savingService
+              ) {
+                closeServiceModal();
+              }
+            }}
+          >
+            <div
+              className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-[#fffaf5] shadow-2xl"
+              onMouseDown={(
+                event,
+              ) =>
+                event.stopPropagation()
+              }
+            >
               <div className="sticky top-0 z-10 flex items-center justify-between border-b border-orange-900/10 bg-[#fffaf5] px-5 py-4">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-700">
                     Service CRUD
                   </p>
 
-                  <h2 className="mt-1 text-xl font-black">
+                  <h2
+                    id="pandit-service-modal-title"
+                    className="mt-1 text-xl font-black"
+                  >
                     {editingServiceId !==
                     null
                       ? "Edit Puja service"
@@ -4962,7 +5957,10 @@ export default function PanditDashboard() {
                   onClick={
                     closeServiceModal
                   }
-                  className="rounded-xl p-2 text-stone-500 hover:bg-orange-50"
+                  disabled={
+                    loading.savingService
+                  }
+                  className="rounded-xl p-2 text-stone-500 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label="Close"
                 >
                   <X
@@ -4986,6 +5984,9 @@ export default function PanditDashboard() {
                     autoFocus
                     maxLength={
                       180
+                    }
+                    disabled={
+                      loading.savingService
                     }
                     value={
                       serviceForm.name
@@ -5016,6 +6017,9 @@ export default function PanditDashboard() {
                     rows={4}
                     maxLength={
                       2000
+                    }
+                    disabled={
+                      loading.savingService
                     }
                     className={
                       formInput
@@ -5064,6 +6068,9 @@ export default function PanditDashboard() {
                         0
                       }
                       step="1"
+                      disabled={
+                        loading.savingService
+                      }
                       className={
                         formInput
                       }
@@ -5073,7 +6080,11 @@ export default function PanditDashboard() {
                       }
                       onChange={(
                         event,
-                      ) =>
+                      ) => {
+                        const raw =
+                          event.target
+                            .value;
+
                         setServiceForm(
                           (
                             current,
@@ -5081,23 +6092,19 @@ export default function PanditDashboard() {
                             ...current,
 
                             priceAmount:
-                              event
-                                .target
-                                .value ===
+                              raw ===
                               ""
                                 ? null
                                 : Math.max(
                                     0,
                                     Number(
-                                      event
-                                        .target
-                                        .value,
+                                      raw,
                                     ) ||
                                       0,
                                   ),
                           }),
-                        )
-                      }
+                        );
+                      }}
                     />
                   </div>
 
@@ -5109,6 +6116,9 @@ export default function PanditDashboard() {
                     <input
                       maxLength={
                         3
+                      }
+                      disabled={
+                        loading.savingService
                       }
                       className={
                         formInput
@@ -5161,6 +6171,9 @@ export default function PanditDashboard() {
                       step={
                         1
                       }
+                      disabled={
+                        loading.savingService
+                      }
                       className={
                         formInput
                       }
@@ -5170,7 +6183,11 @@ export default function PanditDashboard() {
                       }
                       onChange={(
                         event,
-                      ) =>
+                      ) => {
+                        const raw =
+                          event.target
+                            .value;
+
                         setServiceForm(
                           (
                             current,
@@ -5178,9 +6195,7 @@ export default function PanditDashboard() {
                             ...current,
 
                             durationMinutes:
-                              event
-                                .target
-                                .value ===
+                              raw ===
                               ""
                                 ? null
                                 : Math.max(
@@ -5188,16 +6203,14 @@ export default function PanditDashboard() {
                                     Math.min(
                                       1440,
                                       Number(
-                                        event
-                                          .target
-                                          .value,
+                                        raw,
                                       ) ||
                                         1,
                                     ),
                                   ),
                           }),
-                        )
-                      }
+                        );
+                      }}
                     />
                   </div>
                 </div>
@@ -5218,6 +6231,9 @@ export default function PanditDashboard() {
                     checked={
                       serviceForm.isActive !==
                       false
+                    }
+                    disabled={
+                      loading.savingService
                     }
                     onChange={(
                       event,
@@ -5244,7 +6260,10 @@ export default function PanditDashboard() {
                     onClick={
                       closeServiceModal
                     }
-                    className="rounded-xl border border-orange-900/10 px-5 py-3 text-sm font-bold text-stone-700 hover:bg-white"
+                    disabled={
+                      loading.savingService
+                    }
+                    className="rounded-xl border border-orange-900/10 px-5 py-3 text-sm font-bold text-stone-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Cancel
                   </button>
@@ -5257,13 +6276,22 @@ export default function PanditDashboard() {
                     onClick={() =>
                       void saveService()
                     }
-                    className="btn-saffron flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-black text-white disabled:opacity-60"
+                    className="btn-saffron flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    <Save
-                      size={
-                        16
-                      }
-                    />
+                    {loading.savingService ? (
+                      <RefreshCw
+                        size={
+                          16
+                        }
+                        className="animate-spin"
+                      />
+                    ) : (
+                      <Save
+                        size={
+                          16
+                        }
+                      />
+                    )}
 
                     {loading.savingService
                       ? "Saving…"
