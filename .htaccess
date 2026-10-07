@@ -1,95 +1,228 @@
-# ============================================================
-# React + TypeScript + Vite - Apache SPA Configuration
-# Production Ready .htaccess
-# ============================================================
-
-RewriteEngine On
-
-# ============================================================
-# 1. Disable Apache MultiViews
-# ============================================================
-
-Options -MultiViews
-
-
-# ============================================================
-# 2. Default Document
-# ============================================================
-
-DirectoryIndex index.html
-
-
-# ============================================================
-# 3. Protect Sensitive / Hidden Files
-# ============================================================
-
-# Block access to .env, .git, configuration and backup files
-<FilesMatch "(^\.|\.env|\.git|\.gitignore|\.gitattributes|composer\.(json|lock)|package(-lock)?\.json|yarn\.lock|pnpm-lock\.yaml|vite\.config\.(js|ts)|tsconfig.*\.json|.*\.(bak|backup|old|orig|save|sql|log)$)">
-    Require all denied
-</FilesMatch>
-
-
-# ============================================================
-# 4. Block Directory Listing
-# ============================================================
+# =========================================================
+# DivyaDhara — Production ROOT .htaccess
+# =========================================================
+#
+# Document root:
+#   /home/hbqzcgk45gct/divya-dhara.in
+#
+# Frontend:
+#   /dist
+#
+# API:
+#   /api/*
+#   Handled by Node/Express + Passenger/cPanel Application Manager.
+#
+# IMPORTANT:
+#   This file does NOT proxy /api to Node by itself.
+#   Passenger/Node must be configured in cPanel.
+# =========================================================
 
 Options -Indexes
+Options -MultiViews
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # =====================================================
+    # 1. FORCE HTTPS
+    # =====================================================
+
+    RewriteCond %{HTTPS} !=on
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+    # =====================================================
+    # 2. CANONICAL HOST
+    # =====================================================
+    #
+    # Choose ONE canonical host.
+    # DivyaDhara is currently using:
+    #   https://divya-dhara.in
+    #
+    # Uncomment this block only if you want to force
+    # www -> non-www.
+    #
+    # RewriteCond %{HTTP_HOST} ^www\.divya-dhara\.in$ [NC]
+    # RewriteRule ^ https://divya-dhara.in%{REQUEST_URI} [R=301,L]
+    #
+    # =====================================================
 
 
-# ============================================================
-# 5. SPA Routing
-# ============================================================
+    # =====================================================
+    # 3. PROTECT ENVIRONMENT / CONFIG / SOURCE FILES
+    # =====================================================
 
-# Existing files and directories should be served normally
-RewriteCond %{REQUEST_FILENAME} -f [OR]
-RewriteCond %{REQUEST_FILENAME} -d
-RewriteRule ^ - [L]
+    # .env and variants
+    RewriteRule ^\.env(?:\..*)?$ - [F,L,NC]
 
-# All other requests go to React
-RewriteRule ^ index.html [L]
+    # Git
+    RewriteRule ^\.git(?:/|$) - [F,L,NC]
+    RewriteRule ^\.gitignore$ - [F,L,NC]
+
+    # Node dependencies
+    RewriteRule ^node_modules(?:/|$) - [F,L,NC]
+
+    # Source / backend
+    RewriteRule ^server(?:/|$) - [F,L,NC]
+    RewriteRule ^src(?:/|$) - [F,L,NC]
+    RewriteRule ^coverage(?:/|$) - [F,L,NC]
+    RewriteRule ^scripts(?:/|$) - [F,L,NC]
+    RewriteRule ^tests?(?:/|$) - [F,L,NC]
+
+    # Project / build configuration
+    RewriteRule ^(?:package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$ - [F,L,NC]
+    RewriteRule ^(?:tsconfig(?:\..*)?|vite\.config\..*|eslint\.config\..*)$ - [F,L,NC]
+
+    # Database files
+    RewriteRule ^data(?:/|$) - [F,L,NC]
+    RewriteRule \.(?:db|sqlite|sqlite3|db-shm|db-wal)$ - [F,L,NC]
+
+    # Logs / temporary files
+    RewriteRule \.(?:log|bak|backup|tmp|temp|old|orig|swp)$ - [F,L,NC]
+
+    # Lock / deployment files that should never be public
+    RewriteRule ^(?:\.user\.ini|composer\.(?:json|lock)|Dockerfile|docker-compose\.ya?ml)$ - [F,L,NC]
 
 
-# ============================================================
-# 6. GZIP / DEFLATE Compression
-# ============================================================
+    # =====================================================
+    # 4. BLOCK HIDDEN FILES / DIRECTORY METADATA
+    # =====================================================
 
-<IfModule mod_deflate.c>
+    # Block hidden files/directories except .well-known
+    RewriteRule (^|/)\.(?!well-known(?:/|$))[^/]+ - [F,L,NC]
 
-    AddOutputFilterByType DEFLATE text/plain
-    AddOutputFilterByType DEFLATE text/html
-    AddOutputFilterByType DEFLATE text/xml
-    AddOutputFilterByType DEFLATE text/css
-    AddOutputFilterByType DEFLATE application/xml
-    AddOutputFilterByType DEFLATE application/xhtml+xml
-    AddOutputFilterByType DEFLATE application/rss+xml
-    AddOutputFilterByType DEFLATE application/javascript
-    AddOutputFilterByType DEFLATE application/x-javascript
-    AddOutputFilterByType DEFLATE application/json
-    AddOutputFilterByType DEFLATE image/svg+xml
+
+    # =====================================================
+    # 5. API — DO NOT SEND INTO React / DIST
+    # =====================================================
+    #
+    # IMPORTANT:
+    # /api/* must remain available for Passenger/Node.
+    #
+    # This rule does NOT create the proxy.
+    # cPanel Node.js Application / Passenger must handle it.
+    #
+
+    RewriteRule ^api(?:/|$) - [END,NC]
+
+
+    # =====================================================
+    # 6. PASS THROUGH REAL DIST PATHS
+    # =====================================================
+    #
+    # Prevent:
+    #   /dist/...
+    # becoming:
+    #   /dist/dist/...
+    #
+
+    RewriteRule ^dist(?:/|$) - [END,NC]
+
+
+    # =====================================================
+    # 7. PASS THROUGH REAL STATIC FILES AT ROOT
+    # =====================================================
+    #
+    # Useful for:
+    #   favicon.ico
+    #   robots.txt
+    #   sitemap.xml
+    #   site.webmanifest
+    #   verification files
+    #
+
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [END]
+
+
+    # =====================================================
+    # 8. ROOT STATIC FILES -> DIST
+    # =====================================================
+    #
+    # Example:
+    #   /favicon.ico
+    #   -> /dist/favicon.ico
+    #
+    #   /assets/app.js
+    #   -> /dist/assets/app.js
+    #
+
+    RewriteCond %{DOCUMENT_ROOT}/dist/$1 -f
+    RewriteRule ^(.+)$ dist/$1 [END]
+
+
+    # =====================================================
+    # 9. REACT / VITE SPA FALLBACK
+    # =====================================================
+    #
+    # All frontend routes:
+    #
+    #   /
+    #   /temples
+    #   /pandits
+    #   /ashrams
+    #   /login
+    #   /dashboard
+    #   /admin/dashboard
+    #
+    # go to:
+    #
+    #   /dist/index.html
+    #
+
+    RewriteRule ^$ dist/index.html [END]
+    RewriteRule ^.*$ dist/index.html [END]
 
 </IfModule>
 
 
-# ============================================================
-# 7. Browser Cache
-# ============================================================
+# =========================================================
+# 10. SECURITY HEADERS
+# =========================================================
+
+<IfModule mod_headers.c>
+
+    # Prevent MIME sniffing
+    Header always set X-Content-Type-Options "nosniff"
+
+    # Prevent clickjacking from other origins
+    Header always set X-Frame-Options "SAMEORIGIN"
+
+    # Referrer privacy
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Browser feature restrictions
+    Header always set Permissions-Policy "geolocation=(self), microphone=(), camera=(), payment=(self)"
+
+    # Disable legacy caching of error responses where supported
+    Header always set X-Permitted-Cross-Domain-Policies "none"
+
+</IfModule>
+
+
+# =========================================================
+# 11. HSTS
+# =========================================================
+#
+# ONLY enable this when HTTPS is permanently configured.
+#
+# max-age = 1 year
+#
+# Do NOT add preload until domain/subdomain HTTPS behavior
+# has been completely verified.
+#
+
+<IfModule mod_headers.c>
+    Header always set Strict-Transport-Security "max-age=31536000"
+</IfModule>
+
+
+# =========================================================
+# 12. CACHE CONTROL — STATIC ASSETS
+# =========================================================
 
 <IfModule mod_expires.c>
 
     ExpiresActive On
-
-    # HTML - keep short because SPA deployments can change
-    ExpiresByType text/html "access plus 0 seconds"
-
-    # CSS
-    ExpiresByType text/css "access plus 1 year"
-
-    # JavaScript
-    ExpiresByType application/javascript "access plus 1 year"
-    ExpiresByType application/x-javascript "access plus 1 year"
-
-    # JSON
-    ExpiresByType application/json "access plus 1 day"
 
     # Images
     ExpiresByType image/jpeg "access plus 1 year"
@@ -100,140 +233,101 @@ RewriteRule ^ index.html [L]
     ExpiresByType image/avif "access plus 1 year"
     ExpiresByType image/svg+xml "access plus 1 year"
     ExpiresByType image/x-icon "access plus 1 year"
-    ExpiresByType image/vnd.microsoft.icon "access plus 1 year"
 
     # Fonts
-    ExpiresByType font/ttf "access plus 1 year"
-    ExpiresByType font/otf "access plus 1 year"
     ExpiresByType font/woff "access plus 1 year"
     ExpiresByType font/woff2 "access plus 1 year"
+    ExpiresByType application/font-woff "access plus 1 year"
+    ExpiresByType application/vnd.ms-fontobject "access plus 1 year"
+
+    # CSS / JS
+    ExpiresByType text/css "access plus 1 year"
+    ExpiresByType application/javascript "access plus 1 year"
+    ExpiresByType text/javascript "access plus 1 year"
+
+    # Manifest
+    ExpiresByType application/manifest+json "access plus 1 month"
 
 </IfModule>
 
 
-# ============================================================
-# 8. Cache-Control Headers
-# ============================================================
+# =========================================================
+# 13. IMMUTABLE CACHE FOR VITE-HASHED ASSETS
+# =========================================================
+#
+# Vite normally generates:
+#   app-AbCd1234.js
+#   index-XyZ987.css
+#
+# These can safely be cached aggressively.
 
 <IfModule mod_headers.c>
 
-    # --------------------------------------------------------
-    # HTML - don't aggressively cache
-    # --------------------------------------------------------
+    <FilesMatch "\.(?:js|mjs|css|woff|woff2|png|jpg|jpeg|gif|webp|avif|svg|ico)$">
+        Header append Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
 
-    <FilesMatch "\.(html|htm)$">
+</IfModule>
+
+
+# =========================================================
+# 14. HTML SHOULD NOT BE CACHED LONG-TERM
+# =========================================================
+
+<IfModule mod_headers.c>
+
+    <FilesMatch "\.html$">
         Header set Cache-Control "no-cache, must-revalidate"
     </FilesMatch>
 
-
-    # --------------------------------------------------------
-    # Vite hashed assets - cache for 1 year
-    # --------------------------------------------------------
-
-    <FilesMatch "\.(css|js|mjs|jpg|jpeg|png|gif|webp|avif|svg|ico|woff|woff2|ttf|otf)$">
-        Header set Cache-Control "public, max-age=31536000, immutable"
-    </FilesMatch>
+</IfModule>
 
 
-    # --------------------------------------------------------
-    # JSON - short cache
-    # --------------------------------------------------------
+# =========================================================
+# 15. COMPRESSION
+# =========================================================
 
-    <FilesMatch "\.json$">
-        Header set Cache-Control "public, max-age=86400"
-    </FilesMatch>
+<IfModule mod_deflate.c>
 
+    AddOutputFilterByType DEFLATE text/plain
+    AddOutputFilterByType DEFLATE text/html
+    AddOutputFilterByType DEFLATE text/css
+    AddOutputFilterByType DEFLATE text/javascript
+    AddOutputFilterByType DEFLATE application/javascript
+    AddOutputFilterByType DEFLATE application/json
+    AddOutputFilterByType DEFLATE application/xml
+    AddOutputFilterByType DEFLATE text/xml
+    AddOutputFilterByType DEFLATE image/svg+xml
 
-    # ========================================================
-    # 9. Security Headers
-    # ========================================================
-
-    # Prevent MIME type sniffing
-    Header always set X-Content-Type-Options "nosniff"
-
-    # Clickjacking protection
-    Header always set X-Frame-Options "SAMEORIGIN"
-
-    # Referrer policy
-    Header always set Referrer-Policy "strict-origin-when-cross-origin"
-
-    # Browser XSS protection for older browsers
-    Header always set X-XSS-Protection "1; mode=block"
-
-    # Restrict browser features
-    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+    # Avoid compressing already-compressed formats
+    SetEnvIfNoCase Request_URI "\.(?:gif|jpe?g|png|webp|avif|zip|gz|br|woff2)$" no-gzip dont-vary
 
 </IfModule>
 
 
-# ============================================================
-# 10. Prevent Access to Apache Server Information
-# ============================================================
+# =========================================================
+# 16. VARY HEADER FOR COMPRESSION
+# =========================================================
 
 <IfModule mod_headers.c>
-    Header always unset X-Powered-By
-    Header always unset Server
+    Header append Vary Accept-Encoding
 </IfModule>
 
 
-# ============================================================
-# 11. CORS for Static Assets
-# ============================================================
+# =========================================================
+# 17. BASIC MIME TYPES
+# =========================================================
 
-<IfModule mod_headers.c>
+<IfModule mod_mime.c>
 
-    <FilesMatch "\.(woff|woff2|ttf|otf|svg)$">
-        Header set Access-Control-Allow-Origin "*"
-    </FilesMatch>
+    AddType application/javascript .js
+    AddType application/javascript .mjs
+    AddType application/json .json
+
+    AddType font/woff .woff
+    AddType font/woff2 .woff2
+
+    AddType image/avif .avif
+    AddType image/webp .webp
 
 </IfModule>
-
-
-# ============================================================
-# 12. Keep-Alive
-# ============================================================
-
-<IfModule mod_headers.c>
-    Header set Connection keep-alive
-</IfModule>
-
-
-# ============================================================
-# 13. Security - Block Common Sensitive Files
-# ============================================================
-
-<FilesMatch "\.(htaccess|htpasswd|ini|phps|fla|psd|sh|cgi)$">
-    Require all denied
-</FilesMatch>
-
-
-# ============================================================
-# 14. HTTP + HTTPS
-# ============================================================
-
-# No HTTP -> HTTPS redirect is forced here.
-# Therefore the SPA works on both:
-#
-# http://yourdomain.com/
-# https://yourdomain.com/
-#
-# If later you want HTTPS-only, enable the following:
-#
-# RewriteCond %{HTTPS} !=on
-# RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
-
-
-# ============================================================
-# 15. Optional WWW -> Non-WWW
-# ============================================================
-
-# Enable ONLY if your canonical domain is:
-# https://example.com
-#
-# RewriteCond %{HTTP_HOST} ^www\.example\.com$ [NC]
-# RewriteRule ^ https://example.com%{REQUEST_URI} [R=301,L]
-
-
-# ============================================================
-# END
-# ============================================================
