@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -677,6 +678,29 @@ function normalizeUser(
   };
 }
 
+function areUsersEqual(
+  a: User | null,
+  b: User | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+
+  return (
+    a.id === b.id &&
+    a.name === b.name &&
+    a.email === b.email &&
+    a.phone === b.phone &&
+    a.city === b.city &&
+    a.state === b.state &&
+    a.country === b.country &&
+    a.role === b.role &&
+    a.status === b.status &&
+    a.avatar === b.avatar &&
+    a.emailVerifiedAt === b.emailVerifiedAt &&
+    a.phoneVerifiedAt === b.phoneVerifiedAt
+  );
+}
+
 /*
 |--------------------------------------------------------------------------
 | Local Storage
@@ -1220,6 +1244,31 @@ export function AppProvider({
       null,
     );
 
+
+  // Keep the latest user available to stable callbacks.
+  const userRef = useRef<User | null>(null);
+
+  // Invalidates auth responses that started before a newer login/logout.
+  // This prevents a late /auth/me response from restoring a logged-out user.
+  const authRevisionRef = useRef(0);
+
+  // Reuse the initial request during React Strict Mode's setup/cleanup replay.
+  const initialSessionRequestRef =
+    useRef<Promise<AuthApiResponse> | null>(null);
+
+  // Avoid cascading rerenders when the API returns unchanged user data.
+  const setCurrentUser = useCallback(
+    (nextUser: User | null) => {
+      userRef.current = nextUser;
+      setUser((currentUser) =>
+        areUsersEqual(currentUser, nextUser)
+          ? currentUser
+          : nextUser,
+      );
+    },
+    [],
+  );
+
   const [
     isLoading,
     setIsLoading,
@@ -1344,6 +1393,9 @@ export function AppProvider({
    * ----------------------------------------------------------------------
    * Refresh User
    * ----------------------------------------------------------------------
+   * Keep this callback stable. If it depends on `user`, components using
+   * it in a useEffect dependency list can repeatedly call /api/auth/me every
+   * time the response updates user state.
    */
 
   const refreshUser =
@@ -1351,11 +1403,18 @@ export function AppProvider({
       async (): Promise<
         User | null
       > => {
+        const requestRevision = authRevisionRef.current;
+
         try {
           const response =
             await apiFetch<AuthApiResponse>(
               "/api/auth/me",
             );
+
+          // A login/logout happened while this request was in flight.
+          if (requestRevision !== authRevisionRef.current) {
+            return userRef.current;
+          }
 
           const normalizedUser =
             normalizeUser(
@@ -1366,7 +1425,7 @@ export function AppProvider({
             response.authenticated &&
             normalizedUser
           ) {
-            setUser(
+            setCurrentUser(
               normalizedUser,
             );
 
@@ -1378,11 +1437,15 @@ export function AppProvider({
           /*
            * Backend explicitly says there is no authenticated session.
            */
-          setUser(null);
+          setCurrentUser(null);
           setAuthError(null);
 
           return null;
         } catch (error) {
+          if (requestRevision !== authRevisionRef.current) {
+            return userRef.current;
+          }
+
           const apiError =
             error as ApiError;
 
@@ -1395,7 +1458,7 @@ export function AppProvider({
             apiError.status ===
               403
           ) {
-            setUser(null);
+            setCurrentUser(null);
             setAuthError(
               error instanceof
                 Error
@@ -1415,10 +1478,10 @@ export function AppProvider({
             error,
           );
 
-          return user;
+          return userRef.current;
         }
       },
-      [user],
+      [setCurrentUser],
     );
 
   /*
@@ -1428,22 +1491,25 @@ export function AppProvider({
    */
 
   useEffect(() => {
-    let mounted =
-      true;
+    let mounted = true;
+    const requestRevision = authRevisionRef.current;
 
-    const checkSession =
-      async () => {
-        setIsLoading(true);
+    const checkSession = async () => {
+      setIsLoading(true);
 
-        try {
-          const response =
-            await apiFetch<AuthApiResponse>(
-              "/api/auth/me",
-            );
+      // Strict Mode can replay this effect in development. Share the pending
+      // request so the replay does not send a second /api/auth/me request.
+      const sessionRequest =
+        initialSessionRequestRef.current ??
+        (initialSessionRequestRef.current =
+          apiFetch<AuthApiResponse>("/api/auth/me"));
 
-          if (!mounted) {
-            return;
-          }
+      try {
+        const response = await sessionRequest;
+
+        if (!mounted || requestRevision !== authRevisionRef.current) {
+          return;
+        }
 
           const normalizedUser =
             normalizeUser(
@@ -1454,25 +1520,25 @@ export function AppProvider({
             response.authenticated &&
             normalizedUser
           ) {
-            setUser(
+            setCurrentUser(
               normalizedUser,
             );
 
             setAuthError(null);
           } else {
-            setUser(null);
+            setCurrentUser(null);
             setAuthError(null);
           }
-        } catch (error) {
-          if (!mounted) {
-            return;
-          }
+      } catch (error) {
+        if (!mounted || requestRevision !== authRevisionRef.current) {
+          return;
+        }
 
-          /*
+        /*
            * At initial app boot we do not yet know whether a session
            * exists, so don't assume authentication on a failed request.
            */
-          setUser(null);
+          setCurrentUser(null);
 
           setAuthError(
             error instanceof
@@ -1480,19 +1546,22 @@ export function AppProvider({
               ? error.message
               : "Unable to verify your session.",
           );
-        } finally {
-          if (mounted) {
-            setIsLoading(false);
-          }
+      } finally {
+        if (initialSessionRequestRef.current === sessionRequest) {
+          initialSessionRequestRef.current = null;
         }
-      };
+        if (mounted && requestRevision === authRevisionRef.current) {
+          setIsLoading(false);
+        }
+      }
+    };
 
     void checkSession();
 
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [setCurrentUser]);
 
   /*
    * ----------------------------------------------------------------------
@@ -1505,6 +1574,7 @@ export function AppProvider({
       async (
         credentials: LoginCredentials,
       ): Promise<User> => {
+        const requestRevision = ++authRevisionRef.current;
         setAuthError(null);
         setIsLoading(true);
 
@@ -1582,6 +1652,10 @@ export function AppProvider({
               response.user,
             );
 
+          if (requestRevision !== authRevisionRef.current) {
+            throw new Error("This login request was superseded by a newer authentication action.");
+          }
+
           if (
             !normalizedUser
           ) {
@@ -1593,7 +1667,7 @@ export function AppProvider({
           /*
            * Server is the source of truth.
            */
-          setUser(
+          setCurrentUser(
             normalizedUser,
           );
 
@@ -1606,17 +1680,19 @@ export function AppProvider({
               ? error.message
               : "Unable to login.";
 
-          setUser(null);
-          setAuthError(message);
+          if (requestRevision === authRevisionRef.current) {
+            setCurrentUser(null);
+            setAuthError(message);
+          }
 
-          throw new Error(
-            message,
-          );
+          throw new Error(message);
         } finally {
-          setIsLoading(false);
+          if (requestRevision === authRevisionRef.current) {
+            setIsLoading(false);
+          }
         }
       },
-      [],
+      [setCurrentUser],
     );
 
   /*
@@ -1634,6 +1710,7 @@ export function AppProvider({
         user: User;
         message: string;
       }> => {
+        const requestRevision = ++authRevisionRef.current;
         setAuthError(null);
         setIsLoading(true);
 
@@ -1830,6 +1907,10 @@ export function AppProvider({
             );
           }
 
+          if (requestRevision !== authRevisionRef.current) {
+            throw new Error("This registration request was superseded by a newer authentication action.");
+          }
+
           const authenticated =
             Boolean(
               response.authenticated,
@@ -1844,11 +1925,11 @@ export function AppProvider({
           if (
             authenticated
           ) {
-            setUser(
+            setCurrentUser(
               normalizedUser,
             );
           } else {
-            setUser(null);
+            setCurrentUser(null);
           }
 
           setAuthError(null);
@@ -1867,16 +1948,18 @@ export function AppProvider({
               ? error.message
               : "Unable to complete registration.";
 
-          setAuthError(message);
+          if (requestRevision === authRevisionRef.current) {
+            setAuthError(message);
+          }
 
-          throw new Error(
-            message,
-          );
+          throw new Error(message);
         } finally {
-          setIsLoading(false);
+          if (requestRevision === authRevisionRef.current) {
+            setIsLoading(false);
+          }
         }
       },
-      [],
+      [setCurrentUser],
     );
 
   /*
@@ -1888,7 +1971,12 @@ export function AppProvider({
   const logout =
     useCallback(
       async (): Promise<void> => {
+        // Invalidate pending auth checks immediately and clear the UI session
+        // without waiting for the network logout request to finish.
+        const logoutRevision = ++authRevisionRef.current;
         setAuthError(null);
+        setCurrentUser(null);
+        setIsLoading(false);
 
         try {
           await apiFetch<AuthApiResponse>(
@@ -1907,13 +1995,14 @@ export function AppProvider({
             error,
           );
         } finally {
-          setUser(null);
-          setIsProfileUpdating(
-            false,
-          );
+          // Do not let an older logout response clear a newer login session.
+          if (logoutRevision === authRevisionRef.current) {
+            setCurrentUser(null);
+            setIsProfileUpdating(false);
+          }
         }
       },
-      [],
+      [setCurrentUser],
     );
 
   /*
@@ -2232,7 +2321,7 @@ export function AppProvider({
             );
           }
 
-          setUser(
+          setCurrentUser(
             normalizedUser,
           );
 
@@ -2256,7 +2345,7 @@ export function AppProvider({
           );
         }
       },
-      [user],
+      [user, setCurrentUser],
     );
 
   /*

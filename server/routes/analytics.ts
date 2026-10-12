@@ -57,7 +57,6 @@ type OwnerScope = {
     ashramIds: number[];
     analyticsLevel: "basic" | "advanced";
 };
-const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const VISITOR_COOKIE = sanitizeCookieName(process.env.ANALYTICS_VISITOR_COOKIE || "divyadhara_visitor");
 const SESSION_COOKIE = sanitizeCookieName(process.env.ANALYTICS_SESSION_COOKIE || "divyadhara_analytics_session");
 const SESSION_MINUTES = positiveInteger(process.env.ANALYTICS_SESSION_MINUTES, 30);
@@ -66,7 +65,18 @@ const EVENT_MAX_BODY = positiveInteger(process.env.ANALYTICS_MAX_EVENT_PAYLOAD, 
 const ANALYTICS_REQUIRE_CONSENT = normalizeBooleanEnv(process.env.ANALYTICS_REQUIRE_CONSENT, false);
 const ANALYTICS_IP_SALT = process.env.ANALYTICS_IP_SALT || "divyadhara-analytics";
 const RATE_WINDOW_MINUTES = positiveInteger(process.env.ANALYTICS_RATE_LIMIT_WINDOW_MINUTES, 1);
-const RATE_LIMIT_COUNT = positiveInteger(process.env.ANALYTICS_RATE_LIMIT_COUNT, 120);
+const RATE_LIMIT_COUNT = positiveInteger(process.env.ANALYTICS_RATE_LIMIT_COUNT, 240);
+const RATE_LIMITS = {
+    consent: positiveInteger(process.env.ANALYTICS_CONSENT_RATE_LIMIT_COUNT, 30),
+    visit: positiveInteger(process.env.ANALYTICS_VISIT_RATE_LIMIT_COUNT, 120),
+    pageView: positiveInteger(process.env.ANALYTICS_PAGE_VIEW_RATE_LIMIT_COUNT, 240),
+    pageViewUpdate: positiveInteger(process.env.ANALYTICS_PAGE_VIEW_UPDATE_RATE_LIMIT_COUNT, 180),
+    event: positiveInteger(process.env.ANALYTICS_EVENT_RATE_LIMIT_COUNT, 180),
+    search: positiveInteger(process.env.ANALYTICS_SEARCH_RATE_LIMIT_COUNT, 60),
+    heartbeat: positiveInteger(process.env.ANALYTICS_HEARTBEAT_RATE_LIMIT_COUNT, 120),
+    sessionEnd: positiveInteger(process.env.ANALYTICS_SESSION_END_RATE_LIMIT_COUNT, 30),
+    conversion: positiveInteger(process.env.ANALYTICS_CONVERSION_RATE_LIMIT_COUNT, 60),
+};
 const MAX_REPORT_DAYS = positiveInteger(process.env.ANALYTICS_MAX_REPORT_DAYS, 366);
 const OWNER_MAX_DAYS = positiveInteger(process.env.ANALYTICS_OWNER_MAX_REPORT_DAYS, 180);
 const DEFAULT_CONSENT_VERSION = normalizeText(process.env.ANALYTICS_CONSENT_VERSION || "v1", 80) || "v1";
@@ -303,7 +313,15 @@ function readCookie(req: Request, name: string): string | null {
     }
     return null;
 }
-function appendCookie(res: Response, name: string, value: string, maxAge: number, httpOnly = true): void {
+function isSecureRequest(req: Request): boolean {
+    const forwardedProto = (req.get("x-forwarded-proto") || "")
+        .split(",")[0]
+        .trim()
+        .toLowerCase();
+    return Boolean(req.secure) || forwardedProto === "https";
+}
+
+function appendCookie(req: Request, res: Response, name: string, value: string, maxAge: number, httpOnly = true): void {
     const parts = [
         `${name}=${encodeURIComponent(value)}`,
         "Path=/",
@@ -312,25 +330,47 @@ function appendCookie(res: Response, name: string, value: string, maxAge: number
     ];
     if (httpOnly)
         parts.push("HttpOnly");
-    if (IS_PRODUCTION)
+    // Set Secure only when the current request is actually HTTPS. This prevents
+    // localhost HTTP development from silently losing the analytics session cookie
+    // when NODE_ENV happens to be "production".
+    if (isSecureRequest(req))
         parts.push("Secure");
     res.append("Set-Cookie", parts.join("; "));
 }
-function clearAnalyticsCookies(res: Response): void {
-    appendCookie(res, VISITOR_COOKIE, "", 0, true);
-    appendCookie(res, SESSION_COOKIE, "", 0, true);
+function clearAnalyticsCookies(req: Request, res: Response): void {
+    appendCookie(req, res, VISITOR_COOKIE, "", 0, true);
+    appendCookie(req, res, SESSION_COOKIE, "", 0, true);
 }
-function rateAllowed(req: Request): boolean {
-    const key = ipHash(req) || "unknown";
+function rateAllowed(req: Request, bucket = "default", limit = RATE_LIMIT_COUNT): boolean {
+    // Keep endpoint buckets independent so normal heartbeats cannot consume the
+    // same quota as page navigation or analytics events.
+    const key = `${ipHash(req) || "unknown"}:${bucket}`;
     const now = Date.now();
     const windowMs = RATE_WINDOW_MINUTES * 60 * 1000;
+
+    // This is an in-process limiter. Expire stale keys to prevent unbounded growth
+    // on a long-running Node process. Multi-instance deployments should additionally
+    // use a shared Redis-backed limiter at the gateway/application layer.
+    if (rateMap.size > 5000) {
+        for (const [mapKey, value] of rateMap) {
+            if (now - value.startedAt >= windowMs) rateMap.delete(mapKey);
+        }
+        if (rateMap.size > 10000) {
+            const excess = rateMap.size - 10000;
+            let removed = 0;
+            for (const mapKey of rateMap.keys()) {
+                rateMap.delete(mapKey);
+                if (++removed >= excess) break;
+            }
+        }
+    }
+
     const existing = rateMap.get(key);
     if (!existing || now - existing.startedAt >= windowMs) {
         rateMap.set(key, { count: 1, startedAt: now });
         return true;
     }
-    if (existing.count >= RATE_LIMIT_COUNT)
-        return false;
+    if (existing.count >= limit) return false;
     existing.count += 1;
     return true;
 }
@@ -467,6 +507,11 @@ function inferEntityFromPath(path: string): RouteEntity {
 function loadSession(sessionKey: string): SessionRow | undefined {
     return db.prepare(`SELECT id, session_key, visitor_id, user_id, started_at, ended_at, last_activity_at, page_views, event_count, duration_seconds, engaged, is_bounce, is_bot FROM web_sessions WHERE session_key=? LIMIT 1`).get(sessionKey) as SessionRow | undefined;
 }
+function elapsedSecondsSince(value: unknown): number {
+    const parsed = safeDate(value);
+    if (!parsed) return 0;
+    return Math.min(86400, Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 1000)));
+}
 function createVisitor(req: Request, res: Response, body: SqlRow, user: AnalyticsUser, location: LocationContext, path: string | null, referrer: string | null, tracking: boolean, bot: boolean): {
     id: number;
     visitorKey: string;
@@ -511,7 +556,7 @@ function createVisitor(req: Request, res: Response, body: SqlRow, user: Analytic
              updated_at=CURRENT_TIMESTAMP
        WHERE id=?
     `).run(user?.id ?? null, userVisitorType(user, bot), status, path, referrer, nullableText(body.utmSource, 250), nullableText(body.utmMedium, 250), nullableText(body.utmCampaign, 250), nullableText(body.utmTerm, 250), nullableText(body.utmContent, 250), tracking ? 1 : 0, location.country, tracking ? 1 : 0, location.state, tracking ? 1 : 0, location.district, tracking ? 1 : 0, location.city, language, timezone, device, browser, os, ip, marketingConsent ? 1 : 0, analyticsConsent, analyticsConsent, analyticsConsent, consentSource, analyticsConsent, consentVersion, existing.id);
-        appendCookie(res, VISITOR_COOKIE, existing.visitor_key, VISITOR_COOKIE_DAYS * 86400);
+        appendCookie(req, res, VISITOR_COOKIE, existing.visitor_key, VISITOR_COOKIE_DAYS * 86400);
         return { id: existing.id, visitorKey: existing.visitor_key };
     }
     const result = db.prepare(`
@@ -531,7 +576,7 @@ function createVisitor(req: Request, res: Response, body: SqlRow, user: Analytic
     )
   `).run(visitorKey, user?.id ?? null, userVisitorType(user, bot), status, consentSource, consentVersion, tracking ? new Date().toISOString() : null, path, path, referrer, referrer, nullableText(body.utmSource, 250), nullableText(body.utmMedium, 250), nullableText(body.utmCampaign, 250), nullableText(body.utmTerm, 250), nullableText(body.utmContent, 250), tracking ? 1 : 0, location.country, tracking ? 1 : 0, location.state, tracking ? 1 : 0, location.district, tracking ? 1 : 0, location.city, language, timezone, device, browser, os, ip, bot ? 1 : 0, marketingConsent ? 1 : 0, tracking ? 1 : 0);
     const visitorId = Number(result.lastInsertRowid);
-    appendCookie(res, VISITOR_COOKIE, visitorKey, VISITOR_COOKIE_DAYS * 86400);
+    appendCookie(req, res, VISITOR_COOKIE, visitorKey, VISITOR_COOKIE_DAYS * 86400);
     return { id: visitorId, visitorKey };
 }
 function ensureVisitorAndSession(req: Request, res: Response, body: SqlRow): AnalyticsContext {
@@ -560,7 +605,7 @@ function ensureVisitorAndSession(req: Request, res: Response, body: SqlRow): Ana
         session_key,visitor_id,user_id,ip_hash,request_id,started_at,last_activity_at,entry_path,landing_page,referrer_url,
         utm_source,utm_medium,utm_campaign,utm_term,utm_content,country,state,district,city,device_type,browser,operating_system,
         screen_width,screen_height,page_views,event_count,duration_seconds,engaged,is_bounce,is_bot,created_at,updated_at
-      ) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0,1,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+      ) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,0,1,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
     `).run(sessionKey, visitor.id, user?.id ?? null, ipHash(req), requestId(req), path, path, referrer, nullableText(body.utmSource, 250), nullableText(body.utmMedium, 250), nullableText(body.utmCampaign, 250), nullableText(body.utmTerm, 250), nullableText(body.utmContent, 250), location.country, location.state, location.district, location.city, nullableText(body.deviceType ?? deviceFromRequest(req), 40), nullableText(body.browser ?? browserFromRequest(req), 80), nullableText(body.operatingSystem ?? osFromRequest(req), 80), boundedInteger(body.screenWidth, 0, 0, 10000), boundedInteger(body.screenHeight, 0, 0, 10000), bot ? 1 : 0);
         const now = new Date().toISOString();
         session = {
@@ -568,7 +613,7 @@ function ensureVisitorAndSession(req: Request, res: Response, body: SqlRow): Ana
             started_at: now, ended_at: null, last_activity_at: now, page_views: 0, event_count: 0, duration_seconds: 0, engaged: 0, is_bounce: 1, is_bot: bot ? 1 : 0,
         };
         db.prepare(`UPDATE web_visitors SET total_sessions=total_sessions+1, last_activity_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(visitor.id);
-        appendCookie(res, SESSION_COOKIE, sessionKey, SESSION_MINUTES * 60);
+        appendCookie(req, res, SESSION_COOKIE, sessionKey, SESSION_MINUTES * 60);
     }
     else {
         db.prepare(`
@@ -578,10 +623,51 @@ function ensureVisitorAndSession(req: Request, res: Response, body: SqlRow): Ana
              device_type=COALESCE(?,device_type),browser=COALESCE(?,browser),operating_system=COALESCE(?,operating_system),updated_at=CURRENT_TIMESTAMP
        WHERE id=?
     `).run(user?.id ?? null, ipHash(req), requestId(req), location.country, location.state, location.district, location.city, nullableText(body.deviceType ?? deviceFromRequest(req), 40), nullableText(body.browser ?? browserFromRequest(req), 80), nullableText(body.operatingSystem ?? osFromRequest(req), 80), session.id);
-        appendCookie(res, SESSION_COOKIE, session.session_key, SESSION_MINUTES * 60);
+        appendCookie(req, res, SESSION_COOKIE, session.session_key, SESSION_MINUTES * 60);
     }
     return { visitorId: visitor.id, visitorKey: visitor.visitorKey, sessionId: session.id, sessionKey: session.session_key, trackingAllowed: true };
 }
+/**
+ * Resolve an already-existing analytics session for write-back endpoints.
+ *
+ * Unlike ensureVisitorAndSession(), this helper is intentionally read-only:
+ * missing/expired cookies must not create a new web_sessions row while a page
+ * view is being PATCHed. That old behavior caused repeated 403s and hundreds
+ * of orphan sessions whenever the browser's cookie/session did not match.
+ */
+function existingAnalyticsContext(req: Request, body: SqlRow): AnalyticsContext | null {
+    if (!trackingAllowed(body)) {
+        return { visitorId: 0, visitorKey: "", sessionId: 0, sessionKey: "", trackingAllowed: false };
+    }
+
+    const sessionKey = nullableText(readCookie(req, SESSION_COOKIE), 150);
+    if (!sessionKey)
+        return null;
+
+    const session = loadSession(sessionKey);
+    if (!session || session.ended_at)
+        return null;
+
+    const sessionAge = Date.now() - new Date(session.last_activity_at).getTime();
+    if (!Number.isFinite(sessionAge) || sessionAge > SESSION_MINUTES * 60000)
+        return null;
+
+    const visitor = db.prepare(`SELECT id, visitor_key FROM web_visitors WHERE id=? LIMIT 1`).get(session.visitor_id) as {
+        id: number;
+        visitor_key: string;
+    } | undefined;
+    if (!visitor)
+        return null;
+
+    return {
+        visitorId: visitor.id,
+        visitorKey: visitor.visitor_key,
+        sessionId: session.id,
+        sessionKey: session.session_key,
+        trackingAllowed: true,
+    };
+}
+
 function getPageView(pageViewId: number): PageViewRow | undefined {
     return db.prepare(`SELECT id,visitor_id,session_id,entered_at,exited_at,path,entity_type,entity_id FROM web_page_views WHERE id=? LIMIT 1`).get(pageViewId) as PageViewRow | undefined;
 }
@@ -619,9 +705,20 @@ function eventMatchesGoal(eventName: string, path: string | null, entityType: st
     });
 }
 function isoDateOnly(date: Date): string { return date.toISOString().slice(0, 10); }
-function startOfDayIso(dateString: string): string { return `${dateString}T00:00:00.000Z`; }
-function endOfDayIso(dateString: string): string { return `${dateString}T23:59:59.999Z`; }
-function safeDate(value: unknown): Date | null { const date = new Date(String(value ?? "")); return Number.isFinite(date.getTime()) ? date : null; }
+// SQLite CURRENT_TIMESTAMP values are stored as "YYYY-MM-DD HH:mm:ss" in UTC.
+// Use matching SQL bounds and explicitly parse those timestamps as UTC so reports
+// and duration calculations stay correct regardless of the server's TZ setting.
+function startOfDayIso(dateString: string): string { return `${dateString} 00:00:00`; }
+function endOfDayIso(dateString: string): string { return `${dateString} 23:59:59.999`; }
+function safeDate(value: unknown): Date | null {
+    const raw = String(value ?? "").trim();
+    if (!raw) return null;
+    const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw)
+        ? `${raw.replace(" ", "T")}Z`
+        : raw;
+    const date = new Date(normalized);
+    return Number.isFinite(date.getTime()) ? date : null;
+}
 function dateDiffDays(fromDate: string, toDate: string): number {
     const from = new Date(`${fromDate}T00:00:00.000Z`).getTime();
     const to = new Date(`${toDate}T00:00:00.000Z`).getTime();
@@ -761,7 +858,7 @@ function insertConversion(args: {
     return Number(result.lastInsertRowid);
 }
 router.post("/consent", optionalAuth, (req, res) => {
-    if (!rateAllowed(req))
+    if (!rateAllowed(req, "consent", RATE_LIMITS.consent))
         return rateLimitResponse(res);
     try {
         const body = req.body && typeof req.body === "object" ? (req.body as SqlRow) : {};
@@ -772,7 +869,7 @@ router.post("/consent", optionalAuth, (req, res) => {
             if (existingKey) {
                 db.prepare(`UPDATE web_visitors SET tracking_status='opted_out',analytics_consent=0,analytics_consent_at=NULL,consent_source=?,consent_version=?,updated_at=CURRENT_TIMESTAMP WHERE visitor_key=?`).run(nullableText(body.consentSource ?? body.consent_source, 80) || "web", nullableText(body.consentVersion ?? body.consent_version, 80) || DEFAULT_CONSENT_VERSION, existingKey);
             }
-            clearAnalyticsCookies(res);
+            clearAnalyticsCookies(req, res);
             return res.json({ success: true, tracking: false, analyticsConsent: false, marketingConsent });
         }
         const user = currentUser(res);
@@ -789,7 +886,7 @@ router.post("/consent", optionalAuth, (req, res) => {
     }
 });
 router.post("/visit", optionalAuth, (req, res) => {
-    if (!rateAllowed(req))
+    if (!rateAllowed(req, "visit", RATE_LIMITS.visit))
         return rateLimitResponse(res);
     try {
         const body = req.body && typeof req.body === "object" ? (req.body as SqlRow) : {};
@@ -804,7 +901,7 @@ router.post("/visit", optionalAuth, (req, res) => {
     }
 });
 router.post("/page-view", optionalAuth, (req, res) => {
-    if (!rateAllowed(req))
+    if (!rateAllowed(req, "page-view", RATE_LIMITS.pageView))
         return rateLimitResponse(res);
     try {
         const body = req.body && typeof req.body === "object" ? (req.body as SqlRow) : {};
@@ -823,6 +920,17 @@ router.post("/page-view", optionalAuth, (req, res) => {
         const type = pageType(path, body.pageType);
         const entityType = nullableText(body.entityType, 100) || inferred.entityType;
         const entityId = idOrNull(body.entityId) ?? inferred.entityId;
+
+        // React StrictMode (development) and quick duplicate fetches can invoke
+        // the same tracker twice. Reuse the active row instead of inserting a
+        // zero-second duplicate page view. Real revisits still create new rows.
+        const duplicate = db.prepare(`SELECT id,entered_at FROM web_page_views WHERE visitor_id=? AND session_id=? AND path=? AND exited_at IS NULL ORDER BY id DESC LIMIT 1`).get(context.visitorId, context.sessionId, path) as { id: number; entered_at: string } | undefined;
+        const duplicateAgeMs = duplicate ? Date.now() - (safeDate(duplicate.entered_at)?.getTime() ?? 0) : Number.POSITIVE_INFINITY;
+        if (duplicate && duplicateAgeMs >= 0 && duplicateAgeMs <= 2500) {
+            db.prepare(`UPDATE web_page_views SET page_title=COALESCE(NULLIF(page_title,''),?),page_type=COALESCE(NULLIF(page_type,''),?),entity_type=COALESCE(entity_type,?),entity_id=COALESCE(entity_id,?) WHERE id=? AND visitor_id=? AND session_id=?`).run(title, type, entityType, entityId, duplicate.id, context.visitorId, context.sessionId);
+            return res.json({ success: true, pageViewId: duplicate.id, visitorId: context.visitorId, sessionId: context.sessionId, deduplicated: true });
+        }
+
         const openPages = db.prepare(`SELECT id,entered_at FROM web_page_views WHERE visitor_id=? AND session_id=? AND exited_at IS NULL ORDER BY id DESC LIMIT 10`).all(context.visitorId, context.sessionId) as Array<{
             id: number;
             entered_at: string;
@@ -847,31 +955,41 @@ router.post("/page-view", optionalAuth, (req, res) => {
     }
 });
 router.patch("/page-view/:id", optionalAuth, (req, res) => {
-    if (!rateAllowed(req))
+    if (!rateAllowed(req, "page-view-update", RATE_LIMITS.pageViewUpdate))
         return rateLimitResponse(res);
     try {
         const pageViewId = idOrNull(req.params.id);
         if (!pageViewId)
             return sendError(res, 400, "Invalid page view id.");
         const body = req.body && typeof req.body === "object" ? (req.body as SqlRow) : {};
-        const context = ensureVisitorAndSession(req, res, body);
-        if (!context.trackingAllowed)
+        if (!trackingAllowed(body))
             return res.status(202).json({ success: true, tracking: false });
+
         const pageView = getPageView(pageViewId);
         if (!pageView)
             return sendError(res, 404, "Page view not found.");
+
+        // Do not create a replacement visitor/session while updating an existing
+        // page view. A missing, expired, or mismatched cookie should fail closed.
+        const context = existingAnalyticsContext(req, body);
+        if (!context)
+            return sendError(res, 403, "Analytics session is missing or expired.");
         if (!pageViewBelongsToContext(pageView, context))
             return sendError(res, 403, "You do not have access to this page view.");
         const entered = safeDate(pageView.entered_at);
-        const calculatedDuration = entered ? Math.max(0, Math.floor((Date.now() - entered.getTime()) / 1000)) : 0;
-        const duration = boundedInteger(body.durationSeconds, calculatedDuration, 0, 86400);
+        const calculatedDuration = entered ? Math.min(86400, Math.max(0, Math.floor((Date.now() - entered.getTime()) / 1000))) : 0;
+        const reportedDuration = boundedInteger(body.durationSeconds, 0, 0, 86400);
+        // Never let a late/small client heartbeat reduce the server's elapsed-time estimate.
+        const duration = Math.max(calculatedDuration, reportedDuration);
         const scroll = boundedInteger(body.scrollDepthPercent, 0, 0, 100);
         const clicks = boundedInteger(body.clickCount, 0, 0, 100000);
         const interactions = boundedInteger(body.interactionCount, 0, 0, 100000);
         const engaged = boolValue(body.engaged, duration >= 10 || scroll >= 50 || clicks > 0 || interactions > 0);
         const exitPage = boolValue(body.exitPage, false);
         db.prepare(`UPDATE web_page_views SET exited_at=CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE exited_at END,duration_seconds=MAX(duration_seconds,?),scroll_depth_percent=MAX(scroll_depth_percent,?),click_count=MAX(click_count,?),interaction_count=MAX(interaction_count,?),engaged=CASE WHEN ?=1 THEN 1 ELSE engaged END,exit_page=CASE WHEN ?=1 THEN 1 ELSE exit_page END,is_bounce_candidate=CASE WHEN ?<10 AND ?=0 AND ?=0 AND ?<25 THEN 1 ELSE is_bounce_candidate END WHERE id=? AND visitor_id=? AND session_id=?`).run(exitPage ? 1 : 0, duration, scroll, clicks, interactions, engaged ? 1 : 0, exitPage ? 1 : 0, duration, clicks, interactions, scroll, pageViewId, context.visitorId, context.sessionId);
-        db.prepare(`UPDATE web_sessions SET duration_seconds=MAX(duration_seconds,?),engaged=CASE WHEN ?=1 THEN 1 ELSE engaged END,is_bounce=CASE WHEN ?=1 THEN 0 ELSE is_bounce END,exit_path=CASE WHEN ?=1 THEN ? ELSE exit_path END,ended_at=CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE ended_at END,last_activity_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND visitor_id=?`).run(duration, engaged ? 1 : 0, engaged ? 1 : 0, exitPage ? 1 : 0, pageView.path, exitPage ? 1 : 0, context.sessionId, context.visitorId);
+        const session = loadSession(context.sessionKey);
+        const sessionDuration = session ? elapsedSecondsSince(session.started_at) : duration;
+        db.prepare(`UPDATE web_sessions SET duration_seconds=MAX(duration_seconds,?),engaged=CASE WHEN ?=1 THEN 1 ELSE engaged END,is_bounce=CASE WHEN ?=1 THEN 0 ELSE is_bounce END,exit_path=CASE WHEN ?=1 THEN ? ELSE exit_path END,ended_at=CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE ended_at END,last_activity_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND visitor_id=?`).run(sessionDuration, engaged ? 1 : 0, engaged ? 1 : 0, exitPage ? 1 : 0, pageView.path, exitPage ? 1 : 0, context.sessionId, context.visitorId);
         res.json({ success: true, pageView: getPageView(pageViewId) });
     }
     catch (error) {
@@ -880,7 +998,7 @@ router.patch("/page-view/:id", optionalAuth, (req, res) => {
     }
 });
 router.post("/event", optionalAuth, (req, res) => {
-    if (!rateAllowed(req))
+    if (!rateAllowed(req, "event", RATE_LIMITS.event))
         return rateLimitResponse(res);
     try {
         const body = req.body && typeof req.body === "object" ? (req.body as SqlRow) : {};
@@ -904,7 +1022,7 @@ router.post("/event", optionalAuth, (req, res) => {
         const entityId = idOrNull(body.entityId) ?? inferred?.entityId ?? null;
         const normalizedName = eventName.toLowerCase().replace(/[\s-]+/g, "_");
         const conversionEvent = Boolean(conversionTypeFromEvent(normalizedName));
-        const result = db.prepare(`INSERT INTO web_events (visitor_id,session_id,page_view_id,user_id,event_class,event_source,request_id,ip_hash,user_agent,event_name,event_category,target_type,target_key,target_label,path,entity_type,entity_id,value_number,value_text,metadata_json,country,state,district,city,occurred_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`).run(context.visitorId, context.sessionId, pageViewId, user?.id ?? null, conversionEvent ? "conversion" : "analytics", "web", requestId(req), ipHash(req), userAgent(req), eventName, nullableText(body.eventCategory ?? body.category, 100), nullableText(body.targetType, 100), nullableText(body.targetKey ?? body.key, 200), nullableText(body.targetLabel ?? body.label, 300), path, entityType, entityId, boundedNumber(body.valueNumber ?? body.value, null, -1000000000, 1000000000), nullableText(body.valueText, 1000), jsonString(sanitizeAnalyticsMetadata({ ...(body.metadata && typeof body.metadata === "object" ? (body.metadata as SqlRow) : {}), ...(body.dedupeKey ? { dedupeKey: normalizeText(body.dedupeKey, 120) } : {}) })), location.country, location.state, location.district, location.city);
+        const result = db.prepare(`INSERT INTO web_events (visitor_id,session_id,page_view_id,user_id,event_class,event_source,request_id,ip_hash,user_agent,event_name,event_category,target_type,target_key,target_label,path,entity_type,entity_id,value_number,value_text,metadata_json,country,state,district,city,occurred_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`).run(context.visitorId, context.sessionId, pageViewId, user?.id ?? null, conversionEvent ? "conversion" : "analytics", "web", requestId(req), ipHash(req), userAgent(req), eventName, nullableText(body.eventCategory ?? body.category, 100), nullableText(body.targetType, 100), nullableText(body.targetKey ?? body.key, 200), nullableText(body.targetLabel ?? body.label, 300), path, entityType, entityId, boundedNumber(body.valueNumber ?? body.value, null, -1000000000, 1000000000), nullableText(body.valueText, 1000), jsonString(sanitizeAnalyticsMetadata({ ...(body.metadata && typeof body.metadata === "object" ? (body.metadata as SqlRow) : {}), ...(body.dedupeKey ? { dedupeKey: normalizeText(body.dedupeKey, 120) } : {}) })), location.country, location.state, location.district, location.city);
         const eventId = Number(result.lastInsertRowid);
         db.prepare(`UPDATE web_sessions SET event_count=event_count+1,engaged=1,is_bounce=0,last_activity_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND visitor_id=?`).run(context.sessionId, context.visitorId);
         db.prepare(`UPDATE web_visitors SET total_events=total_events+1,last_seen_at=CURRENT_TIMESTAMP,last_activity_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(context.visitorId);
@@ -922,7 +1040,7 @@ router.post("/event", optionalAuth, (req, res) => {
     }
 });
 router.post("/search", optionalAuth, (req, res) => {
-    if (!rateAllowed(req))
+    if (!rateAllowed(req, "search", RATE_LIMITS.search))
         return rateLimitResponse(res);
     try {
         if (!tableExists("site_searches"))
@@ -945,11 +1063,14 @@ router.post("/search", optionalAuth, (req, res) => {
     }
 });
 router.post("/heartbeat", optionalAuth, (req, res) => {
-    if (!rateAllowed(req))
+    if (!rateAllowed(req, "heartbeat", RATE_LIMITS.heartbeat))
         return rateLimitResponse(res);
     try {
         const body = req.body && typeof req.body === "object" ? (req.body as SqlRow) : {};
-        const context = ensureVisitorAndSession(req, res, body);
+        // Heartbeats must update an existing session only. If a cookie expired or
+        // the session ended, let the next /visit or /page-view create a fresh one.
+        const context = existingAnalyticsContext(req, body);
+        if (!context) return res.status(202).json({ success: true, tracking: true, sessionActive: false });
         if (!context.trackingAllowed)
             return res.status(202).json({ success: true, tracking: false });
         const pageViewId = idOrNull(body.pageViewId);
@@ -958,14 +1079,16 @@ router.post("/heartbeat", optionalAuth, (req, res) => {
         const clicks = boundedInteger(body.clickCount, 0, 0, 100000);
         const interactions = boundedInteger(body.interactionCount, 0, 0, 100000);
         const engaged = duration >= 10 || scroll >= 50 || clicks > 0 || interactions > 0;
+        const session = loadSession(context.sessionKey);
+        const sessionDuration = session ? elapsedSecondsSince(session.started_at) : duration;
         if (pageViewId) {
             const pv = getPageView(pageViewId);
             if (!pv || !pageViewBelongsToContext(pv, context))
                 return sendError(res, 403, "The supplied page view does not belong to this session.");
             db.prepare(`UPDATE web_page_views SET duration_seconds=MAX(duration_seconds,?),scroll_depth_percent=MAX(scroll_depth_percent,?),click_count=MAX(click_count,?),interaction_count=MAX(interaction_count,?),engaged=CASE WHEN ?=1 THEN 1 ELSE engaged END WHERE id=? AND visitor_id=? AND session_id=?`).run(duration, scroll, clicks, interactions, engaged ? 1 : 0, pageViewId, context.visitorId, context.sessionId);
         }
-        db.prepare(`UPDATE web_sessions SET duration_seconds=MAX(duration_seconds,?),last_activity_at=CURRENT_TIMESTAMP,engaged=CASE WHEN ?=1 THEN 1 ELSE engaged END,is_bounce=CASE WHEN ?=1 THEN 0 ELSE is_bounce END,updated_at=CURRENT_TIMESTAMP WHERE id=? AND visitor_id=?`).run(duration, engaged ? 1 : 0, engaged ? 1 : 0, context.sessionId, context.visitorId);
-        res.json({ success: true, visitorId: context.visitorId, sessionId: context.sessionId, pageViewId, durationSeconds: duration, engaged });
+        db.prepare(`UPDATE web_sessions SET duration_seconds=MAX(duration_seconds,?),last_activity_at=CURRENT_TIMESTAMP,engaged=CASE WHEN ?=1 THEN 1 ELSE engaged END,is_bounce=CASE WHEN ?=1 THEN 0 ELSE is_bounce END,updated_at=CURRENT_TIMESTAMP WHERE id=? AND visitor_id=?`).run(sessionDuration, engaged ? 1 : 0, engaged ? 1 : 0, context.sessionId, context.visitorId);
+        res.json({ success: true, visitorId: context.visitorId, sessionId: context.sessionId, pageViewId, durationSeconds: duration, sessionDurationSeconds: sessionDuration, engaged });
     }
     catch (error) {
         console.error("Analytics heartbeat error:", error);
@@ -973,19 +1096,24 @@ router.post("/heartbeat", optionalAuth, (req, res) => {
     }
 });
 router.post("/session/end", optionalAuth, (req, res) => {
-    if (!rateAllowed(req))
+    if (!rateAllowed(req, "session-end", RATE_LIMITS.sessionEnd))
         return rateLimitResponse(res);
     try {
         const body = req.body && typeof req.body === "object" ? (req.body as SqlRow) : {};
-        const context = ensureVisitorAndSession(req, res, body);
+        const context = existingAnalyticsContext(req, body);
+        if (!context) return res.json({ success: true, ended: false, reason: "No active analytics session." });
         if (!context.trackingAllowed)
             return res.status(202).json({ success: true, tracking: false });
-        const sessionId = idOrNull(body.sessionId) ?? context.sessionId;
-        const session = db.prepare(`SELECT id,session_key,visitor_id,user_id,started_at,ended_at,last_activity_at,page_views,event_count,duration_seconds,engaged,is_bounce,is_bot FROM web_sessions WHERE id=? AND visitor_id=? LIMIT 1`).get(sessionId, context.visitorId) as SessionRow | undefined;
-        if (!session)
-            return sendError(res, 404, "Session not found.");
-        const durationFromStart = Math.max(0, Math.floor((Date.now() - (safeDate(session.started_at)?.getTime() ?? Date.now())) / 1000));
-        const duration = boundedInteger(body.durationSeconds, durationFromStart, 0, 86400);
+        const requestedSessionId = idOrNull(body.sessionId);
+        if (requestedSessionId && requestedSessionId !== context.sessionId)
+            return sendError(res, 403, "Session id does not match the active analytics session.");
+        const sessionId = context.sessionId;
+        const session = loadSession(context.sessionKey);
+        if (!session || session.id !== sessionId)
+            return res.json({ success: true, sessionId, ended: false, reason: "Session is already unavailable." });
+        const durationFromStart = elapsedSecondsSince(session.started_at);
+        const suppliedDuration = boundedInteger(body.durationSeconds, 0, 0, 86400);
+        const duration = Math.min(86400, Math.max(durationFromStart, session.duration_seconds, suppliedDuration));
         const engaged = boolValue(body.engaged, Boolean(session.engaged) || duration >= 10 || session.event_count > 0 || session.page_views > 1);
         const exitPath = nullableText(body.exitPath ?? body.path, 1000);
         db.prepare(`UPDATE web_sessions SET ended_at=CURRENT_TIMESTAMP,exit_path=COALESCE(?,exit_path),duration_seconds=MAX(duration_seconds,?),engaged=CASE WHEN ?=1 THEN 1 ELSE engaged END,is_bounce=CASE WHEN ?=1 THEN 0 ELSE is_bounce END,last_activity_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=? AND visitor_id=?`).run(exitPath, duration, engaged ? 1 : 0, engaged ? 1 : 0, sessionId, context.visitorId);
@@ -998,7 +1126,7 @@ router.post("/session/end", optionalAuth, (req, res) => {
     }
 });
 router.post("/conversion", optionalAuth, (req, res) => {
-    if (!rateAllowed(req))
+    if (!rateAllowed(req, "conversion", RATE_LIMITS.conversion))
         return rateLimitResponse(res);
     try {
         const body = req.body && typeof req.body === "object" ? (req.body as SqlRow) : {};
@@ -1305,11 +1433,27 @@ function refreshDailyPageStats(statDate: string): void {
     } })();
 }
 function refreshDailyStats(statDate: string): void { refreshDailySiteStats(statDate); refreshDailyPageStats(statDate); }
+function sourceDimensionSql(alias = "s"): { source: string; medium: string; campaign: string } {
+    const referrer = `LOWER(COALESCE(${alias}.referrer_url,''))`;
+    const source = `COALESCE(NULLIF(TRIM(${alias}.utm_source),''),CASE
+      WHEN ${referrer} LIKE '%google.%' OR ${referrer} LIKE '%bing.%' OR ${referrer} LIKE '%yahoo.%' OR ${referrer} LIKE '%duckduckgo.%' THEN 'organic search'
+      WHEN ${referrer} LIKE '%facebook.%' OR ${referrer} LIKE '%instagram.%' OR ${referrer} LIKE '%youtube.%' OR ${referrer} LIKE '%tiktok.%' OR ${referrer} LIKE '%linkedin.%' OR ${referrer} LIKE '%pinterest.%' THEN 'social'
+      WHEN TRIM(COALESCE(${alias}.referrer_url,''))<>'' THEN 'referral'
+      ELSE 'direct' END)`;
+    const medium = `COALESCE(NULLIF(TRIM(${alias}.utm_medium),''),CASE
+      WHEN ${referrer} LIKE '%google.%' OR ${referrer} LIKE '%bing.%' OR ${referrer} LIKE '%yahoo.%' OR ${referrer} LIKE '%duckduckgo.%' THEN 'organic'
+      WHEN ${referrer} LIKE '%facebook.%' OR ${referrer} LIKE '%instagram.%' OR ${referrer} LIKE '%youtube.%' OR ${referrer} LIKE '%tiktok.%' OR ${referrer} LIKE '%linkedin.%' OR ${referrer} LIKE '%pinterest.%' THEN 'social'
+      WHEN TRIM(COALESCE(${alias}.referrer_url,''))<>'' THEN 'referral'
+      ELSE '(none)' END)`;
+    const campaign = `COALESCE(NULLIF(TRIM(${alias}.utm_campaign),''),'(none)')`;
+    return { source, medium, campaign };
+}
 router.get("/reports/overview", requireAuth, requireRole("super_admin", "sales"), (req, res) => {
     try {
         const { from, to, fromDate, toDate } = buildDateRange(req);
-        const visitorCount = db.prepare(`SELECT COUNT(DISTINCT visitor_id) AS count FROM web_sessions WHERE is_bot=0 AND started_at BETWEEN ? AND ?`).get(from, to) as {
+        const visitorCount = db.prepare(`SELECT COUNT(DISTINCT s.visitor_id) AS count,COUNT(DISTINCT CASE WHEN v.visitor_type='anonymous' THEN s.visitor_id END) AS anonymous_count FROM web_sessions s LEFT JOIN web_visitors v ON v.id=s.visitor_id WHERE s.is_bot=0 AND s.started_at BETWEEN ? AND ?`).get(from, to) as {
             count?: number;
+            anonymous_count?: number;
         };
         const sessionStats = db.prepare(`SELECT COUNT(*) AS sessions,COUNT(DISTINCT user_id) AS logged_in_users,COALESCE(SUM(page_views),0) AS page_views,COALESCE(SUM(event_count),0) AS event_count,COALESCE(SUM(CASE WHEN engaged=1 THEN 1 ELSE 0 END),0) AS engaged_sessions,COALESCE(SUM(CASE WHEN is_bounce=1 THEN 1 ELSE 0 END),0) AS bounces,ROUND(COALESCE(AVG(duration_seconds),0),2) AS avg_duration_seconds FROM web_sessions WHERE is_bot=0 AND started_at BETWEEN ? AND ?`).get(from, to) as SqlRow;
         const pageStats = db.prepare(`SELECT ROUND(CASE WHEN COUNT(*)=0 THEN 0 ELSE SUM(duration_seconds)*1.0/COUNT(*) END,2) AS avg_time,ROUND(CASE WHEN COUNT(*)=0 THEN 0 ELSE AVG(scroll_depth_percent) END,2) AS avg_scroll FROM web_page_views WHERE is_bot=0 AND entered_at BETWEEN ? AND ?`).get(from, to) as SqlRow;
@@ -1318,20 +1462,73 @@ router.get("/reports/overview", requireAuth, requireRole("super_admin", "sales")
         const bookings = tableExists("bookings") ? db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(amount),0) AS gross_value FROM bookings WHERE created_at BETWEEN ? AND ?`).get(from, to) : {};
         const payments = tableExists("payments") ? db.prepare(`SELECT COUNT(*) AS count,COALESCE(SUM(CASE WHEN status IN ('authorized','paid','captured','partially_refunded','refunded') THEN amount ELSE 0 END),0) AS gross_revenue,COALESCE(SUM(CASE WHEN status IN ('authorized','paid','captured') THEN amount ELSE 0 END),0) AS collected_revenue,COALESCE(SUM(CASE WHEN status IN ('refunded','partially_refunded') THEN refund_amount_paise/100.0 ELSE 0 END),0) AS refunds FROM payments WHERE created_at BETWEEN ? AND ?`).get(from, to) : {};
         const topPages = db.prepare(`SELECT path,page_type,COUNT(*) AS page_views,COUNT(DISTINCT visitor_id) AS unique_visitors,COUNT(DISTINCT session_id) AS sessions,ROUND(AVG(duration_seconds),2) AS avg_duration_seconds,ROUND(AVG(scroll_depth_percent),2) AS avg_scroll_depth_percent,SUM(click_count) AS clicks,SUM(interaction_count) AS interactions FROM web_page_views WHERE is_bot=0 AND entered_at BETWEEN ? AND ? GROUP BY path,page_type ORDER BY page_views DESC LIMIT 100`).all(from, to);
-        const sourceBreakdown = db.prepare(`SELECT COALESCE(NULLIF(TRIM(utm_source),''),'direct') AS source,COALESCE(NULLIF(TRIM(utm_medium),''),'(none)') AS medium,COALESCE(NULLIF(TRIM(utm_campaign),''),'(none)') AS campaign,COUNT(*) AS sessions,COUNT(DISTINCT visitor_id) AS unique_visitors FROM web_sessions WHERE is_bot=0 AND started_at BETWEEN ? AND ? GROUP BY source,medium,campaign ORDER BY sessions DESC LIMIT 100`).all(from, to);
+        const sourceDimensions = sourceDimensionSql("s");
+        const sourceBreakdown = db.prepare(`SELECT ${sourceDimensions.source} AS source,${sourceDimensions.medium} AS medium,${sourceDimensions.campaign} AS campaign,COUNT(*) AS sessions,COUNT(DISTINCT s.visitor_id) AS unique_visitors,ROUND(AVG(s.duration_seconds),2) AS avg_duration_seconds FROM web_sessions s WHERE s.is_bot=0 AND s.started_at BETWEEN ? AND ? GROUP BY source,medium,campaign ORDER BY sessions DESC LIMIT 100`).all(from, to);
         const locationBreakdown = db.prepare(`SELECT COALESCE(country,'') AS country,COALESCE(state,'') AS state,COALESCE(district,'') AS district,COALESCE(city,'') AS city,COUNT(*) AS page_views,COUNT(DISTINCT visitor_id) AS unique_visitors,COUNT(DISTINCT session_id) AS sessions FROM web_page_views WHERE is_bot=0 AND entered_at BETWEEN ? AND ? GROUP BY country,state,district,city ORDER BY unique_visitors DESC LIMIT 200`).all(from, to);
         const totalVisitors = Number(visitorCount?.count ?? 0);
         const totalSessions = Number(sessionStats.sessions ?? 0);
         const totalLeads = Number((leads as SqlRow).total ?? 0);
         const totalBookings = Number((bookings as SqlRow).count ?? 0);
         const totalCollectedRevenue = Number((payments as SqlRow).collected_revenue ?? 0);
-        res.json({ success: true, role: currentUser(res)?.role ?? null, range: { from: fromDate, to: toDate }, totals: { visitors: totalVisitors, sessions: totalSessions, loggedInUsers: Number(sessionStats.logged_in_users ?? 0), pageViews: Number(sessionStats.page_views ?? 0), events: Number(sessionStats.event_count ?? 0), engagedSessions: Number(sessionStats.engaged_sessions ?? 0), bounces: Number(sessionStats.bounces ?? 0), bounceRate: totalSessions ? Number(((Number(sessionStats.bounces ?? 0) / totalSessions) * 100).toFixed(2)) : 0, avgDurationSeconds: Number(sessionStats.avg_duration_seconds ?? 0), avgPageDurationSeconds: Number(pageStats.avg_time ?? 0), avgScrollDepthPercent: Number(pageStats.avg_scroll ?? 0), leads: totalLeads, bookings: totalBookings, paidRevenue: totalCollectedRevenue, refunds: Number((payments as SqlRow).refunds ?? 0) }, funnel: { visitors: totalVisitors, sessions: totalSessions, engagedSessions: Number(sessionStats.engaged_sessions ?? 0), leads: totalLeads, bookings: totalBookings, paidRevenue: totalCollectedRevenue }, leads, bookings, payments, attributedConversions: conversions, topPages, sourceBreakdown, locationBreakdown });
+        res.json({ success: true, role: currentUser(res)?.role ?? null, range: { from: fromDate, to: toDate }, totals: { visitors: totalVisitors, anonymousVisitors: Number(visitorCount?.anonymous_count ?? 0), sessions: totalSessions, loggedInUsers: Number(sessionStats.logged_in_users ?? 0), pageViews: Number(sessionStats.page_views ?? 0), events: Number(sessionStats.event_count ?? 0), engagedSessions: Number(sessionStats.engaged_sessions ?? 0), bounces: Number(sessionStats.bounces ?? 0), bounceRate: totalSessions ? Number(((Number(sessionStats.bounces ?? 0) / totalSessions) * 100).toFixed(2)) : 0, avgDurationSeconds: Number(sessionStats.avg_duration_seconds ?? 0), avgPageDurationSeconds: Number(pageStats.avg_time ?? 0), avgScrollDepthPercent: Number(pageStats.avg_scroll ?? 0), leads: totalLeads, bookings: totalBookings, paidRevenue: totalCollectedRevenue, refunds: Number((payments as SqlRow).refunds ?? 0) }, funnel: { visitors: totalVisitors, sessions: totalSessions, engagedSessions: Number(sessionStats.engaged_sessions ?? 0), leads: totalLeads, bookings: totalBookings, paidRevenue: totalCollectedRevenue }, leads, bookings, payments, attributedConversions: conversions, topPages, sourceBreakdown, locationBreakdown });
     }
     catch (error) {
         console.error("Analytics overview error:", error);
         sendError(res, 500, "Unable to load analytics overview.");
     }
 });
+router.get("/reports/realtime", requireAuth, requireRole("super_admin", "sales"), (req, res) => {
+    try {
+        const windowMinutes = Math.min(30, Math.max(1, boundedInteger(req.query.windowMinutes, 5, 1, 30)));
+        const modifier = `-${windowMinutes} minutes`;
+        const active = db.prepare(`SELECT COUNT(DISTINCT s.visitor_id) AS online_visitors,COUNT(DISTINCT CASE WHEN v.visitor_type='anonymous' THEN s.visitor_id END) AS online_anonymous_visitors,COUNT(*) AS online_sessions FROM web_sessions s LEFT JOIN web_visitors v ON v.id=s.visitor_id WHERE s.is_bot=0 AND s.ended_at IS NULL AND datetime(s.last_activity_at)>=datetime('now',?)`).get(modifier) as SqlRow;
+        const activePageViews = db.prepare(`SELECT COUNT(*) AS count FROM web_page_views p INNER JOIN web_sessions s ON s.id=p.session_id WHERE p.is_bot=0 AND s.is_bot=0 AND s.ended_at IS NULL AND datetime(s.last_activity_at)>=datetime('now',?) AND p.exited_at IS NULL`).get(modifier) as SqlRow;
+        res.json({ success: true, asOf: new Date().toISOString(), windowMinutes, onlineVisitors: Number(active.online_visitors ?? 0), onlineAnonymousVisitors: Number(active.online_anonymous_visitors ?? 0), onlineSessions: Number(active.online_sessions ?? 0), activePageViews: Number(activePageViews.count ?? 0), definition: `Sessions with activity in the last ${windowMinutes} minutes and no recorded exit.` });
+    }
+    catch (error) {
+        console.error("Analytics realtime report error:", error);
+        sendError(res, 500, "Unable to load real-time analytics.");
+    }
+});
+router.get("/reports/page-visits", requireAuth, requireRole("super_admin", "sales"), (req, res) => {
+    try {
+        const { from, to, fromDate, toDate } = buildDateRange(req);
+        const limit = Math.min(1000, Math.max(1, boundedInteger(req.query.limit, 200, 1, 1000)));
+        const where = ["p.is_bot=0", "p.entered_at BETWEEN ? AND ?"];
+        const params: unknown[] = [from, to];
+        const path = normalizeText(req.query.path, 1000);
+        const sessionId = idOrNull(req.query.sessionId);
+        const visitorId = idOrNull(req.query.visitorId);
+        if (path) { where.push("p.path=?"); params.push(path); }
+        if (sessionId) { where.push("p.session_id=?"); params.push(sessionId); }
+        if (visitorId) { where.push("p.visitor_id=?"); params.push(visitorId); }
+        const rows = db.prepare(`SELECT p.id AS page_view_id,p.visitor_id,p.session_id,p.user_id,p.path,p.page_title,p.page_type,p.entity_type,p.entity_id,p.entered_at,p.exited_at,p.duration_seconds,p.scroll_depth_percent,p.click_count,p.interaction_count,p.engaged,p.exit_page,p.is_bounce_candidate,p.country,p.state,p.district,p.city,s.started_at AS session_started_at,s.ended_at AS session_ended_at,s.duration_seconds AS session_duration_seconds,s.device_type,s.browser,s.operating_system FROM web_page_views p LEFT JOIN web_sessions s ON s.id=p.session_id WHERE ${where.join(" AND ")} ORDER BY p.entered_at DESC,p.id DESC LIMIT ?`).all(...params, limit);
+        res.json({ success: true, range: { from: fromDate, to: toDate }, count: rows.length, pageVisits: rows });
+    }
+    catch (error) {
+        console.error("Analytics page-visit report error:", error);
+        sendError(res, 500, "Unable to load page-visit history.");
+    }
+});
+router.get("/reports/daily-page-visits", requireAuth, requireRole("super_admin", "sales"), (req, res) => {
+    try {
+        const { from, to, fromDate, toDate } = buildDateRange(req);
+        const limit = Math.min(5000, Math.max(1, boundedInteger(req.query.limit, 1000, 1, 5000)));
+        const where = ["p.is_bot=0", "p.entered_at BETWEEN ? AND ?"];
+        const params: unknown[] = [from, to];
+        const path = normalizeText(req.query.path, 1000);
+        const sessionId = idOrNull(req.query.sessionId);
+        if (path) { where.push("p.path=?"); params.push(path); }
+        if (sessionId) { where.push("p.session_id=?"); params.push(sessionId); }
+        const rows = db.prepare(`SELECT date(p.entered_at) AS visit_date,p.session_id,p.visitor_id,p.path,MIN(p.entered_at) AS first_start,MAX(COALESCE(p.exited_at,p.entered_at)) AS last_end,SUM(p.duration_seconds) AS total_spent_seconds,COUNT(*) AS visit_count,ROUND(AVG(p.duration_seconds),2) AS avg_visit_seconds,MAX(s.duration_seconds) AS session_duration_seconds,MAX(p.page_type) AS page_type,MAX(p.entity_type) AS entity_type,MAX(p.entity_id) AS entity_id FROM web_page_views p LEFT JOIN web_sessions s ON s.id=p.session_id WHERE ${where.join(" AND ")} GROUP BY date(p.entered_at),p.session_id,p.visitor_id,p.path ORDER BY visit_date DESC,first_start DESC LIMIT ?`).all(...params, limit);
+        res.json({ success: true, range: { from: fromDate, to: toDate }, count: rows.length, dailyPageVisits: rows, grouping: ["date", "sessionId", "visitorId", "path"] });
+    }
+    catch (error) {
+        console.error("Analytics daily page-visit report error:", error);
+        sendError(res, 500, "Unable to load daily page-visit summaries.");
+    }
+});
+
 router.get("/reports/pages", requireAuth, requireRole("super_admin", "sales"), (req, res) => {
     try {
         const { from, to, fromDate, toDate } = buildDateRange(req);
@@ -1400,7 +1597,9 @@ router.get("/reports/locations", requireAuth, requireRole("super_admin", "sales"
 router.get("/reports/sources", requireAuth, requireRole("super_admin", "sales"), (req, res) => {
     try {
         const { from, to, fromDate, toDate } = buildDateRange(req);
-        const rows = db.prepare(`SELECT COALESCE(NULLIF(TRIM(s.utm_source),''),'direct') AS source,COALESCE(NULLIF(TRIM(s.utm_medium),''),'(none)') AS medium,COALESCE(NULLIF(TRIM(s.utm_campaign),''),'(none)') AS campaign,COUNT(*) AS sessions,COUNT(DISTINCT s.visitor_id) AS unique_visitors,ROUND(AVG(s.duration_seconds),2) AS avg_duration_seconds,COALESCE((SELECT COUNT(*) FROM web_conversions c WHERE COALESCE(NULLIF(TRIM(c.utm_source),''),'direct')=COALESCE(NULLIF(TRIM(s.utm_source),''),'direct') AND COALESCE(NULLIF(TRIM(c.utm_medium),''),'(none)')=COALESCE(NULLIF(TRIM(s.utm_medium),''),'(none)') AND c.created_at BETWEEN ? AND ?),0) AS attributed_conversions FROM web_sessions s WHERE s.is_bot=0 AND s.started_at BETWEEN ? AND ? GROUP BY source,medium,campaign ORDER BY sessions DESC LIMIT 200`).all(from, to, from, to);
+        const sourceDimensions = sourceDimensionSql("s");
+        const conversionSourceDimensions = sourceDimensionSql("cs");
+        const rows = db.prepare(`SELECT ${sourceDimensions.source} AS source,${sourceDimensions.medium} AS medium,${sourceDimensions.campaign} AS campaign,COUNT(*) AS sessions,COUNT(DISTINCT s.visitor_id) AS unique_visitors,ROUND(AVG(s.duration_seconds),2) AS avg_duration_seconds,COALESCE((SELECT COUNT(*) FROM web_conversions c LEFT JOIN web_sessions cs ON cs.id=c.session_id WHERE COALESCE(NULLIF(TRIM(c.utm_source),''),${conversionSourceDimensions.source})=${sourceDimensions.source} AND COALESCE(NULLIF(TRIM(c.utm_medium),''),${conversionSourceDimensions.medium})=${sourceDimensions.medium} AND COALESCE(NULLIF(TRIM(c.utm_campaign),''),${conversionSourceDimensions.campaign})=${sourceDimensions.campaign} AND c.created_at BETWEEN ? AND ?),0) AS attributed_conversions FROM web_sessions s WHERE s.is_bot=0 AND s.started_at BETWEEN ? AND ? GROUP BY source,medium,campaign ORDER BY sessions DESC LIMIT 200`).all(from, to, from, to);
         res.json({ success: true, range: { from: fromDate, to: toDate }, sources: rows });
     }
     catch (error) {
@@ -1688,7 +1887,7 @@ catch (error) {
 router.get("/health", optionalAuth, (_req, res) => { try {
     const checks = { webVisitors: tableExists("web_visitors"), webSessions: tableExists("web_sessions"), webPageViews: tableExists("web_page_views"), webEvents: tableExists("web_events"), webConversions: tableExists("web_conversions"), goals: tableExists("analytics_goals"), dailyStats: tableExists("analytics_daily_site_stats"), dailyPageStats: tableExists("analytics_daily_page_stats"), siteSearches: tableExists("site_searches") };
     const healthy = Object.values(checks).every(Boolean);
-    res.status(healthy ? 200 : 503).json({ success: healthy, healthy, trackingEnabled: !ANALYTICS_REQUIRE_CONSENT, consentRequired: ANALYTICS_REQUIRE_CONSENT, checks, config: { sessionMinutes: SESSION_MINUTES, visitorCookieDays: VISITOR_COOKIE_DAYS, rateLimitPerWindow: RATE_LIMIT_COUNT, maxReportDays: MAX_REPORT_DAYS, ownerMaxReportDays: OWNER_MAX_DAYS, consentVersion: DEFAULT_CONSENT_VERSION } });
+    res.status(healthy ? 200 : 503).json({ success: healthy, healthy, trackingEnabled: !ANALYTICS_REQUIRE_CONSENT, consentRequired: ANALYTICS_REQUIRE_CONSENT, checks, config: { sessionMinutes: SESSION_MINUTES, visitorCookieDays: VISITOR_COOKIE_DAYS, rateLimitWindowMinutes: RATE_WINDOW_MINUTES, rateLimitPerWindow: RATE_LIMIT_COUNT, rateLimits: RATE_LIMITS, maxReportDays: MAX_REPORT_DAYS, ownerMaxReportDays: OWNER_MAX_DAYS, consentVersion: DEFAULT_CONSENT_VERSION } });
 }
 catch (error) {
     console.error("Analytics health error:", error);

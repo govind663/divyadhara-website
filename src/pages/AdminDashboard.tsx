@@ -60,6 +60,7 @@ import {
 import { useApp } from "../context/AppContext";
 import { useSEO } from "../lib/seo";
 import { cx } from "../lib/utils";
+import VisitorAnalyticsPanel from "../components/VisitorAnalyticsPanel";
 
 /* ============================================================================
  * TYPES
@@ -67,6 +68,7 @@ import { cx } from "../lib/utils";
 
 type TabId =
   | "overview"
+  | "analytics"
   | "users"
   | "pandits"
   | "temple-managers"
@@ -187,6 +189,11 @@ const NAV_ITEMS: Array<{
     id: "overview",
     label: "Overview",
     icon: LayoutDashboard,
+  },
+  {
+    id: "analytics",
+    label: "Website Analytics",
+    icon: Activity,
   },
   {
     id: "users",
@@ -3690,6 +3697,12 @@ export default function AdminDashboard() {
            * OVERVIEW
            * ================================================================ */}
 
+          {activeTab === "analytics" ? (
+            <div className="space-y-6">
+              <VisitorAnalyticsPanel />
+            </div>
+          ) : null}
+
           {activeTab ===
           "overview" ? (
             <div className="space-y-6">
@@ -3814,6 +3827,8 @@ export default function AdminDashboard() {
                   }
                 />
               </div>
+
+              <VisitorAnalyticsPanel />
 
               <div className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">
                 <div className="rounded-3xl border border-orange-900/10 bg-white p-5 shadow-sm md:p-6">

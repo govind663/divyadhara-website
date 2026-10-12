@@ -47,6 +47,7 @@ import type { LucideIcon } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useApp } from "../context/AppContext";
+import VisitorAnalyticsPanel from "../components/VisitorAnalyticsPanel";
 import { useSEO } from "../lib/seo";
 import { confirmAction, showError, showSuccess, showWarning, toast } from "../lib/swal";
 
@@ -1276,6 +1277,8 @@ export default function SalesDashboard() {
                     onClick={() => setTab("renewals")}
                   />
                 </section>
+
+                <VisitorAnalyticsPanel />
 
                 <section className="grid gap-6 lg:grid-cols-[1.3fr_.7fr]">
                   <div className="rounded-3xl border border-orange-900/10 bg-white p-6 shadow-sm">

@@ -1,3 +1,17 @@
+
+# ============================================================================
+# DivyaDhara — robots.txt
+# ============================================================================
+
+# Public pages and assets may be crawled by search engines.
+# Keep this file at the website root:
+# https://divya-dhara.in/robots.txt
+
+# IMPORTANT:
+# - robots.txt is not an access-control or security mechanism.
+# - Do not add Disallow rules unless the paths are confirmed.
+# - Private/admin pages must be protected by authentication.
+
 User-agent: *
 Allow: /
 

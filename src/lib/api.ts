@@ -28,6 +28,9 @@
  *   ""
  *
  * The client guarantees that `/api` appears exactly once in the final URL.
+ * Requests include cookies; timeouts and caller aborts are reported separately.
+ * HTTP 429 responses expose Retry-After as ApiError.retryAfterMs; no automatic
+ * retry is performed so non-idempotent requests are never duplicated.
  * ========================================================================== */
 
 /* ============================================================================
@@ -139,6 +142,8 @@ export class ApiError extends Error {
   status: number;
   code: string;
   details: unknown;
+  /** Milliseconds until a 429 response may be retried, when supplied by the server. */
+  retryAfterMs: number | null;
 
   constructor(
     message: string,
@@ -146,6 +151,7 @@ export class ApiError extends Error {
       status?: number;
       code?: string;
       details?: unknown;
+      retryAfterMs?: number | null;
     } = {},
   ) {
     super(message);
@@ -154,6 +160,7 @@ export class ApiError extends Error {
     this.status = options.status ?? 0;
     this.code = options.code ?? "API_ERROR";
     this.details = options.details;
+    this.retryAfterMs = options.retryAfterMs ?? null;
 
     Object.setPrototypeOf(this, new.target.prototype);
   }
@@ -166,80 +173,48 @@ export class ApiError extends Error {
 function isPlainObject(
   value: unknown,
 ): value is Record<string, unknown> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value)
-  );
+  if (typeof value !== "object" || value === null) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function isJsonResponse(response: Response): boolean {
-  const contentType =
-    response.headers.get("content-type") || "";
-
-  return contentType
-    .toLowerCase()
-    .includes("application/json");
+  const contentType = (response.headers.get("content-type") || "").toLowerCase();
+  return contentType.includes("application/json") || /\+json(?:\s*;|$)/i.test(contentType);
 }
 
-function getErrorMessage(
-  payload: unknown,
-  fallback: string,
-): string {
-  if (
-    !payload ||
-    typeof payload !== "object"
-  ) {
-    return fallback;
-  }
-
+function getErrorMessage(payload: unknown, fallback: string): string {
+  if (!payload || typeof payload !== "object") return fallback;
   const data = payload as Record<string, unknown>;
-
-  const candidates = [
-    data.error,
-    data.message,
-    data.detail,
-  ];
-
-  for (const candidate of candidates) {
-    if (
-      typeof candidate === "string" &&
-      candidate.trim()
-    ) {
-      return candidate.trim();
-    }
+  for (const candidate of [data.error, data.message, data.detail]) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
   }
-
   return fallback;
 }
 
-function getApiErrorCode(
-  payload: unknown,
-): string {
-  if (
-    !payload ||
-    typeof payload !== "object"
-  ) {
-    return "API_ERROR";
-  }
-
-  const data = payload as Record<string, unknown>;
-
-  if (
-    typeof data.code === "string" &&
-    data.code.trim()
-  ) {
-    return data.code.trim();
-  }
-
-  return "API_ERROR";
+function getApiErrorCode(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "API_ERROR";
+  const code = (payload as Record<string, unknown>).code;
+  return typeof code === "string" && code.trim() ? code.trim() : "API_ERROR";
 }
 
 function isAbortError(error: unknown): boolean {
-  return (
-    error instanceof DOMException &&
-    error.name === "AbortError"
-  );
+  return typeof error === "object" && error !== null &&
+    "name" in error && (error as { name?: unknown }).name === "AbortError";
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  if (!value) return null;
+  const seconds = Number(value.trim());
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1000);
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null;
+}
+
+function isGlobalInstance(value: unknown, constructorName: string): boolean {
+  const globalRecord = globalThis as unknown as Record<string, unknown>;
+  const constructor = globalRecord[constructorName];
+  return typeof constructor === "function" && value instanceof (constructor as new (...args: never[]) => object);
 }
 
 function encodePathId(
@@ -284,60 +259,38 @@ function encodePathId(
  *   "/api"
  *        -> "/api"
  */
-function normalizeApiPath(
-  path: string,
-): string {
-  const trimmed = path.trim();
+function normalizeApiPath(path: string): string {
+  const trimmed = String(path ?? "").trim();
+  if (!trimmed) return API_PREFIX;
 
-  if (!trimmed) {
-    return API_PREFIX;
+  // API helpers accept endpoint paths, not absolute external URLs.
+  // Query and fragment strings are kept intact while only the pathname is normalized.
+  const hashIndex = trimmed.indexOf("#");
+  const beforeHash = hashIndex >= 0 ? trimmed.slice(0, hashIndex) : trimmed;
+  const hash = hashIndex >= 0 ? trimmed.slice(hashIndex) : "";
+  const queryIndex = beforeHash.indexOf("?");
+  let pathname = queryIndex >= 0 ? beforeHash.slice(0, queryIndex) : beforeHash;
+  const query = queryIndex >= 0 ? beforeHash.slice(queryIndex) : "";
+
+  pathname = `/${pathname.replace(/^\/+/, "")}`;
+  pathname = pathname.replace(/\/{2,}/g, "/");
+
+  // Collapse any repeated leading /api segment to one canonical prefix.
+  pathname = pathname.replace(/^(?:\/api)+(?=\/|$)/i, API_PREFIX);
+  if (pathname.toLowerCase() !== API_PREFIX && !pathname.toLowerCase().startsWith(`${API_PREFIX}/`)) {
+    pathname = `${API_PREFIX}${pathname}`;
+  } else if (pathname.toLowerCase() === API_PREFIX) {
+    pathname = API_PREFIX;
   }
 
-  let normalized = trimmed.startsWith("/")
-    ? trimmed
-    : `/${trimmed}`;
-
-  /*
-   * Collapse repeated leading slashes.
-   */
-  normalized = normalized.replace(/^\/+/, "/");
-
-  /*
-   * Collapse repeated /api prefixes.
-   *
-   * /api/api/admin/users
-   * becomes
-   * /api/admin/users
-   */
-  normalized = normalized.replace(
-    /^\/api(?:\/api)+/i,
-    "/api",
-  );
-
-  /*
-   * Already canonical.
-   */
-  if (
-    normalized === API_PREFIX ||
-    normalized
-      .toLowerCase()
-      .startsWith(`${API_PREFIX}/`)
-  ) {
-    return normalized;
-  }
-
-  return `${API_PREFIX}${normalized}`;
+  return `${pathname}${query}${hash}`;
 }
 
-/**
- * Build complete API URL.
- */
-export function buildApiUrl(
-  path: string,
-): string {
+/** Build the full API URL while supporting same-origin/relative deployments. */
+export function buildApiUrl(path: string): string {
   const apiPath = normalizeApiPath(path);
-
-  return `${API_ORIGIN}${apiPath}`;
+  const origin = API_ORIGIN.replace(/\/+$/, "");
+  return origin ? `${origin}${apiPath.startsWith("/") ? apiPath : `/${apiPath}`}` : apiPath;
 }
 
 /* ============================================================================
@@ -345,96 +298,68 @@ export function buildApiUrl(
  * ========================================================================== */
 
 export function buildQueryString(
-  params:
-    | Record<string, QueryValue>
-    | URLSearchParams
-    | undefined,
+  params: Record<string, QueryValue> | URLSearchParams | undefined,
 ): string {
-  if (!params) {
-    return "";
-  }
+  if (!params) return "";
 
-  const search =
-    params instanceof URLSearchParams
-      ? new URLSearchParams(params)
-      : new URLSearchParams();
+  const search = params instanceof URLSearchParams
+    ? new URLSearchParams(params)
+    : new URLSearchParams();
 
   if (!(params instanceof URLSearchParams)) {
     for (const [key, value] of Object.entries(params)) {
-      if (
-        value === undefined ||
-        value === null ||
-        value === ""
-      ) {
-        continue;
-      }
-
+      if (value === undefined || value === null || value === "") continue;
       search.set(key, String(value));
     }
   }
 
   const query = search.toString();
-
   return query ? `?${query}` : "";
+}
+
+function appendQueryString(path: string, query: string): string {
+  if (!query) return path;
+  const hashIndex = path.indexOf("#");
+  const beforeHash = hashIndex >= 0 ? path.slice(0, hashIndex) : path;
+  const hash = hashIndex >= 0 ? path.slice(hashIndex) : "";
+  const queryText = query.startsWith("?") ? query.slice(1) : query;
+  const separator = !beforeHash.includes("?") ? "?" : /[?&]$/.test(beforeHash) ? "" : "&";
+  return `${beforeHash}${separator}${queryText}${hash}`;
 }
 
 /* ============================================================================
  * Abort Signal Helpers
  * ========================================================================== */
 
+type MergedSignal = { signal: AbortSignal; cleanup: () => void };
+
 function mergeSignals(
-  externalSignal:
-    | AbortSignal
-    | null
-    | undefined,
+  externalSignal: AbortSignal | null | undefined,
   timeoutController: AbortController,
-): AbortSignal {
+): MergedSignal {
   if (!externalSignal) {
-    return timeoutController.signal;
+    return { signal: timeoutController.signal, cleanup: () => undefined };
   }
 
-  /*
-   * Modern browsers.
-   */
-  if (
-    typeof AbortSignal !== "undefined" &&
-    "any" in AbortSignal &&
-    typeof AbortSignal.any === "function"
-  ) {
-    return AbortSignal.any([
-      externalSignal,
-      timeoutController.signal,
-    ]);
-  }
-
-  /*
-   * Compatibility fallback.
-   */
   const controller = new AbortController();
-
-  const abort = () => {
-    if (!controller.signal.aborted) {
-      controller.abort();
-    }
+  const abortFromExternal = () => {
+    if (!controller.signal.aborted) controller.abort(externalSignal.reason);
+  };
+  const abortFromTimeout = () => {
+    if (!controller.signal.aborted) controller.abort(timeoutController.signal.reason);
   };
 
-  if (externalSignal.aborted) {
-    abort();
-  }
+  if (externalSignal.aborted) abortFromExternal();
+  else externalSignal.addEventListener("abort", abortFromExternal, { once: true });
+  timeoutController.signal.addEventListener("abort", abortFromTimeout, { once: true });
 
-  externalSignal.addEventListener(
-    "abort",
-    abort,
-    { once: true },
-  );
-
-  timeoutController.signal.addEventListener(
-    "abort",
-    abort,
-    { once: true },
-  );
-
-  return controller.signal;
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      externalSignal.removeEventListener("abort", abortFromExternal);
+      timeoutController.signal.removeEventListener("abort", abortFromTimeout);
+    },
+  };
 }
 
 /* ============================================================================
@@ -442,46 +367,26 @@ function mergeSignals(
  * ========================================================================== */
 
 function prepareBody(
-  body:
-    | BodyInit
-    | Record<string, unknown>
-    | null
-    | undefined,
-):
-  | BodyInit
-  | null
-  | undefined {
+  body: BodyInit | Record<string, unknown> | null | undefined,
+): BodyInit | null | undefined {
+  if (body === null || body === undefined) return body;
+  if (typeof body === "string") return body;
+
+  // Keep native BodyInit values native; guard constructors for SSR/test runtimes.
   if (
-    body === null ||
-    body === undefined
+    isGlobalInstance(body, "FormData") ||
+    isGlobalInstance(body, "URLSearchParams") ||
+    isGlobalInstance(body, "Blob") ||
+    isGlobalInstance(body, "ReadableStream") ||
+    body instanceof ArrayBuffer ||
+    ArrayBuffer.isView(body)
   ) {
-    return body;
+    return body as BodyInit;
   }
 
-  /*
-   * Already-prepared request bodies.
-   */
-  if (
-    typeof body === "string" ||
-    body instanceof FormData ||
-    body instanceof URLSearchParams ||
-    body instanceof Blob ||
-    body instanceof ArrayBuffer
-  ) {
-    return body;
-  }
-
-  /*
-   * JSON-like objects.
-   */
-  if (
-    typeof body === "object" &&
-    !(body instanceof ReadableStream)
-  ) {
-    return JSON.stringify(body);
-  }
-
-  return body;
+  // Plain data objects (and arrays) are sent as JSON.
+  if (typeof body === "object") return JSON.stringify(body);
+  return body as BodyInit;
 }
 
 /* ============================================================================
@@ -501,46 +406,31 @@ export async function apiRequest<T = unknown>(
     ...requestInit
   } = options;
 
+  const safeTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0
+    ? Math.floor(timeoutMs)
+    : DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
-
-  const timeoutId = globalThis.setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
-
-  const signal = mergeSignals(
-    externalSignal,
-    controller,
-  );
-
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), safeTimeoutMs);
+  const merged = mergeSignals(externalSignal, controller);
   const preparedBody = prepareBody(body);
-
   const finalHeaders = new Headers(headers);
 
   if (!skipJsonHeaders) {
-    if (!finalHeaders.has("Accept")) {
-      finalHeaders.set(
-        "Accept",
-        "application/json",
-      );
-    }
+    if (!finalHeaders.has("Accept")) finalHeaders.set("Accept", "application/json");
 
-    /*
-     * JSON body is already serialized by prepareBody()
-     * or by the convenience helpers below.
-     */
-    const canSendJson =
-      preparedBody !== undefined &&
-      preparedBody !== null &&
-      typeof preparedBody === "string";
+    // The convenience POST/PUT/PATCH helpers JSON.stringify their body.
+    // FormData, Blob, URLSearchParams, and binary payloads keep their own content type.
+    const isMultipartOrBinary =
+      isGlobalInstance(body, "FormData") ||
+      isGlobalInstance(body, "Blob") ||
+      isGlobalInstance(body, "URLSearchParams") ||
+      body instanceof ArrayBuffer ||
+      (typeof body === "object" && body !== null && ArrayBuffer.isView(body));
+    const canSendJson = preparedBody !== undefined && preparedBody !== null &&
+      typeof preparedBody === "string" && !isMultipartOrBinary;
 
-    if (
-      canSendJson &&
-      !finalHeaders.has("Content-Type")
-    ) {
-      finalHeaders.set(
-        "Content-Type",
-        "application/json",
-      );
+    if (canSendJson && !finalHeaders.has("Content-Type")) {
+      finalHeaders.set("Content-Type", "application/json");
     }
   }
 
@@ -553,15 +443,11 @@ export async function apiRequest<T = unknown>(
       body: preparedBody,
       credentials: "include",
       cache: "no-store",
-      signal,
+      signal: merged.signal,
     });
 
     let payload: unknown = null;
-
-    /*
-     * 204 No Content.
-     */
-    if (response.status !== 204) {
+    if (response.status !== 204 && response.status !== 205) {
       if (isJsonResponse(response)) {
         try {
           payload = await response.json();
@@ -571,128 +457,80 @@ export async function apiRequest<T = unknown>(
       } else {
         try {
           const text = await response.text();
-
-          payload = text.trim()
-            ? { message: text }
-            : null;
+          payload = text.trim() ? { message: text.trim() } : null;
         } catch {
           payload = null;
         }
       }
     }
 
-    /*
-     * HTTP-level error.
-     */
     if (!response.ok) {
-      const fallback =
-        `API request failed with status ${response.status}.`;
-
-      throw new ApiError(
-        getErrorMessage(
-          payload,
-          fallback,
-        ),
-        {
-          status: response.status,
-          code: getApiErrorCode(payload),
-          details: payload,
-        },
-      );
+      const fallback = response.status === 429
+        ? "Too many requests. Please wait before trying again."
+        : `API request failed with status ${response.status}.`;
+      const retryAfterMs = parseRetryAfter(response.headers.get("Retry-After"));
+      throw new ApiError(getErrorMessage(payload, fallback), {
+        status: response.status,
+        code: response.status === 429 ? "RATE_LIMITED" : getApiErrorCode(payload),
+        details: payload,
+        retryAfterMs,
+      });
     }
 
-    /*
-     * Application-level API error.
-     */
-    if (
-      payload &&
-      isPlainObject(payload) &&
-      payload.success === false
-    ) {
-      throw new ApiError(
-        getErrorMessage(
-          payload,
-          "The API reported an error.",
-        ),
-        {
-          status: response.status,
-          code: getApiErrorCode(payload),
-          details: payload,
-        },
-      );
+    if (payload && isPlainObject(payload) && payload.success === false) {
+      throw new ApiError(getErrorMessage(payload, "The API reported an error."), {
+        status: response.status,
+        code: getApiErrorCode(payload),
+        details: payload,
+      });
     }
 
-    /*
-     * Standard JSON API envelope.
-     */
-    if (
-      payload &&
-      isPlainObject(payload)
-    ) {
+    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
       return payload as ApiResponse<T>;
     }
 
-    /*
-     * Non-object successful response.
-     */
-    return {
-      success: true,
-      data: payload as T,
-    };
+    return { success: true, data: payload as T };
   } catch (error) {
-    /*
-     * Preserve typed API errors.
-     */
-    if (error instanceof ApiError) {
-      throw error;
+    if (error instanceof ApiError) throw error;
+
+    // Distinguish caller cancellation from our own timeout. Do not misreport an
+    // intentional unmount/navigation abort as a timeout.
+    if (externalSignal?.aborted && !controller.signal.aborted) {
+      throw new ApiError("Request was cancelled.", {
+        code: "REQUEST_ABORTED",
+        details: { url },
+      });
     }
 
-    /*
-     * Timeout / abort.
-     */
-    if (isAbortError(error)) {
+    if (controller.signal.aborted || isAbortError(error)) {
+      const timedOut = controller.signal.aborted;
       throw new ApiError(
-        `Request timed out after ${timeoutMs}ms.`,
+        timedOut ? `Request timed out after ${safeTimeoutMs}ms.` : "Request was cancelled.",
         {
-          code: "REQUEST_TIMEOUT",
-          details: {
-            url,
-            timeoutMs,
-          },
+          code: timedOut ? "REQUEST_TIMEOUT" : "REQUEST_ABORTED",
+          details: { url, timeoutMs: safeTimeoutMs },
         },
       );
     }
 
-    /*
-     * Network / CORS / backend unavailable.
-     */
     if (error instanceof TypeError) {
-      const configuredOrigin =
-        API_ORIGIN ||
-        "the current application origin";
-
+      const configuredOrigin = API_ORIGIN || "the current application origin";
       throw new ApiError(
-        `Unable to connect to the DivyaDhara API at ${configuredOrigin}. Please check that the backend API is running, the configured VITE_API_URL is correct, and CORS allows the frontend origin.`,
+        `Unable to connect to the DivyaDhara API at ${configuredOrigin}. Check that the backend is running, VITE_API_URL is correct, and CORS allows the frontend origin.`,
         {
           code: "NETWORK_ERROR",
-          details: {
-            url,
-            apiOrigin: API_ORIGIN,
-            originalError: error,
-          },
+          details: { url, apiOrigin: API_ORIGIN, originalError: error },
         },
       );
     }
 
-    throw new ApiError(
-      "An unexpected API error occurred.",
-      {
-        code: "UNKNOWN_ERROR",
-        details: error,
-      },
-    );
+    throw new ApiError("An unexpected API error occurred.", {
+      code: "UNKNOWN_ERROR",
+      details: error,
+    });
   } finally {
     globalThis.clearTimeout(timeoutId);
+    merged.cleanup();
   }
 }
 
@@ -708,7 +546,7 @@ export async function apiGet<T = unknown>(
   const query = buildQueryString(params);
 
   return apiRequest<T>(
-    `${path}${query}`,
+    appendQueryString(path, query),
     {
       ...options,
       method: "GET",

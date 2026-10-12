@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * DHARMYATRA — MASTER SEO ENGINE
+ * DIVYADHARA — MASTER SEO ENGINE
  * ============================================================================
  *
  * Purpose:
@@ -105,22 +105,22 @@ export type SEOProps = {
  * CONSTANTS
  * ========================================================================== */
 
-export const SEO_SITE_NAME = "DharmYatra";
+export const SEO_SITE_NAME = "DivyaDhara";
 
 export const SEO_DEFAULT_DESCRIPTION =
-  "DharmYatra helps you discover temples, pujas, pandits, spiritual places, yatras, Panchang, festivals and Vedic astrology resources across India.";
+  "DivyaDhara connects devotees with temples, puja services, pandits, ashrams, spiritual courses, yatras, Panchang, festivals and sacred places across India.";
 
 export const SEO_DEFAULT_IMAGE = "/images/hero-varanasi.jpeg";
 
 export const SEO_DEFAULT_IMAGE_ALT =
-  "DharmYatra spiritual journey across India";
+  "DivyaDhara — spiritual journeys, temples and devotional services across India";
 
 export const SEO_DEFAULT_LOCALE = "en_IN";
 
 export const SEO_DEFAULT_ROBOTS =
   "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1";
 
-const MANAGED_SEO_SCHEMA_ATTRIBUTE = "data-dharmyatra-seo-schema";
+const MANAGED_SEO_SCHEMA_ATTRIBUTE = "data-divyadhara-seo-schema";
 
 /* ============================================================================
  * CORE URL HELPERS
@@ -139,14 +139,26 @@ export function absoluteUrl(value: string = "/"): string {
     return normalizeBaseUrl(SITE_URL);
   }
 
+  // Keep absolute URLs untouched, including third-party share images.
   if (/^https?:\/\//i.test(raw)) {
+    return raw;
+  }
+
+  // Protocol-relative URLs are already absolute references.
+  if (raw.startsWith("//")) {
+    return `https:${raw}`;
+  }
+
+  // Non-web schemes (for example data: or mailto:) must not be prefixed.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) {
     return raw;
   }
 
   const base = normalizeBaseUrl(SITE_URL);
   const path = raw.startsWith("/") ? raw : `/${raw}`;
 
-  return `${base}${path}`;
+  // Avoid malformed relative URLs if the site URL is not configured.
+  return base ? `${base}${path}` : path;
 }
 
 /**
@@ -392,6 +404,14 @@ function setMetaProperty(
   );
 }
 
+function removeMetaByName(name: string): void {
+  getMetaByName(name)?.remove();
+}
+
+function removeMetaByProperty(property: string): void {
+  getMetaByProperty(property)?.remove();
+}
+
 function ensureLink(
   rel: string,
 ): HTMLLinkElement | null {
@@ -448,7 +468,7 @@ function upsertAlternateLinks(
 
   document.head
     .querySelectorAll<HTMLLinkElement>(
-      'link[data-dharmyatra-hreflang="true"]',
+      'link[data-divyadhara-hreflang="true"]',
     )
     .forEach((link) => link.remove());
 
@@ -485,7 +505,7 @@ function upsertAlternateLinks(
     link.hreflang = item.hrefLang;
     link.href = item.href;
     link.setAttribute(
-      "data-dharmyatra-hreflang",
+      "data-divyadhara-hreflang",
       "true",
     );
 
@@ -564,7 +584,7 @@ function addSchemaScript(
       );
   } catch (error) {
     console.error(
-      "DharmYatra JSON-LD serialization failed:",
+      "DivyaDhara JSON-LD serialization failed:",
       error,
     );
     return;
@@ -596,7 +616,7 @@ export function useSEO({
   section,
 }: SEOProps): void {
   const normalizedTitle = limitSEOText(
-    title,
+    cleanSEOText(title) || SEO_SITE_NAME,
     70,
   );
 
@@ -607,7 +627,7 @@ export function useSEO({
     );
 
   const canonical =
-    canonicalUrl(path);
+    canonicalUrl(path || "/");
 
   const absoluteImage =
     absoluteUrl(image);
@@ -664,11 +684,13 @@ export function useSEO({
       SEO_SITE_NAME,
     );
 
-    if (author) {
+    if (author && cleanSEOText(author)) {
       setMetaName(
         "author",
         cleanSEOText(author),
       );
+    } else {
+      removeMetaByName("author");
     }
 
     /*
@@ -732,6 +754,8 @@ export function useSEO({
         "article:published_time",
         publishedTime,
       );
+    } else {
+      removeMetaByProperty("article:published_time");
     }
 
     if (modifiedTime) {
@@ -739,13 +763,17 @@ export function useSEO({
         "article:modified_time",
         modifiedTime,
       );
+    } else {
+      removeMetaByProperty("article:modified_time");
     }
 
-    if (section) {
+    if (section && cleanSEOText(section)) {
       setMetaProperty(
         "article:section",
-        section,
+        cleanSEOText(section),
       );
+    } else {
+      removeMetaByProperty("article:section");
     }
 
     /* ---------------------------------------------------------------
@@ -1677,7 +1705,7 @@ function safeJSONStringify(
       : "";
   } catch (error) {
     console.error(
-      "DharmYatra SEO schema stringify failed:",
+      "DivyaDhara SEO schema stringify failed:",
       error,
     );
 
@@ -1694,7 +1722,7 @@ function safeJSONParse<T>(
     ) as T;
   } catch (error) {
     console.error(
-      "DharmYatra SEO schema parse failed:",
+      "DivyaDhara SEO schema parse failed:",
       error,
     );
 
