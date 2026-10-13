@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -10,7 +9,6 @@ import {
   CalendarDays,
   BookOpen,
   Users,
-  ExternalLink,
 } from "lucide-react";
 import { Stars } from "./ui";
 import { waLink, inr, cx } from "../lib/utils";
@@ -51,7 +49,7 @@ const cardMotion = {
 };
 
 const actionButton =
-  "inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-[13px] font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2";
+  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-center text-xs font-bold leading-tight transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 sm:text-sm";
 
 const softButton = cx(
   actionButton,
@@ -68,19 +66,21 @@ const saffronButton = cx(
   "bg-orange-700 text-white hover:bg-orange-800",
 );
 
-function openExternal(url: string): {
+function openExternal(): {
   target: "_blank";
-  rel: "noreferrer";
+  rel: "noopener noreferrer";
 } {
   return {
     target: "_blank",
-    rel: "noreferrer",
+    rel: "noopener noreferrer",
   };
 }
 
 function formatEventDate(value: string | Date): {
   day: string;
   monthYear: string;
+  isoDate?: string;
+  longDate: string;
 } {
   const date = new Date(value);
 
@@ -88,24 +88,43 @@ function formatEventDate(value: string | Date): {
     return {
       day: "—",
       monthYear: "",
+      longDate: "Please confirm the event date",
     };
   }
 
   return {
-    day: String(date.getDate()),
-    monthYear: date.toLocaleString("en-IN", {
+    day: new Intl.DateTimeFormat("en-IN", {
+      day: "numeric",
+      timeZone: "Asia/Kolkata",
+    }).format(date),
+    monthYear: new Intl.DateTimeFormat("en-IN", {
       month: "short",
       year: "2-digit",
-    }),
+      timeZone: "Asia/Kolkata",
+    }).format(date),
+    isoDate: new Intl.DateTimeFormat("en-CA", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      timeZone: "Asia/Kolkata",
+    }).format(date),
+    longDate: new Intl.DateTimeFormat("en-IN", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone: "Asia/Kolkata",
+    }).format(date),
   };
 }
 
 export function SaveBtn({
   kind,
   slug,
+  name,
 }: {
   kind: "temple" | "place";
   slug: string;
+  name?: string;
 }) {
   const { savedTemples, savedPlaces, toggleSave } = useApp();
 
@@ -122,7 +141,11 @@ export function SaveBtn({
         event.stopPropagation();
         toggleSave(kind, slug);
       }}
-      aria-label={saved ? "Remove from saved" : "Save for later"}
+      aria-label={
+        saved
+          ? `Remove ${name || (kind === "temple" ? "temple" : "place")} from saved items`
+          : `Save ${name || (kind === "temple" ? "temple" : "place")} for later`
+      }
       aria-pressed={saved}
       className={cx(
         "grid h-9 w-9 place-items-center rounded-full backdrop-blur transition active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-black/20",
@@ -134,6 +157,7 @@ export function SaveBtn({
       <Heart
         size={15}
         fill={saved ? "currentColor" : "none"}
+        aria-hidden="true"
       />
     </button>
   );
@@ -161,7 +185,7 @@ Please share darshan timings, aarti details, puja options and any current guidan
         duration: 0.55,
         delay: (i % 4) * 0.08,
       }}
-      className="img-zoom group overflow-hidden rounded-3xl border border-orange-900/10 bg-white sacred-border"
+      className="img-zoom group h-full overflow-hidden rounded-3xl border border-orange-900/10 bg-white sacred-border transition-shadow duration-200 hover:shadow-lg hover:shadow-orange-950/5"
     >
       <div className="relative h-56 overflow-hidden">
         <Link
@@ -171,8 +195,9 @@ Please share darshan timings, aarti details, puja options and any current guidan
         >
           <img
             src={t.image}
-            alt={`${t.name}, ${t.city}`}
+            alt={`${t.name} temple in ${t.city}, ${t.state}`}
             loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover"
           />
 
@@ -200,6 +225,7 @@ Please share darshan timings, aarti details, puja options and any current guidan
           <SaveBtn
             kind="temple"
             slug={t.slug}
+            name={t.name}
           />
         </div>
       </div>
@@ -210,7 +236,7 @@ Please share darshan timings, aarti details, puja options and any current guidan
           className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2"
         >
           <p className="flex items-center gap-1.5 text-[13px] font-semibold text-orange-800">
-            <MapPin size={14} />
+            <MapPin size={14} aria-hidden="true" />
             {t.city}, {t.state}
           </p>
 
@@ -223,31 +249,34 @@ Please share darshan timings, aarti details, puja options and any current guidan
             <ArrowRight
               size={15}
               className="transition group-hover:translate-x-1"
+              aria-hidden="true"
             />
           </p>
         </Link>
 
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 grid grid-cols-2 items-stretch gap-2">
           <Link
             to={`/temples/${t.slug}`}
+            aria-label={`View ${t.name} temple details and darshan information`}
             className={cx(
               softButton,
-              "flex-1",
+              "min-h-12 w-full",
             )}
           >
-            Details
+            View Details
           </Link>
 
           <a
             href={whatsappHref}
-            {...openExternal(whatsappHref)}
+            {...openExternal()}
+            aria-label={`Ask about ${t.name} on WhatsApp`}
             className={cx(
               whatsappButton,
-              "flex-1",
+              "min-h-12 w-full",
             )}
           >
-            <MessageCircle size={14} />
-            Ask
+            <MessageCircle size={14} aria-hidden="true" />
+            Ask on WhatsApp
           </a>
         </div>
       </div>
@@ -280,7 +309,7 @@ Please share availability, muhurat, samagri list and booking process.`,
         duration: 0.55,
         delay: (i % 4) * 0.08,
       }}
-      className="img-zoom group flex flex-col overflow-hidden rounded-3xl border border-orange-900/10 bg-white sacred-border"
+      className="img-zoom group flex h-full flex-col overflow-hidden rounded-3xl border border-orange-900/10 bg-white sacred-border transition-shadow duration-200 hover:shadow-lg hover:shadow-orange-950/5"
     >
       <Link
         to={`/services/${s.slug}`}
@@ -290,8 +319,9 @@ Please share availability, muhurat, samagri list and booking process.`,
         <div className="relative h-48 overflow-hidden">
           <img
             src={s.image}
-            alt={s.name}
+            alt={`${s.name} spiritual service`}
             loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover"
           />
 
@@ -325,31 +355,34 @@ Please share availability, muhurat, samagri list and booking process.`,
           <Clock
             size={13}
             className="text-orange-600"
+            aria-hidden="true"
           />
           {s.duration}
         </p>
 
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 grid grid-cols-2 items-stretch gap-2">
           <Link
             to={`/services/${s.slug}`}
+            aria-label={`View ${s.name} service details`}
             className={cx(
               softButton,
-              "flex-1",
+              "min-h-12 w-full",
             )}
           >
-            Details
+            View Details
           </Link>
 
           <a
             href={whatsappHref}
-            {...openExternal(whatsappHref)}
+            {...openExternal()}
+            aria-label={`Enquire about ${s.name} on WhatsApp`}
             className={cx(
               whatsappButton,
-              "flex-1",
+              "min-h-12 w-full",
             )}
           >
-            <MessageCircle size={14} />
-            Enquire
+            <MessageCircle size={14} aria-hidden="true" />
+            Enquire on WhatsApp
           </a>
         </div>
       </div>
@@ -378,79 +411,91 @@ Please share availability, booking process, dakshina/fees and suitable dates.`,
     <motion.article
       {...cardMotion}
       transition={{
-        duration: 0.55,
-        delay: (i % 3) * 0.08,
+        duration: 0.45,
+        delay: (i % 3) * 0.06,
       }}
-      className="group overflow-hidden rounded-3xl border border-orange-900/10 bg-white sacred-border"
+      className="group flex h-full flex-col overflow-hidden rounded-3xl border border-orange-900/10 bg-white sacred-border transition-shadow duration-200 hover:shadow-lg hover:shadow-orange-950/5"
     >
       <Link
         to={`/pandits/${p.slug}`}
-        className="block"
-        aria-label={`View ${p.name} profile`}
+        className="flex items-center gap-4 bg-linear-to-br from-orange-50 via-amber-50 to-white p-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-500"
+        aria-label={`View ${p.name}'s Pandit profile, specializations and booking information`}
       >
-        <div className="relative flex items-center gap-4 bg-linear-to-br from-orange-50 via-amber-50 to-white p-5">
-          <img
-            src={p.photo}
-            alt={`Portrait of ${p.name}`}
-            loading="lazy"
-            className="h-20 w-20 shrink-0 rounded-2xl border-2 border-amber-300 object-cover shadow-md"
-          />
+        <img
+          src={p.photo}
+          alt={`Portrait of Pandit ${p.name}`}
+          loading="lazy"
+          decoding="async"
+          className="h-20 w-20 shrink-0 rounded-2xl border-2 border-amber-300 object-cover shadow-sm"
+        />
 
-          <div className="min-w-0">
-            <h3 className="font-display text-lg font-semibold leading-tight text-[#2a1a10]">
-              {p.name}
-            </h3>
+        <div className="min-w-0 flex-1">
+          <h3 className="font-display text-lg font-semibold leading-tight text-[#2a1a10] transition-colors group-hover:text-orange-800">
+            {p.name}
+          </h3>
 
-            <p className="text-xs font-semibold text-orange-700">
-              {p.title}
-            </p>
-
-            <p className="mt-1 text-xs text-stone-500">
-              {p.experience} yrs · {p.location}
-            </p>
-          </div>
-        </div>
-
-        <div className="px-5 pb-5">
-          <div className="flex flex-wrap gap-1.5">
-            {p.specializations
-              .slice(0, 3)
-              .map((specialization) => (
-                <span
-                  key={specialization}
-                  className="rounded-full bg-orange-50 px-2.5 py-1 text-[11px] font-bold text-orange-900 ring-1 ring-orange-200"
-                >
-                  {specialization}
-                </span>
-              ))}
-          </div>
-
-          <p className="mt-2 text-xs text-stone-500">
-            🗣 {p.languages.join(" · ")}
+          <p className="mt-1 text-xs font-semibold text-orange-800">
+            {p.title}
           </p>
 
-          <p className="mt-3 flex items-center gap-1 text-sm font-bold text-orange-700">
-            View profile & booking
-            <ArrowRight
-              size={15}
-              className="transition group-hover:translate-x-1"
-            />
+          <p className="mt-2 flex items-start gap-1 text-xs leading-relaxed text-stone-600">
+            <MapPin size={13} className="mt-0.5 shrink-0 text-orange-700" aria-hidden="true" />
+            <span>{p.location}</span>
+          </p>
+
+          <p className="mt-1 text-xs text-stone-500">
+            {p.experience} years of experience
           </p>
         </div>
       </Link>
 
-      <div className="px-5 pb-5">
-        <a
-          href={whatsappHref}
-          {...openExternal(whatsappHref)}
-          className={cx(
-            whatsappButton,
-            "w-full",
-          )}
-        >
-          <MessageCircle size={14} />
-          Check Availability on WhatsApp
-        </a>
+      <div className="flex flex-1 flex-col p-5 pt-4">
+        {p.specializations.length > 0 && (
+          <div aria-label="Specializations" className="flex flex-wrap gap-1.5">
+            {p.specializations.slice(0, 3).map((specialization) => (
+              <span
+                key={specialization}
+                className="rounded-full bg-orange-50 px-2.5 py-1 text-[11px] font-bold leading-snug text-orange-900 ring-1 ring-orange-200"
+              >
+                {specialization}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {p.languages.length > 0 && (
+          <p className="mt-3 text-xs leading-relaxed text-stone-600">
+            <span className="font-semibold text-stone-700">Languages:</span>{" "}
+            {p.languages.join(" · ")}
+          </p>
+        )}
+
+        <div className="mt-auto grid grid-cols-2 items-stretch gap-2 pt-5">
+          <Link
+            to={`/pandits/${p.slug}`}
+            aria-label={`View ${p.name}'s profile and booking details`}
+            className={cx(
+              saffronButton,
+              "min-h-[68px] w-full px-2 text-[11px] leading-snug sm:text-xs",
+            )}
+          >
+            <span>View Profile &amp; Booking</span>
+            <ArrowRight size={14} className="shrink-0" aria-hidden="true" />
+          </Link>
+
+          <a
+            href={whatsappHref}
+            {...openExternal()}
+            aria-label={`Ask about ${p.name}'s availability on WhatsApp`}
+            className={cx(
+              whatsappButton,
+              "min-h-[68px] w-full px-2 text-[11px] leading-snug sm:text-xs",
+            )}
+          >
+            <MessageCircle size={14} className="shrink-0" aria-hidden="true" />
+            <span>Check Availability on WhatsApp</span>
+          </a>
+        </div>
       </div>
     </motion.article>
   );
@@ -486,7 +531,7 @@ Please share dates, itinerary, inclusions, availability and booking terms.`,
         duration: 0.55,
         delay: (i % 3) * 0.08,
       }}
-      className="img-zoom group overflow-hidden rounded-3xl border border-orange-900/10 bg-white sacred-border"
+      className="img-zoom group h-full overflow-hidden rounded-3xl border border-orange-900/10 bg-white sacred-border transition-shadow duration-200 hover:shadow-lg hover:shadow-orange-950/5"
     >
       <div className="relative h-56 overflow-hidden">
         <Link
@@ -496,8 +541,9 @@ Please share dates, itinerary, inclusions, availability and booking terms.`,
         >
           <img
             src={p.image}
-            alt={p.name}
+            alt={`${p.name} pilgrimage in ${p.destination}`}
             loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover"
           />
 
@@ -546,19 +592,21 @@ Please share dates, itinerary, inclusions, availability and booking terms.`,
 
           <Link
             to={`/packages/${p.slug}`}
+            aria-label={`View ${p.name} pilgrimage package details`}
             className={cx(
               saffronButton,
               "shrink-0",
             )}
           >
             View Yatra
-            <ArrowRight size={14} />
+            <ArrowRight size={14} aria-hidden="true" />
           </Link>
         </div>
 
         <a
           href={whatsappHref}
-          {...openExternal(whatsappHref)}
+          {...openExternal()}
+          aria-label={`Ask about ${p.name} dates and availability on WhatsApp`}
           className={cx(
             whatsappButton,
             "mt-3 w-full",
@@ -579,7 +627,7 @@ export function EventCard({
   e: DhamEvent;
   i?: number;
 }) {
-  const { day, monthYear } =
+  const { day, monthYear, isoDate, longDate } =
     formatEventDate(e.date);
 
   const whatsappHref = waLink(
@@ -587,7 +635,7 @@ export function EventCard({
 
 I want details for the event: ${e.title}
 Venue: ${e.venue}, ${e.city}
-Date: ${new Date(e.date).toLocaleDateString("en-IN")}
+Date: ${longDate}
 
 Please share registration details, timings and availability.`,
   );
@@ -599,7 +647,7 @@ Please share registration details, timings and availability.`,
         duration: 0.55,
         delay: (i % 3) * 0.08,
       }}
-      className="img-zoom group overflow-hidden rounded-3xl border border-orange-900/10 bg-white sacred-border"
+      className="img-zoom group h-full overflow-hidden rounded-3xl border border-orange-900/10 bg-white sacred-border transition-shadow duration-200 hover:shadow-lg hover:shadow-orange-950/5"
     >
       <Link
         to={`/events/${e.slug}`}
@@ -609,22 +657,27 @@ Please share registration details, timings and availability.`,
         <div className="relative h-48 overflow-hidden">
           <img
             src={e.image}
-            alt={e.title}
+            alt={`${e.title} spiritual event in ${e.city}`}
             loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover"
           />
 
           <div className="absolute inset-0 bg-linear-to-t from-black/65 to-transparent" />
 
-          <div className="absolute left-3 top-3 rounded-2xl bg-white/95 px-3 py-1.5 text-center shadow">
-            <p className="text-lg font-extrabold leading-none text-orange-800">
+          <time
+            dateTime={isoDate}
+            aria-label={longDate}
+            className="absolute left-3 top-3 rounded-2xl bg-white/95 px-3 py-1.5 text-center shadow"
+          >
+            <span className="block text-lg font-extrabold leading-none text-orange-800">
               {day}
-            </p>
+            </span>
 
-            <p className="text-[10px] font-bold uppercase text-stone-500">
+            <span className="mt-0.5 block text-[10px] font-bold uppercase text-stone-500">
               {monthYear}
-            </p>
-          </div>
+            </span>
+          </time>
 
           <span className="absolute bottom-3 left-3 rounded-full bg-orange-600/95 px-2.5 py-1 text-[11px] font-bold text-white">
             {e.category}
@@ -654,32 +707,35 @@ Please share registration details, timings and availability.`,
             <ArrowRight
               size={14}
               className="inline"
+              aria-hidden="true"
             />
           </p>
         </Link>
 
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 grid grid-cols-2 items-stretch gap-2">
           <Link
             to={`/events/${e.slug}`}
+            aria-label={`View ${e.title} event details and date`}
             className={cx(
               softButton,
-              "flex-1",
+              "min-h-12 w-full",
             )}
           >
-            <CalendarDays size={14} />
-            Details
+            <CalendarDays size={14} aria-hidden="true" />
+            View Details
           </Link>
 
           <a
             href={whatsappHref}
-            {...openExternal(whatsappHref)}
+            {...openExternal()}
+            aria-label={`Ask about ${e.title} registration on WhatsApp`}
             className={cx(
               whatsappButton,
-              "flex-1",
+              "min-h-12 w-full",
             )}
           >
-            <MessageCircle size={14} />
-            Enquire
+            <MessageCircle size={14} aria-hidden="true" />
+            Enquire on WhatsApp
           </a>
         </div>
       </div>
@@ -714,7 +770,7 @@ Please share next batch date, syllabus, live/recorded format and enrolment proce
         duration: 0.55,
         delay: (i % 3) * 0.08,
       }}
-      className="img-zoom group overflow-hidden rounded-3xl border border-orange-900/10 bg-white sacred-border"
+      className="img-zoom group h-full overflow-hidden rounded-3xl border border-orange-900/10 bg-white sacred-border transition-shadow duration-200 hover:shadow-lg hover:shadow-orange-950/5"
     >
       <Link
         to={`/courses/${c.slug}`}
@@ -724,8 +780,9 @@ Please share next batch date, syllabus, live/recorded format and enrolment proce
         <div className="relative h-48 overflow-hidden">
           <img
             src={c.image}
-            alt={c.title}
+            alt={`${c.title} course by ${c.instructor}`}
             loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover"
           />
 
@@ -755,28 +812,30 @@ Please share next batch date, syllabus, live/recorded format and enrolment proce
           </p>
         </Link>
 
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 grid grid-cols-2 items-stretch gap-2">
           <Link
             to={`/courses/${c.slug}`}
+            aria-label={`View ${c.title} course syllabus and details`}
             className={cx(
               softButton,
-              "flex-1",
+              "min-h-12 w-full",
             )}
           >
-            <BookOpen size={14} />
-            View Course
+            <BookOpen size={14} aria-hidden="true" />
+            View Course Details
           </Link>
 
           <a
             href={whatsappHref}
-            {...openExternal(whatsappHref)}
+            {...openExternal()}
+            aria-label={`Enquire about ${c.title} course enrollment on WhatsApp`}
             className={cx(
               whatsappButton,
-              "flex-1",
+              "min-h-12 w-full",
             )}
           >
-            <MessageCircle size={14} />
-            Enquire
+            <MessageCircle size={14} aria-hidden="true" />
+            Enquire on WhatsApp
           </a>
         </div>
       </div>
@@ -808,8 +867,9 @@ export function PlaceCard({
         >
           <img
             src={p.image}
-            alt={p.name}
+            alt={`${p.name}, a ${p.type} spiritual destination in ${p.state}`}
             loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover"
           />
 
@@ -825,7 +885,7 @@ export function PlaceCard({
             </h3>
 
             <p className="flex items-center gap-1 text-[13px] font-semibold text-amber-200">
-              <MapPin size={13} />
+              <MapPin size={13} aria-hidden="true" />
               {p.state} · Best: {p.bestTime}
             </p>
           </div>
@@ -835,6 +895,7 @@ export function PlaceCard({
           <SaveBtn
             kind="place"
             slug={p.slug}
+            name={p.name}
           />
         </div>
       </div>
@@ -842,10 +903,11 @@ export function PlaceCard({
       <div className="absolute bottom-4 right-4">
         <Link
           to={`/spiritual-places/${p.slug}`}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-white/95 px-3 py-2 text-[12px] font-bold text-orange-900 shadow-lg backdrop-blur transition hover:bg-white"
+          aria-label={`Explore ${p.name} spiritual destination details`}
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-xl bg-white/95 px-3 py-2 text-[12px] font-bold text-orange-900 shadow-lg backdrop-blur transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2"
         >
           Explore
-          <ArrowRight size={13} />
+          <ArrowRight size={13} aria-hidden="true" />
         </Link>
       </div>
     </motion.article>
@@ -886,8 +948,9 @@ Please share stay/seva availability, programme details, timings, pricing and boo
         >
           <img
             src={a.image}
-            alt={a.name}
+            alt={`${a.name} in ${a.place}, ${a.state}`}
             loading="lazy"
+            decoding="async"
             className="absolute inset-0 h-full w-full object-cover"
           />
 
@@ -921,6 +984,7 @@ Please share stay/seva availability, programme details, timings, pricing and boo
             <ArrowRight
               size={15}
               className="transition group-hover:translate-x-1"
+              aria-hidden="true"
             />
           </p>
         </Link>
@@ -928,25 +992,27 @@ Please share stay/seva availability, programme details, timings, pricing and boo
         <div className="mt-5 grid gap-2 sm:grid-cols-2">
           <Link
             to={`/ashrams/${a.slug}`}
+            aria-label={`View ${a.name} Ashram details`}
             className={cx(
               saffronButton,
               "w-full",
             )}
           >
-            <Users size={14} />
-            View Ashram
+            <Users size={14} aria-hidden="true" />
+            View Ashram Details
           </Link>
 
           <a
             href={whatsappHref}
-            {...openExternal(whatsappHref)}
+            {...openExternal()}
+            aria-label={`Enquire about stay, seva and programmes at ${a.name} on WhatsApp`}
             className={cx(
               whatsappButton,
               "w-full",
             )}
           >
-            <MessageCircle size={14} />
-            Enquire
+            <MessageCircle size={14} aria-hidden="true" />
+            Enquire on WhatsApp
           </a>
         </div>
       </div>

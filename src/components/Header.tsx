@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   Link,
   NavLink,
@@ -81,6 +82,55 @@ type MobileNavItem =
       href: string;
       children: HeaderChild[];
     };
+
+/* =========================================================
+   SEARCH UTILITIES
+   Case/accent-insensitive search with support for Unicode text.
+   This keeps English transliterations and native-script content searchable.
+========================================================= */
+
+function normalizeSearchText(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("en-IN")
+    .replace(/&/g, " and ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function matchesSearch(query: string, values: unknown[]): boolean {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return false;
+
+  const terms = normalizedQuery.split(" ").filter(Boolean);
+  const searchableText = normalizeSearchText(values.filter(Boolean).join(" "));
+
+  return terms.every((term) => searchableText.includes(term));
+}
+
+function scoreSearchResult(
+  query: string,
+  result: Pick<SearchResult, "label" | "sub">,
+): number {
+  const normalizedQuery = normalizeSearchText(query);
+  const label = normalizeSearchText(result.label);
+  const sub = normalizeSearchText(result.sub);
+
+  if (label === normalizedQuery) return 1000;
+  if (label.startsWith(normalizedQuery)) return 800;
+  if (label.includes(normalizedQuery)) return 600;
+  if (sub.startsWith(normalizedQuery)) return 400;
+  if (sub.includes(normalizedQuery)) return 300;
+
+  return normalizedQuery.split(" ").reduce((score, term) => {
+    if (!term) return score;
+    if (label.includes(term)) return score + 40;
+    if (sub.includes(term)) return score + 15;
+    return score;
+  }, 0);
+}
 
 /* =========================================================
    PRIMARY NAVIGATION
@@ -547,6 +597,11 @@ export default function Header() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [q, setQ] = useState("");
 
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const mobileDialogRef = useRef<HTMLElement>(null);
+
   const { user } = useApp();
   const loc = useLocation();
   const nav = useNavigate();
@@ -603,28 +658,36 @@ export default function Header() {
   }, [mobile, searchOpen]);
 
   useEffect(() => {
-    const handleEscape = (
-      event: KeyboardEvent,
-    ) => {
-      if (event.key !== "Escape") {
-        return;
-      }
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
 
-      setMobile(false);
-      setSearchOpen(false);
+      if (searchOpen) {
+        setSearchOpen(false);
+        setQ("");
+        window.requestAnimationFrame(() => searchButtonRef.current?.focus());
+      } else if (mobile) {
+        setMobile(false);
+        window.requestAnimationFrame(() => mobileMenuButtonRef.current?.focus());
+      }
     };
 
-    window.addEventListener(
-      "keydown",
-      handleEscape,
-    );
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [mobile, searchOpen]);
 
-    return () =>
-      window.removeEventListener(
-        "keydown",
-        handleEscape,
+  useEffect(() => {
+    if (searchOpen) {
+      searchInputRef.current?.focus();
+      return;
+    }
+
+    if (mobile) {
+      const firstFocusable = mobileDialogRef.current?.querySelector<HTMLElement>(
+        'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
       );
-  }, []);
+      firstFocusable?.focus();
+    }
+  }, [mobile, searchOpen]);
 
   const isPanchangActive =
     PANCHANG_PATHS.some(
@@ -681,140 +744,95 @@ export default function Header() {
       `${href}/`,
     );
 
-  const results = useMemo<SearchResult[]>(
-    () => {
-      const searchTerm =
-        q.trim().toLowerCase();
+  const results = useMemo<SearchResult[]>(() => {
+    const searchTerm = q.trim();
+    if (normalizeSearchText(searchTerm).length < 2) return [];
 
-      if (searchTerm.length < 2) {
-        return [];
+    const candidates: SearchResult[] = [];
+    const addResult = (
+      result: SearchResult,
+      searchableFields: unknown[],
+    ) => {
+      if (matchesSearch(searchTerm, [result.label, result.sub, ...searchableFields])) {
+        candidates.push(result);
       }
+    };
 
-      const searchResults: SearchResult[] =
-        [];
+    TEMPLES.forEach((temple) => {
+      addResult(
+        {
+          label: temple.name,
+          sub: `${temple.city}, ${temple.state}`,
+          href: `/temples/${temple.slug}`,
+          type: "Temple",
+        },
+        [temple.name, temple.city, temple.state, temple.category.join(" "), temple.sanskrit, temple.summary],
+      );
+    });
 
-      TEMPLES.filter((temple) =>
-        [
-          temple.name,
-          temple.city,
-          temple.state,
-          temple.category.join(" "),
-          temple.sanskrit,
-          temple.summary,
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(searchTerm),
+    SERVICES.forEach((service) => {
+      addResult(
+        {
+          label: service.name,
+          sub: `${service.category} · ${service.duration}`,
+          href: `/services/${service.slug}`,
+          type: "Puja Service",
+        },
+        [service.name, service.category, service.tagline, service.duration, service.price],
+      );
+    });
+
+    PLACES.forEach((place) => {
+      addResult(
+        {
+          label: place.name,
+          sub: `${place.type} · ${place.state}`,
+          href: `/spiritual-places/${place.slug}`,
+          type: "Spiritual Place",
+        },
+        [place.name, place.state, place.type, place.bestTime],
+      );
+    });
+
+    PACKAGES.forEach((item) => {
+      addResult(
+        {
+          label: item.name,
+          sub: `${item.destination} · ${item.duration}`,
+          href: `/packages/${item.slug}`,
+          type: "Yatra",
+        },
+        [item.name, item.destination, item.duration],
+      );
+    });
+
+    STATIC_SEARCH_PAGES.forEach((item) => {
+      addResult(
+        {
+          label: item.label,
+          sub: item.sub,
+          href: item.href,
+          type: item.type,
+        },
+        [item.label, item.sub, item.keywords],
+      );
+    });
+
+    // Keep one entry per URL + normalized label, then rank the best matches first.
+    const unique = new Map<string, SearchResult>();
+    candidates.forEach((result) => {
+      const key = `${result.href}|${normalizeSearchText(result.label)}`;
+      if (!unique.has(key)) unique.set(key, result);
+    });
+
+    return [...unique.values()]
+      .sort(
+        (a, b) =>
+          scoreSearchResult(searchTerm, b) - scoreSearchResult(searchTerm, a) ||
+          a.label.localeCompare(b.label, "en-IN"),
       )
-        .slice(0, 4)
-        .forEach((temple) => {
-          searchResults.push({
-            label: temple.name,
-            sub: `${temple.city}, ${temple.state}`,
-            href: `/temples/${temple.slug}`,
-            type: "Temple",
-          });
-        });
-
-      SERVICES.filter((service) =>
-        [
-          service.name,
-          service.category,
-          service.tagline,
-          service.duration,
-          service.price,
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(searchTerm),
-      )
-        .slice(0, 4)
-        .forEach((service) => {
-          searchResults.push({
-            label: service.name,
-            sub: `${service.category} · ${service.duration}`,
-            href: `/services/${service.slug}`,
-            type: "Puja Service",
-          });
-        });
-
-      PLACES.filter((place) =>
-        [
-          place.name,
-          place.state,
-          place.type,
-          place.bestTime,
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(searchTerm),
-      )
-        .slice(0, 3)
-        .forEach((place) => {
-          searchResults.push({
-            label: place.name,
-            sub: `${place.type} · ${place.state}`,
-            href: `/spiritual-places/${place.slug}`,
-            type: "Spiritual Place",
-          });
-        });
-
-      PACKAGES.filter((item) =>
-        [
-          item.name,
-          item.destination,
-          item.duration,
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(searchTerm),
-      )
-        .slice(0, 3)
-        .forEach((item) => {
-          searchResults.push({
-            label: item.name,
-            sub: `${item.destination} · ${item.duration}`,
-            href: `/packages/${item.slug}`,
-            type: "Yatra",
-          });
-        });
-
-      STATIC_SEARCH_PAGES.filter((item) =>
-        [
-          item.label,
-          item.sub,
-          item.keywords,
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(searchTerm),
-      )
-        .slice(0, 6)
-        .forEach((item) => {
-          searchResults.push({
-            label: item.label,
-            sub: item.sub,
-            href: item.href,
-            type: item.type,
-          });
-        });
-
-      const seen = new Set<string>();
-
-      return searchResults.filter((item) => {
-        const key =
-          `${item.href}|${item.label}`;
-
-        if (seen.has(key)) {
-          return false;
-        }
-
-        seen.add(key);
-        return true;
-      });
-    },
-    [q],
-  );
+      .slice(0, 16);
+  }, [q]);
 
   const openSearch = () => {
     setMobile(false);
@@ -824,6 +842,38 @@ export default function Header() {
   const closeSearch = () => {
     setSearchOpen(false);
     setQ("");
+    window.requestAnimationFrame(() => searchButtonRef.current?.focus());
+  };
+
+  const closeMobile = () => {
+    setMobile(false);
+    window.requestAnimationFrame(() => mobileMenuButtonRef.current?.focus());
+  };
+
+  const trapDialogTabKey = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Tab") return;
+
+    const focusableElements = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((element) => element.getAttribute("aria-hidden") !== "true");
+
+    if (focusableElements.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const first = focusableElements[0];
+    const last = focusableElements[focusableElements.length - 1];
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   };
 
   const openSearchResult = (href: string) => {
@@ -927,9 +977,6 @@ export default function Header() {
                             link.href,
                           );
 
-              const expanded =
-                Boolean(link.children);
-
               return (
                 <div
                   key={link.label}
@@ -937,16 +984,6 @@ export default function Header() {
                 >
                   <NavLink
                     to={link.href}
-                    aria-haspopup={
-                      expanded
-                        ? "menu"
-                        : undefined
-                    }
-                    aria-expanded={
-                      expanded
-                        ? dropdownActive
-                        : undefined
-                    }
                     className={({ isActive }) =>
                       cx(
                         "flex items-center gap-1 rounded-full px-3 py-2 text-[13.5px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2",
@@ -970,10 +1007,7 @@ export default function Header() {
 
                   {link.children && (
                     <div className="invisible absolute left-0 top-full w-80 translate-y-2 pt-2 opacity-0 transition-all duration-200 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:visible group-focus-within:translate-y-0 group-focus-within:opacity-100">
-                      <div
-                        className="overflow-hidden rounded-2xl border border-orange-900/10 bg-white p-2 shadow-2xl shadow-orange-900/15"
-                        role="menu"
-                      >
+                      <div className="overflow-hidden rounded-2xl border border-orange-900/10 bg-white p-2 shadow-2xl shadow-orange-900/15">
                         {link.children.map(
                           (child) => {
                             const childActive =
@@ -985,7 +1019,6 @@ export default function Header() {
                               <Link
                                 key={child.href}
                                 to={child.href}
-                                role="menuitem"
                                 className={cx(
                                   "block rounded-xl px-4 py-3 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-inset",
                                   childActive
@@ -1064,10 +1097,12 @@ export default function Header() {
 
           <div className="flex items-center gap-2">
             <button
+              ref={searchButtonRef}
               type="button"
               onClick={openSearch}
               aria-label="Search DivyaDhara"
               aria-expanded={searchOpen}
+              aria-controls="divyadhara-search-dialog"
               className="grid h-10 w-10 place-items-center rounded-full border border-orange-900/15 bg-white text-stone-700 transition hover:border-orange-500 hover:text-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2"
             >
               <Search
@@ -1079,7 +1114,7 @@ export default function Header() {
             <a
               href={generalWhatsappHref}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="btn-saffron hidden items-center gap-1.5 rounded-full px-4 py-2.5 text-[13px] font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 sm:inline-flex"
             >
               <MessageCircle
@@ -1116,12 +1151,12 @@ export default function Header() {
             </Link>
 
             <button
+              ref={mobileMenuButtonRef}
               type="button"
-              onClick={() =>
-                setMobile(true)
-              }
+              onClick={() => setMobile(true)}
               aria-label="Open navigation menu"
               aria-expanded={mobile}
+              aria-controls="divyadhara-mobile-navigation"
               className="grid h-10 w-10 place-items-center rounded-full bg-[#2a1a10] text-amber-100 transition hover:bg-[#3a2415] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 xl:hidden"
             >
               <Menu size={18} />
@@ -1141,11 +1176,12 @@ export default function Header() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-60 bg-black/50 backdrop-blur-sm xl:hidden"
-            onClick={() =>
-              setMobile(false)
-            }
+            onClick={closeMobile}
           >
             <motion.aside
+              id="divyadhara-mobile-navigation"
+              ref={mobileDialogRef}
+              onKeyDown={trapDialogTabKey}
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
@@ -1183,11 +1219,7 @@ export default function Header() {
 
                   <button
                     type="button"
-                    onClick={() =>
-                      setMobile(
-                        false,
-                      )
-                    }
+                    onClick={closeMobile}
                     aria-label="Close menu"
                     className="grid h-10 w-10 place-items-center rounded-full bg-white/15 transition hover:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
                   >
@@ -1391,7 +1423,7 @@ export default function Header() {
                     generalWhatsappHref
                   }
                   target="_blank"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   onClick={() =>
                     setMobile(
                       false,
@@ -1441,6 +1473,7 @@ export default function Header() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            id="divyadhara-search-dialog"
             className="fixed inset-0 z-60 bg-char-900/60 p-4 backdrop-blur-sm"
             onClick={closeSearch}
             role="dialog"
@@ -1460,9 +1493,8 @@ export default function Header() {
                 y: -24,
                 opacity: 0,
               }}
-              onClick={(event) =>
-                event.stopPropagation()
-              }
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={trapDialogTabKey}
               className="mx-auto mt-[8vh] max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl"
             >
               <div className="flex items-center gap-3 border-b border-orange-900/10 px-5 py-4">
@@ -1473,7 +1505,11 @@ export default function Header() {
                 />
 
                 <input
+                  ref={searchInputRef}
+                  type="search"
                   autoFocus
+                  autoComplete="off"
+                  spellCheck={false}
                   value={q}
                   onChange={(event) =>
                     setQ(
@@ -1545,10 +1581,10 @@ export default function Header() {
                     <a
                       className="font-bold text-orange-700 underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
                       href={waLink(
-                        `Namaste DivyaDhara! I searched for "${q}" on the website and need guidance.`,
+                        `Namaste DivyaDhara! I searched for "${q.trim()}" on the website and need guidance.`,
                       )}
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
                     >
                       Ask us on WhatsApp
                     </a>
@@ -1560,14 +1596,10 @@ export default function Header() {
                       result,
                       index,
                     ) => (
-                      <button
-                        type="button"
+                      <Link
+                        to={result.href}
                         key={`${result.href}-${result.label}-${index}`}
-                        onClick={() =>
-                          openSearchResult(
-                            result.href,
-                          )
-                        }
+                        onClick={closeSearch}
                         className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left transition hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-inset"
                       >
                         <span className="flex min-w-0 items-start gap-3">
@@ -1606,7 +1638,7 @@ export default function Header() {
                         >
                           →
                         </span>
-                      </button>
+                      </Link>
                     ),
                   )
                 )}
