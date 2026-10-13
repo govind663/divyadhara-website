@@ -1,15 +1,31 @@
-export type Pandit = {
-  slug: string; name: string; title: string; photo: string; experience: number; location: string;
-  languages: string[]; specializations: string[]; pujaTypes: string[]; associatedWith: string;
-  about: string; services: { name: string; price: string; duration: string }[]; availability: string; authorizedContact: boolean;
-};
+import type { Pandit } from "./types/pandit";
+
+import sushilTripathi from "./pandit-profiles/sushil-tripathi";
+import santoshAnandaPujariGuruji from "./pandit-profiles/santosh-ananda-pujari-guruji";
+import shrikantGuruji from "./pandit-profiles/shrikant-guruji";
+import nishantJoshi from "./pandit-profiles/nishant-joshi";
+import ashishKumarDubey from "./pandit-profiles/ashish-kumar-dubey";
+import gauravDwivediGuruji from "./pandit-profiles/gaurav-dwivedi-guruji";
+import puneetMishra from "./pandit-profiles/puneet-mishra";
+import santoshDeshpande from "./pandit-profiles/santosh-deshpande";
+import rohitShukla from "./pandit-profiles/rohit-shukla";
+
+export { PUJA_CATEGORIES, ALL_PUJA_TYPES } from "./common/puja-catalogue";
+
+export type { Pandit, PanditService } from "./types/pandit";
 
 export const PANDITS: Pandit[] = [
-  { slug: "pt-raghavendra-shastri", name: "Pt. Raghavendra Shastri", title: "Varanasi · Kashi Vidvat Parishad", photo: "/images/pandit-portrait.jpeg", experience: 22, location: "Varanasi, UP", languages: ["Hindi", "Sanskrit", "English"], specializations: ["Rudrabhishek", "Kaal Sarp Dosh", "Vivah Sanskar"], pujaTypes: ["Rudrabhishek", "Havan", "Marriage"], associatedWith: "Shri Kashi Vishwanath Dham", about: "Kashi-educated Shastri with two decades of Vedic ritual practice. Known for clear sankalpa explanations and shastra-true vidhi, guiding families through Rudrabhishek, graha-shanti and vivah sanskars.", services: [{ name: "Laghu Rudrabhishek (at home)", price: "₹5,100", duration: "2 hrs" }, { name: "Maha Rudrabhishek (temple)", price: "₹11,000", duration: "3.5 hrs" }, { name: "Vivah Sanskar", price: "₹21,000", duration: "Full day" }], availability: "Mon–Sat · Advance booking 3 days", authorizedContact: true },
-  { slug: "pt-meenakshi-gurukkal", name: "Shri Meenakshi Sundaram Gurukkal", title: "Madurai · Agama Sivachariar", photo: "/images/puja-thali.jpeg", experience: 18, location: "Madurai, TN", languages: ["Tamil", "Sanskrit", "English"], specializations: ["Ganapati Homam", "Navagraha Shanti", "Griha Pravesh"], pujaTypes: ["Homam", "Griha/House Puja", "Havan"], associatedWith: "Meenakshi Amman Temple (Agamic line)", about: "Hereditary Sivachariar trained in Kamilagama paddhati. Conducts Ganapati homam, kumbhabhishekam consultations and griha pravesh with precise agamic procedure.", services: [{ name: "Ganapati Homam", price: "₹4,500", duration: "1.5 hrs" }, { name: "Navagraha Homam", price: "₹7,500", duration: "2.5 hrs" }, { name: "Griha Pravesh", price: "₹11,000", duration: "3 hrs" }], availability: "All days · Advance booking 2 days", authorizedContact: true },
-  { slug: "pt-jagdish-rawal", name: "Shri Jagdish Prasad Semwal", title: "Ukhimath · Panch Kedar Parampara", photo: "/images/yatra-himalaya.jpeg", experience: 26, location: "Ukhimath, UK", languages: ["Hindi", "Garhwali", "Sanskrit"], specializations: ["Rudrabhishek", "Mahamrityunjaya Jaap", "Pind Daan"], pujaTypes: ["Rudrabhishek", "Havan", "Other Puja"], associatedWith: "Ukhimath Omkareshwar (winter seat of Kedarnath)", about: "Pahadi Vedic acharya serving Char Dham yatris for 26 years — Mahamrityunjaya anushthan, Kedarnath sankalpa pujas and pitru rituals at Guptkashi.", services: [{ name: "Mahamrityunjaya Jaap (11k)", price: "₹15,000", duration: "5 days" }, { name: "Kedarnath Sankalpa Puja", price: "₹2,100", duration: "45 min" }], availability: "Seasonal (May–Nov) + winter at Ukhimath", authorizedContact: true },
-  { slug: "pt-venkatesh-bhattar", name: "Shri Venkatesh Bhattar", title: "Tirumala · Vaikhanasa Archaka", photo: "/images/aarti-night.jpeg", experience: 15, location: "Tirupati, AP", languages: ["Telugu", "Tamil", "Sanskrit", "English"], specializations: ["Satyanarayan Puja", "Kalyanotsavam guidance", "Vastu Shanti"], pujaTypes: ["Satyanarayan Puja", "Griha/House Puja", "Havan"], associatedWith: "Vaikhanasa Agama line, Tirumala", about: "Vaikhanasa-trained archaka guiding families in Satyanarayan vratam, Seemantham and house-warming rituals with devotional clarity.", services: [{ name: "Satyanarayan Puja", price: "₹3,100", duration: "2 hrs" }, { name: "Vastu Shanti Homam", price: "₹9,500", duration: "3 hrs" }], availability: "Tue–Sun · Advance booking 3 days", authorizedContact: false },
-  { slug: "pt-dinesh-dave", name: "Pt. Dinesh Dave", title: "Ujjain · Mahakaal Upasak", photo: "/images/havan-fire.jpeg", experience: 19, location: "Ujjain, MP", languages: ["Hindi", "Sanskrit", "Marathi"], specializations: ["Kaalsarp Dosh Nivaran", "Mangaldosh Shanti", "Mahamrityunjaya Jaap"], pujaTypes: ["Havan", "Rudrabhishek", "Other Puja"], associatedWith: "Mahakaleshwar Kshetra", about: "Specialist in Kaalsarp and Mangal-dosh nivaran pujas performed per Mahakaal kshetra maryada, with transparent samagri lists and muhurat selection.", services: [{ name: "Kaalsarp Dosh Nivaran", price: "₹5,500", duration: "3 hrs" }, { name: "Mangal Bhat Puja", price: "₹3,500", duration: "2 hrs" }], availability: "All days · Morning slots preferred", authorizedContact: true },
-  { slug: "pt-chakrapani-mishra", name: "Pt. Chakrapani Mishra", title: "Puri · Mukti Mandap Sabha", photo: "/images/festival-crowd.jpeg", experience: 24, location: "Puri, OD", languages: ["Odia", "Hindi", "Sanskrit"], specializations: ["Vivah Sanskar", "Thread Ceremony", "Griha/House Puja"], pujaTypes: ["Marriage", "Griha/House Puja", "Satyanarayan Puja"], associatedWith: "Jagannath Kshetra panda line", about: "Respected Puri panda-acharya conducting sanskars and Jagannath dham yatra sankalpas for Odia and visiting families alike.", services: [{ name: "Vivah Sanskar (Puri)", price: "₹15,000", duration: "Full day" }, { name: "Sacred Thread (Upanayan)", price: "₹7,000", duration: "3 hrs" }], availability: "All days · Festival dates fill early", authorizedContact: false }
+  sushilTripathi,
+  santoshAnandaPujariGuruji,
+  shrikantGuruji,
+  nishantJoshi,
+  ashishKumarDubey,
+  gauravDwivediGuruji,
+  puneetMishra,
+  santoshDeshpande,
+  rohitShukla,
 ];
 
+export function getPanditBySlug(slug: string): Pandit | undefined {
+  return PANDITS.find((pandit) => pandit.slug === slug);
+}

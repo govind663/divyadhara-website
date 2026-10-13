@@ -1,0 +1,218 @@
+[
+  {
+    "code": "andaman-and-nicobar-islands",
+    "lgdCode": "35",
+    "name": "Andaman and Nicobar Islands",
+    "type": "union_territory"
+  },
+  {
+    "code": "andhra-pradesh",
+    "lgdCode": "28",
+    "name": "Andhra Pradesh",
+    "type": "state"
+  },
+  {
+    "code": "arunachal-pradesh",
+    "lgdCode": "12",
+    "name": "Arunachal Pradesh",
+    "type": "state"
+  },
+  {
+    "code": "assam",
+    "lgdCode": "18",
+    "name": "Assam",
+    "type": "state"
+  },
+  {
+    "code": "bihar",
+    "lgdCode": "10",
+    "name": "Bihar",
+    "type": "state"
+  },
+  {
+    "code": "chandigarh",
+    "lgdCode": "4",
+    "name": "Chandigarh",
+    "type": "union_territory"
+  },
+  {
+    "code": "chhattisgarh",
+    "lgdCode": "22",
+    "name": "Chhattisgarh",
+    "type": "state"
+  },
+  {
+    "code": "dadra-and-nagar-haveli-and-daman-and-diu",
+    "lgdCode": "38",
+    "name": "Dadra and Nagar Haveli and Daman and Diu",
+    "type": "union_territory"
+  },
+  {
+    "code": "delhi",
+    "lgdCode": "7",
+    "name": "Delhi",
+    "type": "union_territory"
+  },
+  {
+    "code": "goa",
+    "lgdCode": "30",
+    "name": "Goa",
+    "type": "state"
+  },
+  {
+    "code": "gujarat",
+    "lgdCode": "24",
+    "name": "Gujarat",
+    "type": "state"
+  },
+  {
+    "code": "haryana",
+    "lgdCode": "6",
+    "name": "Haryana",
+    "type": "state"
+  },
+  {
+    "code": "himachal-pradesh",
+    "lgdCode": "2",
+    "name": "Himachal Pradesh",
+    "type": "state"
+  },
+  {
+    "code": "jammu-and-kashmir",
+    "lgdCode": "1",
+    "name": "Jammu and Kashmir",
+    "type": "union_territory"
+  },
+  {
+    "code": "jharkhand",
+    "lgdCode": "20",
+    "name": "Jharkhand",
+    "type": "state"
+  },
+  {
+    "code": "karnataka",
+    "lgdCode": "29",
+    "name": "Karnataka",
+    "type": "state"
+  },
+  {
+    "code": "kerala",
+    "lgdCode": "32",
+    "name": "Kerala",
+    "type": "state"
+  },
+  {
+    "code": "ladakh",
+    "lgdCode": "37",
+    "name": "Ladakh",
+    "type": "union_territory"
+  },
+  {
+    "code": "lakshadweep",
+    "lgdCode": "31",
+    "name": "Lakshadweep",
+    "type": "union_territory"
+  },
+  {
+    "code": "madhya-pradesh",
+    "lgdCode": "23",
+    "name": "Madhya Pradesh",
+    "type": "state"
+  },
+  {
+    "code": "maharashtra",
+    "lgdCode": "27",
+    "name": "Maharashtra",
+    "type": "state"
+  },
+  {
+    "code": "manipur",
+    "lgdCode": "14",
+    "name": "Manipur",
+    "type": "state"
+  },
+  {
+    "code": "meghalaya",
+    "lgdCode": "17",
+    "name": "Meghalaya",
+    "type": "state"
+  },
+  {
+    "code": "mizoram",
+    "lgdCode": "15",
+    "name": "Mizoram",
+    "type": "state"
+  },
+  {
+    "code": "nagaland",
+    "lgdCode": "13",
+    "name": "Nagaland",
+    "type": "state"
+  },
+  {
+    "code": "odisha",
+    "lgdCode": "21",
+    "name": "Odisha",
+    "type": "state"
+  },
+  {
+    "code": "puducherry",
+    "lgdCode": "34",
+    "name": "Puducherry",
+    "type": "union_territory"
+  },
+  {
+    "code": "punjab",
+    "lgdCode": "3",
+    "name": "Punjab",
+    "type": "state"
+  },
+  {
+    "code": "rajasthan",
+    "lgdCode": "8",
+    "name": "Rajasthan",
+    "type": "state"
+  },
+  {
+    "code": "sikkim",
+    "lgdCode": "11",
+    "name": "Sikkim",
+    "type": "state"
+  },
+  {
+    "code": "tamil-nadu",
+    "lgdCode": "33",
+    "name": "Tamil Nadu",
+    "type": "state"
+  },
+  {
+    "code": "telangana",
+    "lgdCode": "36",
+    "name": "Telangana",
+    "type": "state"
+  },
+  {
+    "code": "tripura",
+    "lgdCode": "16",
+    "name": "Tripura",
+    "type": "state"
+  },
+  {
+    "code": "uttar-pradesh",
+    "lgdCode": "9",
+    "name": "Uttar Pradesh",
+    "type": "state"
+  },
+  {
+    "code": "uttarakhand",
+    "lgdCode": "5",
+    "name": "Uttarakhand",
+    "type": "state"
+  },
+  {
+    "code": "west-bengal",
+    "lgdCode": "19",
+    "name": "West Bengal",
+    "type": "state"
+  }
+]

@@ -479,7 +479,7 @@ export default function PanditDetail() {
                     </div>
 
                     <span className="rounded-full bg-emerald-950 px-3.5 py-1.5 text-[13px] font-bold text-amber-300">
-                      {s.price}
+                      {/* {s.price} */}
                     </span>
 
                   </div>
