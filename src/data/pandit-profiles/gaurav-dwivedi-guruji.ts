@@ -16,6 +16,19 @@ const gauravDwivediGuruji: Pandit = {
 
   languages: ["Hindi", "Sanskrit", "Marathi"],
 
+  /*
+   * PANDIT STORY VIDEO
+   *
+   * Actual YouTube video ID milne par property uncomment karein.
+   *
+   * Example:
+   * storyVideoId: "AbCd1234567",
+   *
+   * Sirf valid video ID use karein.
+   */
+
+  // storyVideoId: "YOUR_YOUTUBE_VIDEO_ID",
+
   specializations: [
     "Satyanarayan Puja",
     "Rudrabhishek",
@@ -25,10 +38,13 @@ const gauravDwivediGuruji: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  // Currently listed services for this Pandit.
-  // Add more services after confirming his expertise.
+  /*
+   * Currently listed services.
+   * Additional services should be added only after
+   * confirming the Pandit's relevant experience.
+   */
   pujaTypes: [
-    "Satyanarayan Puja",
+    "Satyanarayan Katha and Puja",
     "Rudrabhishek",
     "Havan",
     "Vastu Shanti Puja",
@@ -39,11 +55,11 @@ const gauravDwivediGuruji: Pandit = {
   associatedWith: "To be confirmed",
 
   about:
-    "Gaurav Dwivedi Guruji is a Hindu priest with 9 years of experience in traditional Hindu puja and Vedic rituals. His listed specializations include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja, and Pitru-related rituals. His detailed biography, service availability, and additional ritual expertise should be confirmed before publication.",
+    "Gaurav Dwivedi Guruji is a Hindu priest with 9 years of listed experience in traditional Hindu puja and Vedic rituals. His listed areas of service include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Visitors can share their preferred ceremony, date, city or PIN code, language and specific requirements when making an enquiry. His detailed biography, service availability, ritual procedures and pricing should be confirmed before a booking is finalized.",
 
   services: [
     {
-      name: "Satyanarayan Puja",
+      name: "Satyanarayan Katha and Puja",
       duration: "To be confirmed",
     },
     {
@@ -70,12 +86,15 @@ const gauravDwivediGuruji: Pandit = {
 
   availability: "To be confirmed",
 
+  /*
+   * Keep false until the contact details and authorization
+   * have been checked and approved.
+   */
   authorizedContact: false,
 };
 
-// Export the shared 12-category puja catalogue separately.
-// This is the website-wide catalogue, not a claim that this
-// Pandit personally performs every ceremony in the catalogue.
+// Shared website-wide puja catalogue.
+// This does not mean that this Pandit performs every listed puja.
 export { PUJA_CATEGORIES };
 
 export default gauravDwivediGuruji;

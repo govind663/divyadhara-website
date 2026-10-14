@@ -16,6 +16,17 @@ const nishantJoshi: Pandit = {
 
   languages: ["Hindi", "Sanskrit", "Marathi"],
 
+  /*
+   * PANDIT STORY VIDEO
+   *
+   * Actual YouTube video ID yahan add karein.
+   * Example: "AbCd1234567"
+   *
+   * YouTube ID milne par empty string ko replace karein.
+   * Bina valid ID ke video button display nahi hoga.
+   */
+  storyVideoId: "",
+
   specializations: [
     "Satyanarayan Puja",
     "Rudrabhishek",
@@ -25,8 +36,8 @@ const nishantJoshi: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  // Keep this list specific to Nishant Joshi's profile.
-  // Add more pujas after confirming his expertise.
+  // Services listed for Nishant Joshi.
+  // Confirm expertise before adding additional ceremonies.
   pujaTypes: [
     "Satyanarayan Puja",
     "Rudrabhishek",
@@ -39,7 +50,7 @@ const nishantJoshi: Pandit = {
   associatedWith: "To be confirmed",
 
   about:
-    "Nishant Joshi is a Hindu priest with 22 years of experience in traditional Hindu puja and Vedic rituals. His listed specializations include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja, and Pitru-related rituals. His detailed biography, availability, and additional ritual expertise should be confirmed before publication.",
+    "Nishant Joshi is a Hindu priest with 22 years of listed experience in traditional Hindu puja and Vedic rituals. His listed specializations include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Visitors can enquire about a suitable ceremony by sharing their preferred date, city or PIN code, language and specific requirements. Ritual procedures, service availability, duration, samagri requirements and pricing should be confirmed directly before a booking is finalized.",
 
   services: [
     {
@@ -70,12 +81,13 @@ const nishantJoshi: Pandit = {
 
   availability: "To be confirmed",
 
+  // Keep false until contact authorization is verified.
   authorizedContact: false,
 };
 
-// Export the shared 12-category puja catalogue separately.
-// This is the website-wide catalogue, not a claim that this
-// Pandit personally performs every ceremony in the catalogue.
+// Shared website-wide puja catalogue.
+// This does not indicate that Nishant Joshi performs every
+// ceremony listed in the catalogue.
 export { PUJA_CATEGORIES };
 
 export default nishantJoshi;

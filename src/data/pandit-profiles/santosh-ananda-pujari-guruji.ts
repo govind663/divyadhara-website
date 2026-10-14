@@ -1,4 +1,3 @@
-
 import type { Pandit } from "../types/pandit";
 import { PUJA_CATEGORIES } from "../common/puja-catalogue";
 
@@ -15,11 +14,20 @@ const santoshAnandaPujariGuruji: Pandit = {
 
   location: "Thakurli, Kalyan, Maharashtra",
 
-  languages: [
-    "Hindi",
-    "Sanskrit",
-    "Marathi",
-  ],
+  languages: ["Hindi", "Sanskrit", "Marathi"],
+
+  /*
+   * PANDIT STORY VIDEO
+   *
+   * Actual YouTube video ID milne par yahan set karein.
+   *
+   * Example:
+   * storyVideoId: "AbCd1234567",
+   *
+   * Abhi video ID available nahi hai.
+   * Blank ID par Story button hidden rehna chahiye.
+   */
+  storyVideoId: "",
 
   specializations: [
     "Satyanarayan Puja",
@@ -30,10 +38,10 @@ const santoshAnandaPujariGuruji: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  // Services currently listed on this Pandit's profile.
-  // Add other services only after confirming his expertise.
+  // Currently listed services for this Pandit.
+  // Additional services should be confirmed before being added.
   pujaTypes: [
-    "Satyanarayan Puja",
+    "Satyanarayan Katha and Puja",
     "Rudrabhishek",
     "Havan",
     "Vastu Shanti Puja",
@@ -44,11 +52,11 @@ const santoshAnandaPujariGuruji: Pandit = {
   associatedWith: "To be confirmed",
 
   about:
-    "Santosh Ananda Pujari Guruji is a Hindu priest with 20 years of experience. His profile currently lists Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja, and Pitru-related rituals. Please confirm his detailed biography, languages, availability, and additional ritual expertise before publishing those details.",
+    "Santosh Ananda Pujari Guruji is a Hindu priest with 20 years of listed experience in traditional Hindu puja and Vedic rituals. His currently listed areas of service include Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. Devotees can enquire by sharing their preferred ceremony, date, city or PIN code, language and specific requirements. Ritual procedures, samagri requirements, service duration, pricing and availability should be confirmed before a booking is finalized.",
 
   services: [
     {
-      name: "Satyanarayan Puja",
+      name: "Satyanarayan Katha and Puja",
       duration: "To be confirmed",
     },
     {
@@ -75,12 +83,12 @@ const santoshAnandaPujariGuruji: Pandit = {
 
   availability: "To be confirmed",
 
+  // Keep false until contact details and authorization are verified.
   authorizedContact: false,
 };
 
-// Export the shared 12-category puja catalogue separately.
-// This is the website-wide catalogue, not a claim that this
-// Pandit personally performs every ceremony in the catalogue.
+// Shared website-wide puja catalogue.
+// This does not imply that this Pandit performs every listed ceremony.
 export { PUJA_CATEGORIES };
 
 export default santoshAnandaPujariGuruji;

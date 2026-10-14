@@ -14,11 +14,19 @@ const santoshDeshpande: Pandit = {
 
   location: "Mumbai, Maharashtra, India",
 
-  languages: [
-    "Hindi",
-    "Sanskrit",
-    "Marathi",
-  ],
+  languages: ["Hindi", "Sanskrit", "Marathi"],
+
+  /*
+   * PANDIT STORY VIDEO
+   *
+   * Actual YouTube video ID milne par yahan set karein.
+   *
+   * Example:
+   * storyVideoId: "AbCd1234567",
+   *
+   * Abhi ID blank hai, isliye Story button hidden rehna chahiye.
+   */
+  storyVideoId: "",
 
   specializations: [
     "Satyanarayan Puja",
@@ -29,10 +37,10 @@ const santoshDeshpande: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  // Existing services listed for this Pandit.
-  // Add further services after confirming his expertise.
+  // Currently listed services for this Pandit.
+  // Confirm expertise before adding additional ceremonies.
   pujaTypes: [
-    "Satyanarayan Puja",
+    "Satyanarayan Katha and Puja",
     "Rudrabhishek",
     "Havan",
     "Vastu Shanti Puja",
@@ -43,11 +51,11 @@ const santoshDeshpande: Pandit = {
   associatedWith: "To be confirmed",
 
   about:
-    "Santosh Deshpande is a Hindu priest with 22 years of experience in traditional Hindu puja and Vedic rituals. His listed specializations include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja, and Pitru-related rituals. His detailed biography, language preferences, service availability, and additional ritual expertise should be confirmed before publication.",
+    "Santosh Deshpande is a Hindu priest with 22 years of listed experience in traditional Hindu puja and Vedic rituals. His currently listed areas of service include Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. Devotees can enquire by sharing their preferred ceremony, date, city or PIN code, language and specific requirements. Detailed biography, service availability, ritual procedures, samagri requirements, duration and pricing should be confirmed before a booking is finalized.",
 
   services: [
     {
-      name: "Satyanarayan Puja",
+      name: "Satyanarayan Katha and Puja",
       duration: "To be confirmed",
     },
     {
@@ -74,12 +82,13 @@ const santoshDeshpande: Pandit = {
 
   availability: "To be confirmed",
 
+  // Keep false until contact details and authorization are verified.
   authorizedContact: false,
 };
 
-// Export the shared 12-category puja catalogue separately.
-// This is the website-wide catalogue, not a claim that this
-// Pandit personally performs every ceremony in the catalogue.
+// Shared website-wide puja catalogue.
+// This does not imply that Santosh Deshpande performs
+// every ceremony listed in the catalogue.
 export { PUJA_CATEGORIES };
 
 export default santoshDeshpande;

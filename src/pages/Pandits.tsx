@@ -33,22 +33,16 @@ type PanditGeoFields = {
   cityId?: string;
 };
 
-function getPanditGeo(pandit: (typeof PANDITS)[number]) {
-  const geo = pandit as (typeof pandit) & PanditGeoFields;
-
-  const parts = (pandit.location || "")
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  return {
-    state: geo.state?.trim() || (parts.length >= 2 ? parts[parts.length - 1] : ""),
-    district: geo.district?.trim() || "",
-    city: geo.city?.trim() || (parts.length > 0 ? parts[0] : ""),
-    stateLgdCode: geo.stateLgdCode || "",
-    districtLgdCode: geo.districtLgdCode || "",
-    cityId: geo.cityId || "",
-  };
+/** Normalize text consistently for search and location comparisons. */
+function normalizeLocationName(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function uniqueSorted(values: string[]) {
@@ -57,49 +51,116 @@ function uniqueSorted(values: string[]) {
   );
 }
 
-function normalizeLocationName(value: unknown) {
-  return String(value ?? "")
-    .normalize("NFKD")
-    .replace(/[\\u0300-\\u036f]/g, "")
-    .toLowerCase()
-    .replace(/&/g, "and")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\\s+/g, " ");
+// Build the location indexes once. These lists include only cities safely
+// mapped by locations.ts to an LGD district.
+const allStates: IndiaState[] = getStates();
+const allDistricts: IndiaDistrict[] = allStates.flatMap((state) =>
+  getDistrictsByState(state.lgdCode),
+);
+const allCities: IndiaCity[] = allDistricts.flatMap((district) =>
+  getCitiesByDistrict(district.lgdCode),
+);
+
+function getPanditLocationParts(pandit: (typeof PANDITS)[number]): string[] {
+  return (pandit.location || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Resolve legacy profile locations such as "Mumbai, Maharashtra, India"
+ * against the location dataset. Do not treat the country (India) as a state.
+ * Explicit LGD codes / geo fields are preferred when profile data provides them.
+ */
+function getPanditGeo(pandit: (typeof PANDITS)[number]) {
+  const geo = pandit as (typeof pandit) & PanditGeoFields;
+  const parts = getPanditLocationParts(pandit);
+  const normalizedParts = parts.map(normalizeLocationName);
+  const isCountry = (part: string) => normalizeLocationName(part) === "india";
+
+  const stateFromLocation = allStates.find((state) =>
+    normalizedParts.includes(normalizeLocationName(state.name)),
+  );
+  const stateFromCode = allStates.find(
+    (state) => state.lgdCode === geo.stateLgdCode || state.code === geo.stateLgdCode,
+  );
+  const explicitState = (geo.state || "").trim();
+  const safeExplicitState = normalizeLocationName(explicitState) === "india"
+    ? ""
+    : explicitState;
+  const stateName = safeExplicitState || stateFromCode?.name || stateFromLocation?.name || "";
+  const stateRecord = allStates.find(
+    (state) =>
+      state.lgdCode === geo.stateLgdCode ||
+      normalizeLocationName(state.name) === normalizeLocationName(stateName),
+  );
+
+  const districtsInState = stateRecord
+    ? getDistrictsByState(stateRecord.lgdCode)
+    : allDistricts;
+  const districtFromLocation = districtsInState.find((district) =>
+    normalizedParts.some((part) =>
+      part === normalizeLocationName(district.name) ||
+      (district.nameLocal && part === normalizeLocationName(district.nameLocal)),
+    ),
+  );
+  const districtName = (geo.district || "").trim() || districtFromLocation?.name || "";
+
+  // Keep location components besides country/state/district as city candidates.
+  const cityParts = parts.filter((part) => {
+    const normalized = normalizeLocationName(part);
+    return (
+      !isCountry(part) &&
+      normalized !== normalizeLocationName(stateName) &&
+      normalized !== normalizeLocationName(districtName)
+    );
+  });
+  const cityName = (geo.city || "").trim() || cityParts[0] || "";
+
+  return {
+    state: stateName,
+    district: districtName,
+    city: cityName,
+    stateLgdCode: geo.stateLgdCode || stateRecord?.lgdCode || "",
+    districtLgdCode: geo.districtLgdCode || districtFromLocation?.lgdCode || "",
+    cityId: geo.cityId || "",
+    locationParts: parts,
+    cityParts,
+  };
 }
 
 function getCityForPandit(geo: ReturnType<typeof getPanditGeo>) {
-  if (geo.cityId) return getCityById(geo.cityId);
+  if (geo.cityId) {
+    const cityById = getCityById(geo.cityId);
+    if (cityById) return cityById;
+  }
 
-  const cityName = normalizeLocationName(geo.city);
-  if (!cityName) return undefined;
-
-  const stateName = normalizeLocationName(geo.state);
-  const matchingState = getStates().find(
-    (state) => normalizeLocationName(state.name) === stateName,
-  );
-  const scopedCities = matchingState
-    ? allCities.filter(
-        (city) => city.matchedStateLgdCode === matchingState.lgdCode,
-      )
+  const stateCode = geo.stateLgdCode || allStates.find(
+    (state) => normalizeLocationName(state.name) === normalizeLocationName(geo.state),
+  )?.lgdCode;
+  const scopedCities = stateCode
+    ? allCities.filter((city) => city.matchedStateLgdCode === stateCode)
     : allCities;
 
-  // Resolve a city by name only when the remaining candidates are unique.
-  const matches = scopedCities.filter(
-    (city) =>
-      normalizeLocationName(city.name) === cityName ||
-      normalizeLocationName(city.areaNameOfficial) === cityName,
-  );
-  return matches.length === 1 ? matches[0] : undefined;
-}
+  // Try the structured city first, then other location components. This lets
+  // names such as "Thakurli, Kalyan, Maharashtra" resolve when one component
+  // corresponds to a city in the official location dataset.
+  const candidates = [...new Set([geo.city, ...geo.cityParts].map((value) => value.trim()).filter(Boolean))];
+  for (const candidate of candidates) {
+    const normalizedCandidate = normalizeLocationName(candidate);
+    if (!normalizedCandidate) continue;
 
-const allCities: IndiaCity[] = getStates().length
-  ? getStates().flatMap((state) =>
-      getDistrictsByState(state.lgdCode).flatMap((district) =>
-        getCitiesByDistrict(district.lgdCode),
-      ),
-    )
-  : [];
+    const matches = scopedCities.filter(
+      (city) =>
+        normalizeLocationName(city.name) === normalizedCandidate ||
+        normalizeLocationName(city.areaNameOfficial) === normalizedCandidate,
+    );
+    if (matches.length === 1) return matches[0];
+  }
+
+  return undefined;
+}
 
 export default function Pandits() {
   const [q, setQ] = useState("");
@@ -110,7 +171,7 @@ export default function Pandits() {
   const [spec, setSpec] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
-  const normalizedQuery = q.trim().toLowerCase();
+  const normalizedQuery = normalizeLocationName(q);
 
   // Location choices come from the full India location dataset, not only
   // from the currently published Pandit profiles.
@@ -158,41 +219,55 @@ export default function Pandits() {
       PANDITS.filter((pandit) => {
         const geo = getPanditGeo(pandit);
         const matchedCity = getCityForPandit(geo);
-        const searchable = [
-          pandit.name,
-          pandit.location,
-          geo.state,
-          geo.district,
-          geo.city,
-          matchedCity?.name,
-          matchedCity?.areaNameOfficial,
-          ...pandit.specializations,
-          ...pandit.pujaTypes,
-          ...pandit.languages,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
+        const searchable = normalizeLocationName(
+          [
+            pandit.name,
+            pandit.location,
+            geo.state,
+            geo.district,
+            geo.city,
+            ...geo.locationParts,
+            matchedCity?.name,
+            matchedCity?.areaNameOfficial,
+            ...pandit.specializations,
+            ...pandit.pujaTypes,
+            ...pandit.languages,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
 
+        const selectedStateName = normalizeLocationName(selectedStateRecord?.name);
+        const selectedDistrictName = normalizeLocationName(selectedDistrictRecord?.name);
+        const selectedCityRecord = cities.find((city) => city.id === selectedCity);
+        const selectedCityNames = [
+          normalizeLocationName(selectedCityRecord?.name),
+          normalizeLocationName(selectedCityRecord?.areaNameOfficial),
+        ].filter(Boolean);
+        const locationPartNames = geo.locationParts.map(normalizeLocationName);
+
+        // Match by explicit LGD code, normalized profile field, or any exact
+        // component of a legacy comma-separated location.
         const stateMatches =
           !selectedState ||
           geo.stateLgdCode === selectedState ||
-          normalizeLocationName(geo.state) ===
-            normalizeLocationName(selectedStateRecord?.name);
+          normalizeLocationName(geo.state) === selectedStateName ||
+          locationPartNames.includes(selectedStateName);
 
         const districtMatches =
           !selectedDistrict ||
           geo.districtLgdCode === selectedDistrict ||
-          normalizeLocationName(geo.district) ===
-            normalizeLocationName(selectedDistrictRecord?.name) ||
-          matchedCity?.matchedDistrictLgdCode === selectedDistrict;
+          normalizeLocationName(geo.district) === selectedDistrictName ||
+          matchedCity?.matchedDistrictLgdCode === selectedDistrict ||
+          locationPartNames.includes(selectedDistrictName);
 
         const cityMatches =
           !selectedCity ||
           geo.cityId === selectedCity ||
           matchedCity?.id === selectedCity ||
-          normalizeLocationName(geo.city) ===
-            normalizeLocationName(cities.find((city) => city.id === selectedCity)?.name);
+          selectedCityNames.some((name) =>
+            name === normalizeLocationName(geo.city) || locationPartNames.includes(name),
+          );
 
         return (
           (!normalizedQuery || searchable.includes(normalizedQuery)) &&
@@ -267,9 +342,9 @@ export default function Pandits() {
   });
 
   useSEO({
-    title: "Verified Vedic Pandits for Puja & Rituals | DivyaDhara",
+    title: "Pandit Directory for Puja & Rituals | DivyaDhara",
     description:
-      "Find verified Vedic pandits for Rudrabhishek, Havan, Vivah, Puja and traditional rituals across India. Browse by state, district, city, language and specialization with transparent service details and booking enquiry.",
+      "Browse DivyaDhara Pandit profiles for Rudrabhishek, Havan, Vivah, Puja and traditional rituals. Filter by state, district, city, language and specialization, then enquire about service details and availability.",
     path: "/pandits",
     image: "/images/pandit-portrait.jpeg",
     schema: {
@@ -280,10 +355,10 @@ export default function Pandits() {
           "@id": siteOrigin
             ? `${siteOrigin}/pandits#webpage`
             : "/pandits#webpage",
-          name: "Verified Vedic Pandits",
+          name: "Pandit Directory for Puja and Rituals",
           url: siteOrigin ? `${siteOrigin}/pandits` : "/pandits",
           description:
-            "Directory of verified Vedic pandits and acharyas for puja, havan, vivah and traditional spiritual services.",
+            "Directory of published Pandit profiles for puja, havan, vivah and traditional spiritual services.",
           breadcrumb: {
             "@id": siteOrigin
               ? `${siteOrigin}/pandits#breadcrumb`
@@ -321,9 +396,9 @@ export default function Pandits() {
   return (
     <>
       <PageHero
-        eyebrow="Acharyas · Verified"
-        title="Pandits You Can Trust"
-        sub="Parampara-trained and identity-verified. Personal contact shared only after confirmed booking — your privacy and theirs, protected."
+        eyebrow="Acharyas · Published Listings"
+        title="Find a Pandit for Your Puja"
+        sub="Browse published Pandit profiles by location, language and specialization. Confirm service details and availability before finalizing a booking."
         image="/images/pandit-portrait.jpeg"
       />
 
@@ -544,7 +619,7 @@ export default function Pandits() {
                 id="pandit-results-heading"
                 className="mt-1 font-display text-xl font-semibold text-[#2a1a10] sm:text-2xl"
               >
-                Verified Acharya Profiles
+                Published Acharya Profiles
               </h2>
             </div>
 
@@ -649,19 +724,21 @@ export default function Pandits() {
           className="mt-10 rounded-3xl border border-emerald-200 bg-emerald-50/70 p-6 text-sm leading-relaxed text-emerald-950 md:p-8"
         >
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">
-            Trust & verification
+            Trust & booking guidance
           </p>
           <h2
             id="verification-heading"
             className="mt-1 font-display text-xl font-semibold"
           >
-            How we verify pandits
+            Confirm details before booking
           </h2>
           <p className="mt-2">
-            Every acharya shares government ID, parampara/guru reference and a
-            recorded mantra-path sample reviewed by our Vedic board. We publish
-            experience honestly and never fabricate reviews — trust is our real
-            prasad.
+            Review the information shown on each profile and confirm the
+            Pandit's relevant experience, ritual requirements, service area,
+            availability, duration and pricing during the enquiry process.
+            Contact details should be shared only through an authorized
+            booking process. DivyaDhara does not display unverified reviews as
+            customer endorsements.
           </p>
         </section>
 

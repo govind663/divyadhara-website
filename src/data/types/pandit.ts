@@ -18,4 +18,7 @@ export type Pandit = {
   services: PanditService[];
   availability: string;
   authorizedContact: boolean;
+
+  // Optional YouTube video ID for Pandit Story
+  storyVideoId?: string;
 };

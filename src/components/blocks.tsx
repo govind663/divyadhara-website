@@ -1,5 +1,7 @@
 import {
+  useEffect,
   useId,
+  useRef,
   useState,
   type ChangeEvent,
   type FormEvent,
@@ -55,10 +57,36 @@ export type EnquiryLeadType =
   | "course"
   | "spiritual_place";
 
+type PanditProfileEnquiryContext = {
+  slug: string;
+  name: string;
+  title: string;
+  experience: number;
+  location: string;
+  languages: string[];
+  pujaTypes: string[];
+  /** All services/sevas listed on this Pandit's profile. */
+  services: string[];
+  profileUrl: string;
+};
+
 type EnquiryFormProps = {
   context: string;
   title?: string;
   compact?: boolean;
+
+  /** Selects the business-specific fields shown by the master form. */
+  businessType?: EnquiryLeadType;
+
+  /** Static Pandit-profile details to attach to the CRM enquiry. */
+  panditProfile?: PanditProfileEnquiryContext;
+  selectedPuja?: string;
+  onSelectedPujaChange?: (pujaName: string) => void;
+  selectedSeva?: string;
+  /** All services selected by the visitor on a Pandit profile. */
+  selectedServices?: string[];
+  onSelectedServicesChange?: (serviceNames: string[]) => void;
+  sourceForm?: string;
 
   leadType?: EnquiryLeadType;
   entityId?: number | string | null;
@@ -94,14 +122,442 @@ type EnquiryFormState = {
   email: string;
   date: string;
   travellers: string;
+  city: string;
+  state: string;
+  pincode: string;
+  language: string;
+  preferredTime: string;
+  bookingMode: "home" | "temple" | "online" | "travel" | "other";
+  gotra: string;
+  budgetAmount: string;
+  samagriRequired: string;
+  specialRequirements: string;
   contactPreference: "any" | "call" | "whatsapp" | "email";
   message: string;
   whatsappConsent: boolean;
   marketingConsent: boolean;
   termsAccepted: boolean;
   privacyAccepted: boolean;
+  /** Answers for fields that depend on the selected puja/ritual. */
+  pujaDetails: Record<string, string>;
+  /** Answers for business-specific fields in the shared master form. */
+  businessAnswers: Record<string, string>;
   website: string;
 };
+
+type PujaQuestion = {
+  key: string;
+  label: string;
+  type: "select" | "text" | "textarea";
+  options?: string[];
+  placeholder?: string;
+  helper?: string;
+  required?: boolean;
+};
+
+/**
+ * Return only questions relevant to the selected ritual. Questions deliberately
+ * ask for booking/arrangement information, not for claims about ritual outcomes.
+ */
+function getPujaQuestions(pujaName: string): PujaQuestion[] {
+  const name = pujaName.trim().toLowerCase();
+  if (!name) return [];
+
+  if (/vivah|wedding|marriage|engagement|sagai|roka|tilak|mandap|haldi|kanyadaan|saptapadi|anniversary/.test(name)) {
+    return [
+      {
+        key: "weddingStage",
+        label: "Which ceremony do you need?",
+        type: "select",
+        required: true,
+        options: ["Engagement / Sagai", "Roka / Tilak", "Main wedding ceremony", "Haldi / Mandap ceremony", "Wedding havan", "Anniversary puja", "Other / discuss"],
+      },
+      {
+        key: "familyTradition",
+        label: "Wedding / family tradition",
+        type: "select",
+        options: ["North Indian / Vedic", "Maithili / Bihari", "Marathi", "Gujarati", "Bengali", "South Indian", "Nepali", "Other regional tradition", "Please guide me"],
+        helper: "The Pandit will confirm the exact vidhi with you.",
+      },
+      {
+        key: "weddingRequirements",
+        label: "Wedding schedule or other requirements",
+        type: "textarea",
+        placeholder: "Number of functions, venue, muhurat already decided, or anything the Pandit should know…",
+      },
+    ];
+  }
+
+  if (/pitru|pitr|shraddh|shraadh|tarpan|pind.?daan|ancestral|mahalaya/.test(name)) {
+    return [
+      {
+        key: "ancestralRitual",
+        label: "Which ritual are you enquiring about?",
+        type: "select",
+        required: true,
+        options: ["Annual Shraddh", "Pitru Paksha ritual", "Amavasya Tarpan", "Pind Daan", "Tithi-based ceremony", "Not sure — please guide me", "Other / discuss"],
+      },
+      {
+        key: "tithiStatus",
+        label: "Do you know the relevant tithi/date?",
+        type: "select",
+        required: true,
+        options: ["Yes, date/tithi is known", "I need help identifying it", "This is for a fixed date", "Please discuss with me"],
+      },
+      {
+        key: "ritualVenue",
+        label: "Preferred ritual location",
+        type: "select",
+        options: ["At home", "At a temple", "At a river / pilgrimage location", "At another venue", "Need guidance"],
+      },
+      {
+        key: "ancestralNotes",
+        label: "Any details to help plan the ceremony? (optional)",
+        type: "textarea",
+        placeholder: "Tradition followed, date constraints, venue or travel needs. Please do not share information you would prefer to keep private.",
+      },
+    ];
+  }
+
+  if (/griha|grih|pravesh|vastu|bhoomi|bhumi|shilanyas|property|housewarming|office opening|shop opening|factory|vehicle|machinery/.test(name)) {
+    return [
+      {
+        key: "propertyType",
+        label: "What is the puja for?",
+        type: "select",
+        required: true,
+        options: ["New house / apartment", "Existing home", "Land / construction", "Office / shop / business", "Factory / machinery", "New vehicle", "Other property", "Please guide me"],
+      },
+      {
+        key: "propertyStage",
+        label: "Current stage / purpose",
+        type: "select",
+        options: ["First entry into a new home", "Before construction begins", "Before moving in", "Vastu Shanti for an existing property", "Business opening", "New vehicle delivery", "Other / discuss"],
+      },
+      {
+        key: "propertyRequirements",
+        label: "Property or venue details (optional)",
+        type: "textarea",
+        placeholder: "Apartment/house/plot, approximate venue size, society or access rules, construction status, etc.",
+      },
+      {
+        key: "havanPreference",
+        label: "Would you like Havan included?",
+        type: "select",
+        options: ["Yes, please include if suitable", "Puja only", "Please advise", "To be decided"],
+      },
+    ];
+  }
+
+  if (/namkaran|naamkaran|jatakarma|annaprashan|mundan|chudakarana|newborn|new born|child.?s birthday|godh bharai|garbhadhana|pumsavana/.test(name)) {
+    return [
+      {
+        key: "childCeremony",
+        label: "Which family milestone is this for?",
+        type: "select",
+        required: true,
+        options: ["Namkaran / naming ceremony", "Annaprashan / first rice ceremony", "Mundan / Chudakarana", "Jatakarma / newborn sanskar", "Godh Bharai / related ceremony", "Child's birthday puja", "Other / discuss"],
+      },
+      {
+        key: "familyTradition",
+        label: "Family / regional tradition (optional)",
+        type: "select",
+        options: ["North Indian / Vedic", "Maithili / Bihari", "Marathi", "Gujarati", "Bengali", "South Indian", "Other regional tradition", "Please guide me"],
+      },
+      {
+        key: "ceremonyNotes",
+        label: "Anything important for the ceremony? (optional)",
+        type: "textarea",
+        placeholder: "Child's age, preferred ceremony arrangement or family custom. Avoid sharing private details unless needed.",
+      },
+    ];
+  }
+
+  if (/navgraha|nav.?graha|graha shanti|grah shanti|shani|mangal dosh|mangal dosha|rahu|ketu|jyotish/.test(name)) {
+    return [
+      {
+        key: "grahaRitualFormat",
+        label: "What type of arrangement are you looking for?",
+        type: "select",
+        required: true,
+        options: ["Navgraha Shanti Puja", "Graha Shanti Havan", "Mantra Jaap", "Puja with Havan / Jaap", "Not sure — please guide me"],
+      },
+      {
+        key: "birthDetailsAvailability",
+        label: "Are birth / kundali details available, if the Pandit needs them?",
+        type: "select",
+        options: ["Yes, available if requested", "No", "Please discuss first", "Not applicable / not sure"],
+      },
+      {
+        key: "sankalpPurpose",
+        label: "Any context for the sankalp? (optional)",
+        type: "textarea",
+        placeholder: "Share only what you are comfortable sharing; the Pandit can advise what information is needed.",
+      },
+    ];
+  }
+
+  if (/satyanarayan|satyanarayan katha|bhagwat|bhagavat|sundarkand|sundar kand|ramayan|ramayana|katha|path|sahasranama/.test(name)) {
+    return [
+      {
+        key: "kathaOccasion",
+        label: "What is the occasion?",
+        type: "select",
+        required: true,
+        options: ["Family puja / thanksgiving", "Griha Pravesh / new home", "Birthday / anniversary", "Festival / vrat", "Regular devotional observance", "Other / discuss"],
+      },
+      {
+        key: "kathaFormat",
+        label: "Preferred ceremony format",
+        type: "select",
+        options: ["Puja and Katha / Path", "Katha / Path only", "Puja with Havan", "Havan and Path", "Please recommend a suitable format"],
+      },
+      {
+        key: "kathaRequirements",
+        label: "Arrangement or recitation requirements (optional)",
+        type: "textarea",
+        placeholder: "Venue, approximate attendance, duration constraints, prasad or samagri questions…",
+      },
+    ];
+  }
+
+  if (/rudrabhishek|shiv|maha mrityunjaya|mrityunjaya|abhishek/.test(name)) {
+    return [
+      {
+        key: "shivRitualFormat",
+        label: "Preferred ritual format",
+        type: "select",
+        required: true,
+        options: ["Jalabhishek / simple Abhishek", "Rudrabhishek", "Mantra Jaap", "Puja with Havan", "Please guide me on the suitable format"],
+      },
+      {
+        key: "sankalpPurpose",
+        label: "Occasion or sankalp context (optional)",
+        type: "select",
+        options: ["Shravan / festival observance", "Family puja", "Birthday / anniversary", "Personal prayer / sankalp", "Other / prefer to discuss", "No specific occasion"],
+      },
+      {
+        key: "ritualNotes",
+        label: "Any arrangements to discuss? (optional)",
+        type: "textarea",
+        placeholder: "Temple or home venue, abhishek materials, jaap or havan preference, etc.",
+      },
+    ];
+  }
+
+  if (/havan|yajna|yagya|homa|homam|chandi|durga|lakshmi|ganesh|ganpati|saraswati|hanuman|krishna|vishnu|gayatri|tulsi|puja and vedic/.test(name)) {
+    return [
+      {
+        key: "ritualFormat",
+        label: "What arrangement would you prefer?",
+        type: "select",
+        required: true,
+        options: ["Puja only", "Puja with Havan", "Havan only", "Mantra Jaap / Path", "Puja + Jaap + Havan (please confirm suitability)", "Please guide me"],
+      },
+      {
+        key: "pujaOccasion",
+        label: "Occasion / purpose (optional)",
+        type: "select",
+        options: ["Festival / vrat", "Family ceremony", "New beginning / inauguration", "Birthday / anniversary", "Regular devotional puja", "Personal sankalp", "Other / discuss"],
+      },
+      {
+        key: "ritualNotes",
+        label: "Specific arrangement requirements (optional)",
+        type: "textarea",
+        placeholder: "Venue, puja timing, samagri, attendance or other questions…",
+      },
+    ];
+  }
+
+  return [
+    {
+      key: "pujaOccasion",
+      label: "What is the occasion for this puja?",
+      type: "select",
+      required: true,
+      options: ["Family ceremony", "Festival / vrat", "New home / new beginning", "Birthday / anniversary", "Education / career milestone", "Personal prayer / sankalp", "Other / discuss"],
+    },
+    {
+      key: "ritualFormat",
+      label: "Preferred arrangement",
+      type: "select",
+      options: ["Puja only", "Puja with Havan", "Mantra Jaap / Path", "Puja + Havan (please confirm suitability)", "Please guide me"],
+    },
+    {
+      key: "ritualNotes",
+      label: "Any specific requirements? (optional)",
+      type: "textarea",
+      placeholder: "Share the tradition, venue, timing or other details you'd like the Pandit to know…",
+    },
+  ];
+}
+
+type BusinessQuestion = {
+  key: string;
+  label: string;
+  type: "select" | "text" | "date" | "number" | "textarea";
+  options?: string[];
+  placeholder?: string;
+  helper?: string;
+  required?: boolean;
+};
+
+function inferBusinessType(args: {
+  businessType?: EnquiryLeadType;
+  leadType: EnquiryLeadType;
+  formKey?: string;
+  sourceForm?: string;
+  pagePath?: string;
+  context: string;
+  serviceType?: string;
+  pujaType?: string;
+  hasPanditProfile: boolean;
+}): EnquiryLeadType {
+  if (args.hasPanditProfile) return "pandit";
+  if (args.businessType) return args.businessType;
+  if (args.leadType !== "contact" && args.leadType !== "general") return args.leadType;
+
+  const hints = `${args.sourceForm ?? ""} ${args.formKey ?? ""}`.toLowerCase();
+  if (/pandit|purohit/.test(hints)) return "pandit";
+  if (/puja|seva/.test(hints)) return "puja";
+  if (/temple|mandir/.test(hints)) return "temple";
+  if (/ashram/.test(hints)) return "ashram";
+  if (/yatra|travel|pilgrimage/.test(hints)) return "yatra";
+  if (/event/.test(hints)) return "event";
+  if (/course|class|learning/.test(hints)) return "course";
+  if (/spiritual.?place/.test(hints)) return "spiritual_place";
+
+  const path = (args.pagePath || (typeof window !== "undefined" ? window.location.pathname : "")).toLowerCase();
+  if (/\/pandits?(\/|$)/.test(path)) return "pandit";
+  if (/\/(services|puja-services)(\/|$)/.test(path)) return "puja";
+  if (/\/temples?(\/|$)/.test(path)) return "temple";
+  if (/\/ashrams?(\/|$)/.test(path)) return "ashram";
+  if (/\/(yatra|yatras|travel|pilgrimage)(\/|$)/.test(path)) return "yatra";
+  if (/\/events?(\/|$)/.test(path)) return "event";
+  if (/\/courses?(\/|$)/.test(path)) return "course";
+  if (/\/spiritual-places?(\/|$)/.test(path)) return "spiritual_place";
+
+  const text = `${args.context} ${args.serviceType ?? ""} ${args.pujaType ?? ""}`.toLowerCase();
+  if (/pandit|purohit|acharya/.test(text)) return "pandit";
+  if (/puja|pooja|havan|yajna|yagya|abhishek|katha|ritual/.test(text)) return "puja";
+  if (/temple|mandir|darshan|aarti/.test(text)) return "temple";
+  if (/ashram|retreat|stay enquiry|stay inquiry/.test(text)) return "ashram";
+  if (/yatra|pilgrimage|travel|tour package/.test(text)) return "yatra";
+  if (/event|festival registration/.test(text)) return "event";
+  if (/course|class|learning|training/.test(text)) return "course";
+  if (/spiritual place|sacred place|ghat visit/.test(text)) return "spiritual_place";
+  return args.leadType;
+}
+
+function getBusinessLabel(type: EnquiryLeadType): string {
+  switch (type) {
+    case "puja": return "Puja enquiry";
+    case "pandit": return "Pandit booking";
+    case "temple": return "Temple enquiry";
+    case "ashram": return "Ashram enquiry";
+    case "yatra":
+    case "travel": return "Yatra / travel enquiry";
+    case "event": return "Event registration";
+    case "course": return "Course enquiry";
+    case "spiritual_place": return "Spiritual place enquiry";
+    default: return "General enquiry";
+  }
+}
+
+function getBusinessDateLabel(type: EnquiryLeadType): string {
+  switch (type) {
+    case "puja":
+    case "pandit": return "Preferred ceremony date";
+    case "temple": return "Preferred visit date";
+    case "ashram": return "Check-in / arrival date";
+    case "yatra":
+    case "travel": return "Travel start date";
+    case "event": return "Event date";
+    case "course": return "Preferred start / batch date";
+    case "spiritual_place": return "Preferred visit date";
+    default: return "Preferred date (optional)";
+  }
+}
+
+function getBusinessQuestions(type: EnquiryLeadType): BusinessQuestion[] {
+  switch (type) {
+    case "puja":
+      return [
+        { key: "occasion", label: "Occasion / purpose", type: "select", options: ["Family ceremony", "Festival / vrat", "New home / new beginning", "Birthday / anniversary", "Business opening", "Personal sankalp", "Other / please discuss"] },
+        { key: "tradition", label: "Family / regional tradition", type: "select", options: ["North Indian / Vedic", "Maithili / Bihari", "Marathi", "Gujarati", "Bengali", "South Indian", "Other regional tradition", "Please guide me"] },
+        { key: "ritualFormat", label: "Preferred ritual format", type: "select", options: ["Puja only", "Puja with Havan", "Mantra Jaap / Path", "Puja + Havan (please confirm suitability)", "Please guide me"] },
+        { key: "samagriPlan", label: "Puja samagri arrangement", type: "select", options: ["Pandit/team to arrange", "I will arrange samagri", "Need a checklist / guidance", "To be discussed"] },
+      ];
+    case "pandit":
+      return [
+        { key: "tradition", label: "Family / regional tradition", type: "select", options: ["North Indian / Vedic", "Maithili / Bihari", "Marathi", "Gujarati", "Bengali", "South Indian", "Other regional tradition", "Please guide me"] },
+        { key: "ceremonyFormat", label: "Arrangement required", type: "select", options: ["At my home / venue", "At a temple", "Online guidance", "Pandit travel required", "Please discuss"] },
+      ];
+    case "temple":
+      return [
+        { key: "visitPurpose", label: "What would you like help with?", type: "select", required: true, options: ["Darshan information", "Aarti / puja participation", "Special darshan / permitted seva", "Family or group visit", "Senior citizen / accessibility assistance", "Accommodation nearby", "Temple history / spiritual guidance", "Other / please discuss"] },
+        { key: "visitorCount", label: "Number of visitors", type: "number", placeholder: "e.g., 4" },
+        { key: "visitSupport", label: "Any visit support needed?", type: "select", options: ["No special support", "Senior citizens / mobility support", "Children / family group", "Group coordination", "Need guidance"] },
+        { key: "templeNotes", label: "Visit questions / requirements", type: "textarea", placeholder: "Arrival time, darshan questions, transport or accessibility needs…" },
+      ];
+    case "ashram":
+      return [
+        { key: "ashramPurpose", label: "Purpose of your visit", type: "select", required: true, options: ["Day visit / darshan", "Overnight stay", "Retreat / meditation", "Satsang / spiritual programme", "Seva / volunteering enquiry", "Yoga / wellness programme", "Other / please discuss"] },
+        { key: "stayDuration", label: "Expected stay duration", type: "select", options: ["Day visit only", "1 night", "2–3 nights", "4–7 nights", "More than a week", "Not decided yet"] },
+        { key: "accommodation", label: "Accommodation preference", type: "select", options: ["No accommodation needed", "Shared accommodation", "Private room", "Family room", "Please advise"] },
+        { key: "foodPreference", label: "Food / meal preference", type: "select", options: ["No meals needed", "Standard vegetarian meals", "Meals included if available", "Need to discuss"] },
+        { key: "groupSize", label: "Number of guests", type: "number", placeholder: "e.g., 2" },
+        { key: "ashramNotes", label: "Stay / programme requirements", type: "textarea", placeholder: "Arrival/departure plan, programme interests or any questions…" },
+      ];
+    case "yatra":
+    case "travel":
+      return [
+        { key: "destination", label: "Destination / route", type: "text", placeholder: "Destination or pilgrimage circuit" },
+        { key: "returnDate", label: "Return date (if known)", type: "date" },
+        { key: "transportPreference", label: "Preferred transport", type: "select", options: ["Bus / coach", "Train", "Flight", "Private vehicle", "Own arrangement", "Please recommend"] },
+        { key: "stayPreference", label: "Accommodation preference", type: "select", options: ["No stay required", "Budget", "Standard", "Premium", "Ashram / dharamshala", "Need guidance"] },
+        { key: "tripPace", label: "Travel preference", type: "select", options: ["Comfortable / relaxed", "Pilgrimage-focused", "Family-friendly", "Senior-friendly", "Custom itinerary", "Please advise"] },
+        { key: "travelNotes", label: "Travel requirements", type: "textarea", placeholder: "Pickup city, preferred stops, mobility needs or other details…" },
+      ];
+    case "event":
+      return [
+        { key: "registrationType", label: "Registration type", type: "select", required: true, options: ["Individual", "Family", "Group booking", "Volunteer / seva", "Speaker / stall / collaboration", "Other / please discuss"] },
+        { key: "attendeeCount", label: "Number of attendees", type: "number", placeholder: "e.g., 2" },
+        { key: "attendanceMode", label: "Attendance preference", type: "select", options: ["In person", "Online (if available)", "Either / please confirm"] },
+        { key: "eventSupport", label: "Accessibility / attendee requirements", type: "textarea", placeholder: "Group coordination, accessibility needs or event questions…" },
+      ];
+    case "course":
+      return [
+        { key: "learningMode", label: "Preferred learning mode", type: "select", required: true, options: ["Online", "In person", "Hybrid", "Please confirm availability"] },
+        { key: "experienceLevel", label: "Current experience level", type: "select", options: ["Beginner", "Some prior knowledge", "Intermediate", "Advanced", "Not sure / please guide me"] },
+        { key: "preferredBatch", label: "Preferred batch / timing", type: "text", placeholder: "e.g., weekend mornings" },
+        { key: "learningGoal", label: "What would you like to learn?", type: "textarea", placeholder: "Your learning goals, prior experience or questions…" },
+      ];
+    case "spiritual_place":
+      return [
+        { key: "visitInterest", label: "What information do you need?", type: "select", required: true, options: ["Darshan / visit planning", "History and traditions", "How to reach / transport", "Nearby facilities / accommodation", "Photography / filming permission information", "Spiritual significance", "Other / please discuss"] },
+        { key: "visitorCount", label: "Number of visitors", type: "number", placeholder: "e.g., 3" },
+        { key: "visitSupport", label: "Visit support needed", type: "select", options: ["No special support", "Family / group visit", "Senior citizen / mobility support", "Transport guidance", "Need help planning"] },
+        { key: "placeNotes", label: "Questions / requirements", type: "textarea", placeholder: "Your expected visit, travel questions or other details…" },
+      ];
+    default:
+      return [
+        { key: "enquiryTopic", label: "What can we help you with?", type: "select", options: ["Puja / ritual enquiry", "Pandit booking", "Temple information", "Ashram stay / programme", "Pilgrimage / Yatra", "Event registration", "Course / learning", "Website / general support", "Other"] },
+      ];
+  }
+}
+
+function getBusinessLanguageOptions(type: EnquiryLeadType, languages: string[] = []): string[] {
+  const defaults = type === "puja" || type === "pandit"
+    ? ["Hindi", "Sanskrit", "English", "Maithili", "Bhojpuri", "Marathi", "Bengali", "Tamil", "Telugu", "Kannada", "Gujarati", "Other / discuss"]
+    : ["Hindi", "English", "Sanskrit", "Maithili", "Bhojpuri", "Marathi", "Bengali", "Tamil", "Telugu", "Kannada", "Gujarati", "Other / discuss"];
+  return Array.from(new Set([...languages.filter(Boolean), ...defaults]));
+}
+
+function getPujaNameFromContext(context: string): string {
+  const match = context.match(/(?:puja booking enquiry|puja enquiry|enquiry about this puja|puja service)\s*:\s*([^\n]+)/i);
+  return match?.[1]?.trim() ?? "";
+}
 
 type LeadSubmitResponse = {
   duplicate?: boolean;
@@ -246,17 +702,69 @@ export function EnquiryForm({
   leadType = "contact",
   entityId = null,
   formKey,
+  businessType,
   serviceType,
   pujaType,
+  panditProfile,
+  selectedPuja = "",
+  onSelectedPujaChange,
+  selectedSeva = "",
+  selectedServices,
+  onSelectedServicesChange,
+  sourceForm,
   sourceType = "form",
   pagePath,
   defaultDate = "",
   defaultTravellers = "2",
 }: EnquiryFormProps) {
   const instanceId = useId();
+  const resolvedFormKey = formKey || getDefaultFormKey(leadType);
+  const resolvedBusinessType = inferBusinessType({
+    businessType,
+    leadType,
+    formKey,
+    sourceForm,
+    pagePath,
+    context,
+    serviceType,
+    pujaType,
+    hasPanditProfile: Boolean(panditProfile),
+  });
+  // Keep the API's configured form key separate from the business-specific attribution.
+  const resolvedSourceForm = sourceForm || (resolvedFormKey === "contact" ? getDefaultFormKey(resolvedBusinessType) : resolvedFormKey);
+  const businessQuestions = getBusinessQuestions(resolvedBusinessType);
+  const [localSelectedServices, setLocalSelectedServices] = useState<string[]>(() =>
+    Array.from(new Set([selectedPuja, selectedSeva, pujaType].filter((value): value is string => Boolean(value?.trim())))),
+  );
+  const selectedServiceNames = selectedServices ?? localSelectedServices;
+  const panditPujaOptions = Array.from(new Set((panditProfile?.pujaTypes ?? []).filter((value) => Boolean(value?.trim()))));
+  const panditSevaOptions = Array.from(new Set((panditProfile?.services ?? []).filter((value) => Boolean(value?.trim()) && !panditPujaOptions.includes(value))));
+  const allPanditServiceOptions = [...panditPujaOptions, ...panditSevaOptions];
+  const activePuja = panditProfile
+    ? selectedServiceNames.find((serviceName) => panditPujaOptions.includes(serviceName)) || ""
+    : selectedPuja || pujaType || (resolvedBusinessType === "puja" ? serviceType || getPujaNameFromContext(context) : "");
+  const pujaQuestions = getPujaQuestions(activePuja);
+  const previousPujaRef = useRef(activePuja);
 
-  const resolvedFormKey =
-    formKey || getDefaultFormKey(leadType);
+  const updateSelectedServices = (nextServices: string[]) => {
+    const uniqueServices = Array.from(new Set(nextServices));
+    if (onSelectedServicesChange) {
+      onSelectedServicesChange(uniqueServices);
+    } else {
+      setLocalSelectedServices(uniqueServices);
+    }
+    // Keep legacy props in sync for callers that still use a single selection.
+    const nextPuja = uniqueServices.find((serviceName) => panditPujaOptions.includes(serviceName)) || "";
+    onSelectedPujaChange?.(nextPuja);
+    if (error) setError(null);
+  };
+
+  const togglePanditService = (serviceName: string) => {
+    const next = selectedServiceNames.includes(serviceName)
+      ? selectedServiceNames.filter((name) => name !== serviceName)
+      : [...selectedServiceNames, serviceName];
+    updateSelectedServices(next);
+  };
 
   const [f, setF] = useState<EnquiryFormState>(() => ({
     name: "",
@@ -264,14 +772,33 @@ export function EnquiryForm({
     email: "",
     date: defaultDate,
     travellers: defaultTravellers,
+    city: "",
+    state: "",
+    pincode: "",
+    language: "",
+    preferredTime: "",
+    bookingMode: "home",
+    gotra: "",
+    budgetAmount: "",
+    samagriRequired: "",
+    specialRequirements: "",
     contactPreference: "any",
     message: "",
     whatsappConsent: false,
     marketingConsent: false,
     termsAccepted: false,
     privacyAccepted: false,
+    pujaDetails: {},
+    businessAnswers: {},
     website: "",
   }));
+
+  useEffect(() => {
+    if (previousPujaRef.current !== activePuja) {
+      previousPujaRef.current = activePuja;
+      setF((current) => ({ ...current, pujaDetails: {} }));
+    }
+  }, [activePuja]);
 
   const [status, setStatus] = useState<
     "idle" | "submitting" | "done"
@@ -286,7 +813,7 @@ export function EnquiryForm({
   }>({
     leadNumber: null,
     duplicate: false,
-    message: getDefaultSuccessMessage(leadType),
+    message: getDefaultSuccessMessage(resolvedBusinessType),
   });
 
   const [setErrorAnnouncement, setSetErrorAnnouncement] =
@@ -325,18 +852,99 @@ export function EnquiryForm({
       }
     };
 
+  const setPujaDetail = (key: string, value: string) => {
+    setF((current) => ({
+      ...current,
+      pujaDetails: {
+        ...current.pujaDetails,
+        [key]: value,
+      },
+    }));
+    if (error) setError(null);
+  };
+
+  const getPujaDetailLines = () =>
+    pujaQuestions
+      .filter((question) => (f.pujaDetails[question.key] || "").trim())
+      .map((question) => `${question.label}: ${f.pujaDetails[question.key].trim()}`);
+
+  const setBusinessAnswer = (key: string, value: string) => {
+    setF((current) => ({
+      ...current,
+      businessAnswers: {
+        ...current.businessAnswers,
+        [key]: value,
+      },
+    }));
+    if (error) setError(null);
+  };
+
+  const getBusinessAnswerLines = () =>
+    businessQuestions
+      .filter((question) => (f.businessAnswers[question.key] || "").trim())
+      .map((question) => `${question.label}: ${f.businessAnswers[question.key].trim()}`);
+
   const buildWhatsAppMessage = (): string => {
+    const isYatra = resolvedBusinessType === "yatra" || resolvedBusinessType === "travel";
+    const customerDetails = [
+      `Name: ${f.name.trim() || "Not provided"}`,
+      `Mobile / WhatsApp: ${f.mobile.trim() || "Not provided"}`,
+      `Email: ${f.email.trim() || "Not provided"}`,
+      `City: ${f.city.trim() || "Not provided"}`,
+      `State: ${f.state.trim() || "Not provided"}`,
+      `PIN code: ${f.pincode.trim() || "Not provided"}`,
+    ];
+    const planningDetails = [
+      `${getBusinessDateLabel(resolvedBusinessType)}: ${f.date || "Not decided yet"}`,
+      ...(isYatra ? [`Number of travellers: ${f.travellers || "2"}`] : []),
+      ...(f.preferredTime.trim() ? [`Preferred time: ${f.preferredTime.trim()}`] : []),
+      ...(f.language.trim() ? [`Preferred language: ${f.language.trim()}`] : []),
+      ...(f.budgetAmount.trim() ? [`Indicative budget: ₹${f.budgetAmount.trim()}`] : []),
+      ...(f.gotra.trim() ? [`Gotra / family tradition: ${f.gotra.trim()}`] : []),
+      ...(f.samagriRequired ? [`Samagri preference: ${f.samagriRequired}`] : []),
+      ...(f.specialRequirements.trim() ? [`Special requirements: ${f.specialRequirements.trim()}`] : []),
+    ];
+
     return [
-      "Namaste DivyaDhara! 🙏",
-      context,
+      "🙏 Namaste DivyaDhara Seva Team,",
       "",
-      `Name: ${f.name.trim() || "-"}`,
-      `Mobile: ${f.mobile.trim() || "-"}`,
-      `Email: ${f.email.trim() || "-"}`,
-      `Preferred date: ${f.date || "-"}`,
-      `Travellers: ${f.travellers || "-"}`,
-      `Preferred contact: ${f.contactPreference}`,
-      `Message: ${f.message.trim() || "-"}`,
+      "I am contacting you through the DivyaDhara website for guidance with the following enquiry. Please review the details below and let me know the next steps, availability and any applicable charges.",
+      "",
+      "━━━━━━━━━━━━━━━━━━━━",
+      `ENQUIRY TYPE: ${getBusinessLabel(resolvedBusinessType)}`,
+      "━━━━━━━━━━━━━━━━━━━━",
+      `Enquiry / service: ${context.trim() || getBusinessLabel(resolvedBusinessType)}`,
+      ...(serviceType?.trim() ? [`Service: ${serviceType.trim()}`] : []),
+      ...(activePuja ? [`Selected puja / ritual: ${activePuja}`] : []),
+      ...(!panditProfile ? getBusinessAnswerLines() : []),
+      ...(!panditProfile && activePuja ? getPujaDetailLines() : []),
+      "",
+      "CUSTOMER DETAILS",
+      ...customerDetails,
+      "",
+      "PREFERRED ARRANGEMENTS",
+      ...planningDetails,
+      ...(panditProfile
+        ? [
+            "",
+            "PANDIT PROFILE DETAILS",
+            `Pandit: ${panditProfile.name}`,
+            `Specialization: ${panditProfile.title}`,
+            `Profile: ${panditProfile.profileUrl}`,
+            `Selected pujas / services: ${selectedServiceNames.length ? selectedServiceNames.join(", ") : "To be discussed"}`,
+            `Booking mode: ${f.bookingMode}`,
+            ...getPujaDetailLines(),
+          ]
+        : []),
+      "",
+      "CONTACT PREFERENCE",
+      `Preferred contact method: ${f.contactPreference === "any" ? "Any convenient method" : f.contactPreference === "call" ? "Phone call" : f.contactPreference === "whatsapp" ? "WhatsApp" : "Email"}`,
+      `Additional message: ${f.message.trim() || "No additional message"}`,
+      "",
+      "Kindly confirm receipt of this enquiry and guide me on the process. I understand that availability, arrangements and final pricing will be confirmed by the DivyaDhara team.",
+      "",
+      "Thank you. 🙏",
+      "DivyaDhara | Discover Indian Spirituality",
     ].join("\n");
   };
 
@@ -347,12 +955,24 @@ export function EnquiryForm({
       email: "",
       date: defaultDate,
       travellers: defaultTravellers,
+      city: "",
+      state: "",
+      pincode: "",
+      language: "",
+      preferredTime: "",
+      bookingMode: "home",
+      gotra: "",
+      budgetAmount: "",
+      samagriRequired: "",
+      specialRequirements: "",
       contactPreference: "any",
       message: "",
       whatsappConsent: false,
       marketingConsent: false,
       termsAccepted: false,
       privacyAccepted: false,
+      pujaDetails: {},
+      businessAnswers: {},
       website: "",
     });
 
@@ -361,7 +981,7 @@ export function EnquiryForm({
     setReceipt({
       leadNumber: null,
       duplicate: false,
-      message: getDefaultSuccessMessage(leadType),
+      message: getDefaultSuccessMessage(resolvedBusinessType),
     });
   };
 
@@ -390,6 +1010,58 @@ export function EnquiryForm({
 
     if (!mobile || !/[0-9]/.test(mobile)) {
       setError("Please enter a valid mobile number.");
+      setSetErrorAnnouncement(true);
+      return;
+    }
+
+    if (panditProfile && selectedServiceNames.length === 0) {
+      setError("Please select at least one puja or service offered by this Pandit.");
+      setSetErrorAnnouncement(true);
+      return;
+    }
+
+    if (panditProfile && !f.date) {
+      setError("Please select your preferred puja date.");
+      setSetErrorAnnouncement(true);
+      return;
+    }
+
+    const unansweredBusinessQuestion = businessQuestions.find((question) => question.required && !(f.businessAnswers[question.key] || "").trim());
+    if (unansweredBusinessQuestion) {
+      setError(`Please answer: ${unansweredBusinessQuestion.label}`);
+      setSetErrorAnnouncement(true);
+      return;
+    }
+
+    const unansweredPujaQuestion = (panditProfile || resolvedBusinessType === "puja")
+      ? pujaQuestions.find((question) => question.required && !(f.pujaDetails[question.key] || "").trim())
+      : undefined;
+    if (unansweredPujaQuestion) {
+      setError(`Please answer: ${unansweredPujaQuestion.label}`);
+      setSetErrorAnnouncement(true);
+      return;
+    }
+
+    if (panditProfile && !f.city.trim() && !f.pincode.trim()) {
+      setError("Please enter your city or PIN code so availability can be checked.");
+      setSetErrorAnnouncement(true);
+      return;
+    }
+
+    if (panditProfile && !f.language.trim()) {
+      setError("Please select your preferred language.");
+      setSetErrorAnnouncement(true);
+      return;
+    }
+
+    if (f.pincode.trim() && !/^\d{6}$/.test(f.pincode.trim())) {
+      setError("Please enter a valid 6-digit Indian PIN code, or leave it blank.");
+      setSetErrorAnnouncement(true);
+      return;
+    }
+
+    if (f.budgetAmount.trim() && (!/^\d+(?:\.\d{1,2})?$/.test(f.budgetAmount.trim()) || Number(f.budgetAmount) < 0)) {
+      setError("Please enter a valid budget amount in INR.");
       setSetErrorAnnouncement(true);
       return;
     }
@@ -458,8 +1130,37 @@ export function EnquiryForm({
 
         preferredDate:
           f.date || undefined,
+        preferredTime:
+          f.preferredTime || undefined,
+        // The Pandit booking form does not ask for traveller/guest counts.
         travellersCount:
-          getTravellerCount(f.travellers) ?? undefined,
+          resolvedBusinessType === "yatra" || resolvedBusinessType === "travel" ? getTravellerCount(f.travellers) ?? undefined : undefined,
+        city: f.city.trim() || undefined,
+        state: f.state.trim() || undefined,
+        pincode: f.pincode.trim() || undefined,
+        language: f.language || undefined,
+        bookingMode: panditProfile ? f.bookingMode : undefined,
+        gotra: f.gotra.trim() || undefined,
+        budgetAmount: f.budgetAmount.trim() ? Number(f.budgetAmount) : undefined,
+        samagriRequired: f.samagriRequired || undefined,
+        specialRequirements: f.specialRequirements.trim() || undefined,
+
+        requestedPanditSlug: panditProfile?.slug,
+        requestedPanditName: panditProfile?.name,
+        requestedPanditTitle: panditProfile?.title,
+        requestedPanditExperience: panditProfile?.experience,
+        requestedPanditLocation: panditProfile?.location,
+        requestedPanditLanguages: panditProfile?.languages,
+        requestedPanditProfileUrl: panditProfile?.profileUrl,
+        businessType: resolvedBusinessType,
+        businessDetails: f.businessAnswers,
+        selectedServiceNames: panditProfile ? selectedServiceNames : undefined,
+        requestedPujaName: panditProfile ? (selectedServiceNames.find((serviceName) => panditPujaOptions.includes(serviceName)) || undefined) : activePuja || undefined,
+        requestedSevaName: panditProfile ? (selectedServiceNames.find((serviceName) => panditSevaOptions.includes(serviceName)) || undefined) : selectedSeva || undefined,
+        requestedServiceNames: panditProfile ? selectedServiceNames : undefined,
+        requestedPujaNames: panditProfile ? selectedServiceNames.filter((serviceName) => panditPujaOptions.includes(serviceName)) : undefined,
+        requestedSevaNames: panditProfile ? selectedServiceNames.filter((serviceName) => panditSevaOptions.includes(serviceName)) : undefined,
+        pujaSpecificDetails: activePuja ? f.pujaDetails : undefined,
 
         contactPreference:
           f.contactPreference,
@@ -474,19 +1175,48 @@ export function EnquiryForm({
           f.privacyAccepted,
 
         serviceType:
-          serviceType || undefined,
+          serviceType || (resolvedBusinessType === "contact" || resolvedBusinessType === "general" ? undefined : getBusinessLabel(resolvedBusinessType)),
         pujaType:
-          pujaType || undefined,
+          activePuja || pujaType || undefined,
 
         message: [
           context,
+          `Business type: ${resolvedBusinessType}`,
+          ...getBusinessAnswerLines().map((line) => `Business detail — ${line}`),
+          ...(panditProfile
+            ? [
+                "",
+                "===== PANDIT PROFILE BOOKING ENQUIRY =====",
+                `Requested Pandit: ${panditProfile.name}`,
+                `Pandit slug: ${panditProfile.slug}`,
+                `Pandit title: ${panditProfile.title}`,
+                `Listed experience: ${panditProfile.experience} years`,
+                `Pandit service location: ${panditProfile.location}`,
+                `Pandit languages: ${panditProfile.languages.join(", ")}`,
+                `Pandit profile URL: ${panditProfile.profileUrl}`,
+                `Selected pujas / services: ${selectedServiceNames.length ? selectedServiceNames.join(", ") : "Not selected"}`,
+                `Customer city: ${f.city.trim() || "-"}`,
+                `Customer state: ${f.state.trim() || "-"}`,
+                `Customer PIN code: ${f.pincode.trim() || "-"}`,
+                `Preferred language: ${f.language || "-"}`,
+                `Preferred date: ${f.date || "-"}`,
+                `Preferred time: ${f.preferredTime || "Flexible / not specified"}`,
+                `Booking mode: ${f.bookingMode}`,
+                `Gotra / family tradition: ${f.gotra.trim() || "-"}`,
+                `Budget (INR): ${f.budgetAmount.trim() || "Not specified"}`,
+                `Samagri preference: ${f.samagriRequired || "To be discussed"}`,
+                `Special requirements: ${f.specialRequirements.trim() || "-"}`,
+                ...getPujaDetailLines(),
+              ]
+            : []),
+          ...(!panditProfile && activePuja ? getPujaDetailLines().map((line) => `Puja detail — ${line}`) : []),
           message
             ? `Customer message: ${message}`
             : "Customer message: -",
         ].join("\n"),
 
         sourceType,
-        sourceForm: resolvedFormKey,
+        sourceForm: resolvedSourceForm,
         sourcePage:
           pagePath ||
           (typeof window !== "undefined"
@@ -518,7 +1248,7 @@ export function EnquiryForm({
         result.message.trim()
           ? result.message
           : getDefaultSuccessMessage(
-              leadType,
+              resolvedBusinessType,
             );
 
       setReceipt({
@@ -605,15 +1335,144 @@ export function EnquiryForm({
     <form
       onSubmit={handleSubmit}
       noValidate
-      className="rounded-3xl border border-orange-900/10 bg-white p-6 shadow-xl shadow-orange-900/5 md:p-8"
+      className={`w-full rounded-3xl border border-orange-900/10 bg-white shadow-xl shadow-orange-900/5 ${panditProfile ? "p-4 sm:p-5 xl:p-6" : "p-6 md:p-8"}`}
     >
+      {panditProfile && (
+        <div className="mb-5 rounded-2xl border border-orange-200 bg-linear-to-br from-orange-50 via-amber-50 to-white p-4 sm:p-5">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-700">
+            Enquiry linked to Pandit profile
+          </p>
+          <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="font-display text-lg font-bold leading-snug text-[#2a1a10] sm:text-xl">
+                {panditProfile.name}
+              </h3>
+              <p className="mt-0.5 text-xs font-medium text-stone-600">
+                {panditProfile.title} · {panditProfile.experience} years listed experience
+              </p>
+              <p className="mt-1 flex items-start gap-1.5 text-xs leading-5 text-stone-600">
+                <span aria-hidden="true">📍</span>
+                <span>{panditProfile.location}</span>
+              </p>
+              <p className="mt-1 text-xs leading-5 text-stone-600">
+                Languages: {panditProfile.languages.join(", ")}
+              </p>
+            </div>
+            <a
+              href={panditProfile.profileUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-orange-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-orange-800 transition hover:bg-orange-100"
+            >
+              View profile ↗
+            </a>
+          </div>
+          <div className="mt-3 rounded-xl border border-orange-100 bg-white/90 px-3 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-stone-500">Selected puja / services</p>
+                <p className="mt-1 break-words text-sm font-semibold text-stone-900">
+                  {selectedServiceNames.length ? selectedServiceNames.join(", ") : "No service selected yet"}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full bg-orange-100 px-2.5 py-1 text-xs font-bold text-orange-900">
+                {selectedServiceNames.length} selected
+              </span>
+            </div>
+          </div>
+          <div className="mt-4 rounded-2xl border border-orange-200 bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <label className={label}>
+                  Select puja and services you need *
+                </label>
+                <p className="text-[11px] leading-5 text-stone-500">
+                  Select one or multiple options from this Pandit's listed offerings. You can select all if you need them.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => updateSelectedServices(allPanditServiceOptions)}
+                  className="rounded-lg border border-orange-200 px-2.5 py-1.5 text-[11px] font-bold text-orange-800 hover:bg-orange-50 disabled:opacity-50"
+                  disabled={status === "submitting" || allPanditServiceOptions.length === 0}
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateSelectedServices([])}
+                  className="rounded-lg border border-stone-200 px-2.5 py-1.5 text-[11px] font-bold text-stone-600 hover:bg-stone-50 disabled:opacity-50"
+                  disabled={status === "submitting" || selectedServiceNames.length === 0}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            {panditPujaOptions.length > 0 && (
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-extrabold text-stone-800">Pujas & rituals</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {panditPujaOptions.map((puja) => (
+                    <label key={puja} className={`flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 text-sm transition ${selectedServiceNames.includes(puja) ? "border-orange-400 bg-orange-50 ring-1 ring-orange-100" : "border-stone-200 hover:border-orange-200"}`}>
+                      <input
+                        type="checkbox"
+                        name="requestedServices"
+                        value={puja}
+                        checked={selectedServiceNames.includes(puja)}
+                        onChange={() => togglePanditService(puja)}
+                        disabled={status === "submitting"}
+                        className="mt-0.5 h-4 w-4 accent-orange-700"
+                      />
+                      <span className="font-medium text-stone-800">{puja}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            {panditSevaOptions.length > 0 && (
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-extrabold text-stone-800">Other services & sevas</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {panditSevaOptions.map((service) => (
+                    <label key={service} className={`flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 text-sm transition ${selectedServiceNames.includes(service) ? "border-orange-400 bg-orange-50 ring-1 ring-orange-100" : "border-stone-200 hover:border-orange-200"}`}>
+                      <input
+                        type="checkbox"
+                        name="requestedServices"
+                        value={service}
+                        checked={selectedServiceNames.includes(service)}
+                        onChange={() => togglePanditService(service)}
+                        disabled={status === "submitting"}
+                        className="mt-0.5 h-4 w-4 accent-orange-700"
+                      />
+                      <span className="font-medium text-stone-800">{service}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            {allPanditServiceOptions.length === 0 && (
+              <p className="mt-3 rounded-lg bg-stone-50 p-3 text-xs leading-5 text-stone-600">
+                The Pandit's service list is being updated. Please describe the puja or service you need in the requirements field.
+              </p>
+            )}
+          </div>
+          <p className="mt-3 text-[11px] leading-5 text-stone-600">
+            The Pandit name, profile URL and all selected offerings will be included in the enquiry so the DivyaDhara team can identify the exact services you requested.
+          </p>
+        </div>
+      )}
+
       <h3 className="font-display text-xl font-semibold text-[#2a1a10]">
         {title}
       </h3>
 
-      <p className="mt-1 text-[13px] text-stone-500">
-        Free guidance · Response within a few hours ·
-        Hindi, English + 6 languages
+      <p className="mt-1 text-[13px] leading-5 text-stone-500">
+        {panditProfile
+          ? "Share your ceremony details. Required fields help the team check date, location and language availability."
+          : resolvedBusinessType === "general" || resolvedBusinessType === "contact"
+            ? "Tell us what you need and the DivyaDhara team will route your enquiry to the relevant desk."
+            : `This form is tailored for ${getBusinessLabel(resolvedBusinessType).toLowerCase()}. Details you provide will accompany your enquiry.`}
       </p>
 
       <div
@@ -692,19 +1551,21 @@ export function EnquiryForm({
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className={`grid gap-3 ${(resolvedBusinessType === "yatra" || resolvedBusinessType === "travel") && !panditProfile ? "grid-cols-2" : "grid-cols-1"}`}>
           <div>
             <label
               className={label}
               htmlFor={`${instanceId}-date`}
             >
-              Date
+              {getBusinessDateLabel(resolvedBusinessType)}{panditProfile ? " *" : ""}
             </label>
 
             <input
               id={`${instanceId}-date`}
               name="preferredDate"
               type="date"
+              required={Boolean(panditProfile)}
+              min={panditProfile ? new Date().toISOString().slice(0, 10) : undefined}
               value={f.date}
               onChange={setField("date")}
               className={input}
@@ -712,37 +1573,306 @@ export function EnquiryForm({
             />
           </div>
 
-          <div>
-            <label
-              className={label}
-              htmlFor={`${instanceId}-travellers`}
-            >
-              Travellers
-            </label>
+          {(resolvedBusinessType === "yatra" || resolvedBusinessType === "travel") && !panditProfile && (
+            <div>
+              <label
+                className={label}
+                htmlFor={`${instanceId}-travellers`}
+              >
+                Number of travellers
+              </label>
 
-            <select
-              id={`${instanceId}-travellers`}
-              name="travellers"
-              value={f.travellers}
-              onChange={setField("travellers")}
-              className={input}
-              disabled={status === "submitting"}
-            >
-              {[
-                "1",
-                "2",
-                "3-5",
-                "6-12",
-                "12+ (group)",
-              ].map((option) => (
-                <option key={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </div>
+              <select
+                id={`${instanceId}-travellers`}
+                name="travellers"
+                value={f.travellers}
+                onChange={setField("travellers")}
+                className={input}
+                disabled={status === "submitting"}
+              >
+                {[
+                  "1",
+                  "2",
+                  "3",
+                  "4",
+                  "5",
+                  "6",
+                  "7",
+                  "8",
+                  "9",
+                  "10",
+                  "11+ (group)",
+                ].map((option) => (
+                  <option key={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
+
+      {!panditProfile && resolvedBusinessType !== "general" && resolvedBusinessType !== "contact" && (
+        <section className="mt-5 rounded-2xl border border-orange-100 bg-[#fffcf6] p-4 sm:p-5" aria-labelledby={`${instanceId}-business-location-title`}>
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-orange-700">Planning details</p>
+          <h4 id={`${instanceId}-business-location-title`} className="mt-1 text-sm font-extrabold text-[#2a1a10]">
+            {resolvedBusinessType === "yatra" || resolvedBusinessType === "travel" ? "Where will your journey begin?" : resolvedBusinessType === "ashram" ? "Where are you travelling from?" : resolvedBusinessType === "course" ? "Your learning preferences" : "Location and communication preferences"}
+          </h4>
+          <p className="mt-1 text-xs leading-5 text-stone-500">These details help the relevant DivyaDhara team respond to this specific request. Fill in what you know; optional fields can be discussed later.</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className={label} htmlFor={`${instanceId}-city`}>{resolvedBusinessType === "yatra" || resolvedBusinessType === "travel" ? "Departure city" : "Your city / town"}</label>
+              <input id={`${instanceId}-city`} name="city" autoComplete="address-level2" value={f.city} onChange={setField("city")} placeholder="e.g., Navi Mumbai" className={input} disabled={status === "submitting"} />
+            </div>
+            <div>
+              <label className={label} htmlFor={`${instanceId}-state`}>State</label>
+              <input id={`${instanceId}-state`} name="state" autoComplete="address-level1" value={f.state} onChange={setField("state")} placeholder="e.g., Maharashtra" className={input} disabled={status === "submitting"} />
+            </div>
+            <div>
+              <label className={label} htmlFor={`${instanceId}-pincode`}>PIN code (optional)</label>
+              <input id={`${instanceId}-pincode`} name="pincode" type="text" inputMode="numeric" autoComplete="postal-code" maxLength={6} value={f.pincode} onChange={(event) => setF((current) => ({ ...current, pincode: event.target.value.replace(/\D/g, "").slice(0, 6) }))} placeholder="6-digit PIN code" className={input} disabled={status === "submitting"} />
+            </div>
+            <div>
+              <label className={label} htmlFor={`${instanceId}-language`}>{resolvedBusinessType === "course" ? "Preferred instruction language" : "Preferred language"}</label>
+              <select id={`${instanceId}-language`} name="language" value={f.language} onChange={setField("language")} className={input} disabled={status === "submitting"}>
+                <option value="">No preference / choose later</option>
+                {getBusinessLanguageOptions(resolvedBusinessType).map((language) => <option key={language} value={language}>{language}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={label} htmlFor={`${instanceId}-preferred-time`}>{resolvedBusinessType === "course" ? "Preferred class time" : "Preferred time (optional)"}</label>
+              <input id={`${instanceId}-preferred-time`} name="preferredTime" type="time" value={f.preferredTime} onChange={setField("preferredTime")} className={input} disabled={status === "submitting"} />
+            </div>
+            {(resolvedBusinessType === "puja" || resolvedBusinessType === "pandit") && (
+              <>
+                <div>
+                  <label className={label} htmlFor={`${instanceId}-gotra`}>Gotra / family tradition (optional)</label>
+                  <input id={`${instanceId}-gotra`} name="gotra" value={f.gotra} onChange={setField("gotra")} placeholder="If relevant to the ceremony" className={input} disabled={status === "submitting"} />
+                </div>
+                <div>
+                  <label className={label} htmlFor={`${instanceId}-budget`}>Indicative budget in INR (optional)</label>
+                  <input id={`${instanceId}-budget`} name="budgetAmount" type="number" min="0" step="1" inputMode="numeric" value={f.budgetAmount} onChange={setField("budgetAmount")} placeholder="e.g., 5000" className={input} disabled={status === "submitting"} />
+                </div>
+              </>
+            )}
+          </div>
+        </section>
+      )}
+
+      {businessQuestions.length > 0 && !(resolvedBusinessType === "pandit" && panditProfile) && (
+        <section className="mt-5 rounded-2xl border border-stone-200 bg-stone-50/80 p-4 sm:p-5" aria-labelledby={`${instanceId}-business-details-title`}>
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-orange-700">{getBusinessLabel(resolvedBusinessType)}</p>
+          <h4 id={`${instanceId}-business-details-title`} className="mt-1 text-sm font-extrabold text-[#2a1a10]">A few details to help us assist you</h4>
+          <p className="mt-1 text-xs leading-5 text-stone-500">Fields change according to the selected service. Share only what you know; the team can clarify remaining arrangements.</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {businessQuestions.map((question) => (
+              <div key={question.key} className={question.type === "textarea" ? "sm:col-span-2" : ""}>
+                <label className={label} htmlFor={`${instanceId}-business-${question.key}`}>{question.label}{question.required ? " *" : ""}</label>
+                {question.type === "select" ? (
+                  <select id={`${instanceId}-business-${question.key}`} name={`businessAnswers.${question.key}`} value={f.businessAnswers[question.key] || ""} onChange={(event) => setBusinessAnswer(question.key, event.target.value)} required={Boolean(question.required)} className={input} disabled={status === "submitting"}>
+                    <option value="">Choose an option</option>
+                    {(question.options || []).map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                ) : question.type === "textarea" ? (
+                  <textarea id={`${instanceId}-business-${question.key}`} name={`businessAnswers.${question.key}`} rows={3} value={f.businessAnswers[question.key] || ""} onChange={(event) => setBusinessAnswer(question.key, event.target.value)} placeholder={question.placeholder || "Add details (optional)"} className={input} disabled={status === "submitting"} />
+                ) : (
+                  <input id={`${instanceId}-business-${question.key}`} name={`businessAnswers.${question.key}`} type={question.type} min={question.type === "number" ? "1" : undefined} value={f.businessAnswers[question.key] || ""} onChange={(event) => setBusinessAnswer(question.key, event.target.value)} placeholder={question.placeholder || "Enter details"} required={Boolean(question.required)} className={input} disabled={status === "submitting"} />
+                )}
+                {question.helper && <p className="mt-1 text-[10px] leading-4 text-stone-500">{question.helper}</p>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {(panditProfile || resolvedBusinessType === "puja") && activePuja && (
+        <section className="mt-5 rounded-2xl border border-orange-200 bg-orange-50/60 p-4 sm:p-5" aria-labelledby={`${instanceId}-puja-specific-title`}>
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-orange-700">Tailored to your puja</p>
+          <h4 id={`${instanceId}-puja-specific-title`} className="mt-1 text-sm font-extrabold text-[#2a1a10]">A few details about {activePuja}</h4>
+          <p className="mt-1 text-xs leading-5 text-stone-600">These questions are chosen for this ritual. The Pandit/team will confirm the exact vidhi, muhurat, samagri and arrangements with you.</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {pujaQuestions.map((question) => (
+              <div key={question.key} className={question.type === "textarea" ? "sm:col-span-2" : ""}>
+                <label className={label} htmlFor={`${instanceId}-puja-${question.key}`}>{question.label}{question.required ? " *" : ""}</label>
+                {question.type === "select" ? (
+                  <select id={`${instanceId}-puja-${question.key}`} name={`pujaDetails.${question.key}`} value={f.pujaDetails[question.key] || ""} onChange={(event) => setPujaDetail(question.key, event.target.value)} required={Boolean(question.required)} className={input} disabled={status === "submitting"}>
+                    <option value="">Choose an option</option>
+                    {(question.options || []).map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                ) : question.type === "textarea" ? (
+                  <textarea id={`${instanceId}-puja-${question.key}`} name={`pujaDetails.${question.key}`} rows={3} value={f.pujaDetails[question.key] || ""} onChange={(event) => setPujaDetail(question.key, event.target.value)} placeholder={question.placeholder || "Add details (optional)"} className={input} disabled={status === "submitting"} />
+                ) : (
+                  <input id={`${instanceId}-puja-${question.key}`} name={`pujaDetails.${question.key}`} value={f.pujaDetails[question.key] || ""} onChange={(event) => setPujaDetail(question.key, event.target.value)} placeholder={question.placeholder || "Enter details (optional)"} required={Boolean(question.required)} className={input} disabled={status === "submitting"} />
+                )}
+                {question.helper && <p className="mt-1 text-[10px] leading-4 text-stone-500">{question.helper}</p>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {panditProfile && (
+        <section className="mt-5 rounded-2xl border border-stone-200 bg-stone-50/80 p-4 sm:p-5" aria-labelledby={`${instanceId}-booking-details-title`}>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-orange-700">Booking details</p>
+            <h4 id={`${instanceId}-booking-details-title`} className="mt-1 text-sm font-extrabold text-[#2a1a10]">
+              Where and how should the puja be arranged?
+            </h4>
+            <p className="mt-1 text-xs leading-5 text-stone-500">
+              Enter the ceremony location, preferred language and any arrangements you need. These details will be saved with the enquiry.
+            </p>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className={label} htmlFor={`${instanceId}-city`}>City / town</label>
+              <input
+                id={`${instanceId}-city`}
+                name="city"
+                autoComplete="address-level2"
+                value={f.city}
+                onChange={setField("city")}
+                placeholder="e.g., Navi Mumbai"
+                className={input}
+                disabled={status === "submitting"}
+              />
+            </div>
+            <div>
+              <label className={label} htmlFor={`${instanceId}-state`}>State</label>
+              <input
+                id={`${instanceId}-state`}
+                name="state"
+                autoComplete="address-level1"
+                value={f.state}
+                onChange={setField("state")}
+                placeholder="e.g., Maharashtra"
+                className={input}
+                disabled={status === "submitting"}
+              />
+            </div>
+            <div>
+              <label className={label} htmlFor={`${instanceId}-pincode`}>PIN code</label>
+              <input
+                id={`${instanceId}-pincode`}
+                name="pincode"
+                type="text"
+                inputMode="numeric"
+                autoComplete="postal-code"
+                maxLength={6}
+                value={f.pincode}
+                onChange={(event) => setF((current) => ({ ...current, pincode: event.target.value.replace(/\D/g, "").slice(0, 6) }))}
+                placeholder="6-digit PIN code"
+                className={input}
+                disabled={status === "submitting"}
+              />
+            </div>
+            <div>
+              <label className={label} htmlFor={`${instanceId}-language`}>Preferred language *</label>
+              <select
+                id={`${instanceId}-language`}
+                name="language"
+                required
+                value={f.language}
+                onChange={setField("language")}
+                className={input}
+                disabled={status === "submitting"}
+              >
+                <option value="">Select language</option>
+                {Array.from(new Set([...(panditProfile.languages || []), "English", "Other / discuss"])).map((language) => (
+                  <option key={language} value={language}>{language}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={label} htmlFor={`${instanceId}-preferred-time`}>Preferred time (optional)</label>
+              <input
+                id={`${instanceId}-preferred-time`}
+                name="preferredTime"
+                type="time"
+                value={f.preferredTime}
+                onChange={setField("preferredTime")}
+                className={input}
+                disabled={status === "submitting"}
+              />
+            </div>
+            <div>
+              <label className={label} htmlFor={`${instanceId}-booking-mode`}>Ceremony location type</label>
+              <select
+                id={`${instanceId}-booking-mode`}
+                name="bookingMode"
+                value={f.bookingMode}
+                onChange={setField("bookingMode")}
+                className={input}
+                disabled={status === "submitting"}
+              >
+                <option value="home">At my home / venue</option>
+                <option value="temple">At a temple</option>
+                <option value="online">Online guidance</option>
+                <option value="travel">Pandit travel required</option>
+                <option value="other">Other / discuss</option>
+              </select>
+            </div>
+            <div>
+              <label className={label} htmlFor={`${instanceId}-gotra`}>Gotra / family tradition (optional)</label>
+              <input
+                id={`${instanceId}-gotra`}
+                name="gotra"
+                value={f.gotra}
+                onChange={setField("gotra")}
+                placeholder="If relevant to your ceremony"
+                className={input}
+                disabled={status === "submitting"}
+              />
+            </div>
+            <div>
+              <label className={label} htmlFor={`${instanceId}-budget`}>Indicative budget in INR (optional)</label>
+              <input
+                id={`${instanceId}-budget`}
+                name="budgetAmount"
+                type="number"
+                min="0"
+                step="1"
+                inputMode="numeric"
+                value={f.budgetAmount}
+                onChange={setField("budgetAmount")}
+                placeholder="e.g., 5000"
+                className={input}
+                disabled={status === "submitting"}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className={label} htmlFor={`${instanceId}-samagri`}>Samagri arrangement</label>
+              <select
+                id={`${instanceId}-samagri`}
+                name="samagriRequired"
+                value={f.samagriRequired}
+                onChange={setField("samagriRequired")}
+                className={input}
+                disabled={status === "submitting"}
+              >
+                <option value="">To be discussed</option>
+                <option value="pandit_to_arrange">Please ask Pandit Ji to arrange samagri</option>
+                <option value="customer_to_arrange">I will arrange samagri</option>
+                <option value="guidance_needed">I need guidance on samagri</option>
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <label className={label} htmlFor={`${instanceId}-special-requirements`}>Special requirements</label>
+              <textarea
+                id={`${instanceId}-special-requirements`}
+                name="specialRequirements"
+                rows={3}
+                value={f.specialRequirements}
+                onChange={setField("specialRequirements")}
+                placeholder="Ritual tradition, venue details, family requirements, muhurat preference or accessibility needs…"
+                className={input}
+                disabled={status === "submitting"}
+              />
+            </div>
+          </div>
+        </section>
+      )}
 
       <div className="mt-3">
         <label
@@ -789,7 +1919,7 @@ export function EnquiryForm({
           rows={3}
           value={f.message}
           onChange={setField("message")}
-          placeholder="Tell us your needs — language, city, budget, special requirements…"
+          placeholder={panditProfile ? "Any other details for this Pandit booking enquiry…" : `Tell us any other details for your ${getBusinessLabel(resolvedBusinessType).toLowerCase()}…`}
           className={input}
           disabled={status === "submitting"}
         />
@@ -894,7 +2024,7 @@ export function EnquiryForm({
         <button
           type="submit"
           disabled={status === "submitting"}
-          className="btn-saffron flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          className="btn-saffron hidden flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
         >
           {status === "submitting" ? (
             <>
@@ -916,16 +2046,17 @@ export function EnquiryForm({
           href={whatsappHref}
           target="_blank"
           rel="noreferrer"
-          className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 py-3.5 text-sm font-bold text-white transition hover:brightness-105"
+          className="flex w-full flex-1 items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 py-3.5 text-sm font-bold text-white shadow-sm transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366] focus-visible:ring-offset-2"
         >
           <MessageCircle size={16} />
           WhatsApp Instead
         </a>
       </div>
 
-      <p className="mt-3 text-center text-[11px] text-stone-400">
-        Your enquiry is securely recorded in DivyaDhara's lead system. We do
-        not sell your contact details.
+      <p className="mt-3 text-center text-[11px] leading-relaxed text-stone-500">
+        Your details will be added to a WhatsApp message for you to review and
+        send to DivyaDhara. The enquiry is shared only after you send the message
+        in WhatsApp. Please avoid including sensitive personal information.
       </p>
     </form>
   );

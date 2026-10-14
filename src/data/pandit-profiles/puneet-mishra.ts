@@ -16,6 +16,18 @@ const puneetMishra: Pandit = {
 
   languages: ["Hindi", "Sanskrit", "Marathi"],
 
+  /*
+   * PANDIT STORY VIDEO
+   *
+   * Actual YouTube video ID milne par yahan set karein.
+   * Example: "AbCd1234567"
+   *
+   * Video ID abhi available nahi hai, isliye blank hai.
+   * Blank hone par existing PanditDetail.tsx logic ke
+   * according Story button hidden rehna chahiye.
+   */
+  storyVideoId: "",
+
   specializations: [
     "Satyanarayan Puja",
     "Rudrabhishek",
@@ -25,10 +37,13 @@ const puneetMishra: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  // Services currently listed for this Pandit.
-  // Add additional services only after confirming his expertise.
+  /*
+   * Currently listed services.
+   * Add other ceremonies only after confirming
+   * the Pandit's relevant expertise.
+   */
   pujaTypes: [
-    "Satyanarayan Puja",
+    "Satyanarayan Katha and Puja",
     "Rudrabhishek",
     "Havan",
     "Vastu Shanti Puja",
@@ -39,11 +54,11 @@ const puneetMishra: Pandit = {
   associatedWith: "To be confirmed",
 
   about:
-    "Puneet Mishra is a Hindu priest with 5 years of experience in traditional Hindu puja and Vedic rituals. His listed specializations include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja, and Pitru-related rituals. His detailed biography, service availability, and additional ritual expertise should be confirmed before publication.",
+    "Puneet Mishra is a Hindu priest with 5 years of listed experience in traditional Hindu puja and Vedic rituals. His listed areas of service include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Visitors can share their preferred ceremony, date, city or PIN code, language and specific requirements when making an enquiry. His detailed biography, service availability, ritual procedures, duration and pricing should be confirmed before a booking is finalized.",
 
   services: [
     {
-      name: "Satyanarayan Puja",
+      name: "Satyanarayan Katha and Puja",
       duration: "To be confirmed",
     },
     {
@@ -70,12 +85,13 @@ const puneetMishra: Pandit = {
 
   availability: "To be confirmed",
 
+  // Keep false until contact authorization is verified.
   authorizedContact: false,
 };
 
-// Export the shared 12-category puja catalogue separately.
-// This is the website-wide catalogue, not a claim that this
-// Pandit personally performs every ceremony in the catalogue.
+// Shared website-wide puja catalogue.
+// This does not indicate that Puneet Mishra performs
+// every ceremony listed in the catalogue.
 export { PUJA_CATEGORIES };
 
 export default puneetMishra;

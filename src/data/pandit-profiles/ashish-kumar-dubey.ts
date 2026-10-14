@@ -16,6 +16,22 @@ const ashishKumarDubey: Pandit = {
 
   languages: ["Hindi", "Sanskrit", "Marathi"],
 
+  /*
+   * PANDIT STORY VIDEO
+   *
+   * Actual YouTube video ID milne ke baad neeche wali line
+   * uncomment karke ID enter karein.
+   *
+   * Example:
+   * storyVideoId: "AbCd1234567",
+   *
+   * Sirf video ID enter karein, poora URL nahi.
+   * Video ID ko tabhi set karein jab video Ashish Kumar Dubey
+   * ka ho aur uska use karne ki permission ho.
+   */
+
+  // storyVideoId: "YOUR_YOUTUBE_VIDEO_ID",
+
   specializations: [
     "Satyanarayan Puja",
     "Rudrabhishek",
@@ -25,10 +41,13 @@ const ashishKumarDubey: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  // Services currently listed on this Pandit's profile.
-  // Add other services only after confirming his expertise.
+  /*
+   * Puja names used for profile discovery and filtering.
+   * Add only services whose suitability for this Pandit
+   * has been confirmed.
+   */
   pujaTypes: [
-    "Satyanarayan Puja",
+    "Satyanarayan Katha and Puja",
     "Rudrabhishek",
     "Havan",
     "Vastu Shanti Puja",
@@ -39,11 +58,11 @@ const ashishKumarDubey: Pandit = {
   associatedWith: "To be confirmed",
 
   about:
-    "Ashish Kumar Dubey is a Hindu priest with 14 years of experience in traditional Hindu puja and Vedic rituals. His listed specializations include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja, and Pitru-related rituals. His detailed biography, service availability, and additional ritual expertise should be confirmed before publication.",
+    "Ashish Kumar Dubey is a Hindu priest with 14 years of listed experience in traditional Hindu puja and Vedic rituals. His listed areas of service include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Visitors are encouraged to share their preferred ceremony, date, location, language and specific requirements before enquiring. Detailed biography, service availability, ritual procedures and pricing should be confirmed directly before a booking is finalized.",
 
   services: [
     {
-      name: "Satyanarayan Puja",
+      name: "Satyanarayan Katha and Puja",
       duration: "To be confirmed",
     },
     {
@@ -70,12 +89,15 @@ const ashishKumarDubey: Pandit = {
 
   availability: "To be confirmed",
 
+  /*
+   * Keep false until the contact details and authorization
+   * have been checked and approved.
+   */
   authorizedContact: false,
 };
 
-// Export the shared 12-category puja catalogue separately.
-// This is the website-wide catalogue, not a claim that this
-// Pandit personally performs every ceremony in the catalogue.
+// Shared website-wide puja catalogue.
+// This does not imply that the Pandit performs every listed puja.
 export { PUJA_CATEGORIES };
 
 export default ashishKumarDubey;
