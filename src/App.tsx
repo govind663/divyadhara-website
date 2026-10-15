@@ -6,6 +6,7 @@ import {
   type ErrorInfo,
   type ReactNode,
 } from "react";
+
 import {
   BrowserRouter,
   Link,
@@ -16,17 +17,29 @@ import {
 } from "react-router-dom";
 
 import Layout from "./components/Layout";
+
+// Old custom analytics tracker intentionally disabled.
+// Keep this import commented.
 // import AnalyticsTracker from "./components/AnalyticsTracker";
+
+// New Google Analytics 4 tracker — ACTIVE.
+import GoogleAnalytics from "./components/GoogleAnalytics";
+
 import { AppProvider, useApp } from "./context/AppContext";
 
 /**
  * DivyaDhara application routes.
  *
- * Important:
- * - Keep actual <Route> elements as direct children of <Routes>.
- * - Public pages are lazy-loaded to reduce the initial JavaScript bundle.
- * - Dashboard routes are protected by role.
- * - The backend must independently enforce authorization for protected APIs.
+ * Features:
+ * - Google Analytics 4 route tracking
+ * - Old custom AnalyticsTracker disabled
+ * - Lazy-loaded public pages
+ * - Role-protected dashboards
+ * - Route-aware error boundary
+ * - Scroll-to-top navigation
+ *
+ * Note:
+ * The backend must independently enforce authorization for protected APIs.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -49,6 +62,7 @@ const AshramList = lazy(() =>
     default: module.default,
   })),
 );
+
 const AshramDetail = lazy(() =>
   import("./pages/Ashrams").then((module) => ({
     default: module.AshramDetail,
@@ -60,6 +74,7 @@ const CourseList = lazy(() =>
     default: module.CourseList,
   })),
 );
+
 const CourseDetail = lazy(() =>
   import("./pages/Courses").then((module) => ({
     default: module.CourseDetail,
@@ -71,21 +86,25 @@ const Places = lazy(() =>
     default: module.Places,
   })),
 );
+
 const Packages = lazy(() =>
   import("./pages/Yatra").then((module) => ({
     default: module.Packages,
   })),
 );
+
 const PlaceDetail = lazy(() =>
   import("./pages/Yatra").then((module) => ({
     default: module.PlaceDetail,
   })),
 );
+
 const PackageDetail = lazy(() =>
   import("./pages/Yatra").then((module) => ({
     default: module.PackageDetail,
   })),
 );
+
 const PackageEnquiry = lazy(() =>
   import("./pages/Yatra").then((module) => ({
     default: module.PackageEnquiry,
@@ -97,6 +116,7 @@ const EventList = lazy(() =>
     default: module.EventList,
   })),
 );
+
 const EventDetail = lazy(() =>
   import("./pages/Events").then((module) => ({
     default: module.EventDetail,
@@ -114,16 +134,19 @@ const Gallery = lazy(() =>
     default: module.Gallery,
   })),
 );
+
 const Videos = lazy(() =>
   import("./pages/Media").then((module) => ({
     default: module.Videos,
   })),
 );
+
 const Articles = lazy(() =>
   import("./pages/Media").then((module) => ({
     default: module.Articles,
   })),
 );
+
 const ArticleDetail = lazy(() =>
   import("./pages/Media").then((module) => ({
     default: module.ArticleDetail,
@@ -135,6 +158,7 @@ const About = lazy(() =>
     default: module.About,
   })),
 );
+
 const Contact = lazy(() =>
   import("./pages/Info").then((module) => ({
     default: module.Contact,
@@ -148,11 +172,13 @@ const Login = lazy(() =>
     default: module.Login,
   })),
 );
+
 const Register = lazy(() =>
   import("./pages/Auth").then((module) => ({
     default: module.Register,
   })),
 );
+
 const Forgot = lazy(() =>
   import("./pages/Auth").then((module) => ({
     default: module.Forgot,
@@ -196,7 +222,7 @@ function isSupportedRole(role: unknown): role is SupportedRole {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Loading and error states                                                   */
+/* Loading states                                                             */
 /* -------------------------------------------------------------------------- */
 
 function RouteLoader() {
@@ -211,9 +237,11 @@ function RouteLoader() {
         <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-orange-100">
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-orange-300 border-t-orange-700" />
         </div>
+
         <h1 className="mt-4 font-display text-xl font-semibold text-[#2a1a10]">
           DivyaDhara
         </h1>
+
         <p className="mt-1 text-sm text-stone-500">
           Loading your page. Please wait…
         </p>
@@ -228,14 +256,17 @@ function SessionLoader() {
       className="grid min-h-screen place-items-center bg-[#fdfaf5] px-5"
       role="status"
       aria-live="polite"
+      aria-label="Verifying session"
     >
       <div className="text-center">
         <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-orange-100">
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-orange-300 border-t-orange-700" />
         </div>
+
         <h1 className="mt-4 font-display text-xl font-semibold text-[#2a1a10]">
           Verifying session
         </h1>
+
         <p className="mt-1 text-sm text-stone-500">
           Please wait while DivyaDhara verifies your account.
         </p>
@@ -243,6 +274,10 @@ function SessionLoader() {
     </div>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Error boundary                                                             */
+/* -------------------------------------------------------------------------- */
 
 type ErrorBoundaryState = {
   hasError: boolean;
@@ -257,23 +292,34 @@ class AppErrorBoundary extends Component<
   AppErrorBoundaryProps,
   ErrorBoundaryState
 > {
-  state: ErrorBoundaryState = { hasError: false };
+  state: ErrorBoundaryState = {
+    hasError: false,
+  };
 
   static getDerivedStateFromError(): ErrorBoundaryState {
-    return { hasError: true };
+    return {
+      hasError: true,
+    };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // Keep details in the developer console without exposing internals to visitors.
-    console.error("DivyaDhara page render failed:", error, info.componentStack);
+    console.error(
+      "DivyaDhara page render failed:",
+      error,
+      info.componentStack,
+    );
   }
 
   componentDidUpdate(prevProps: Readonly<AppErrorBoundaryProps>) {
-    // Reset only the error state on route changes. Do not key/remount the whole
-    // AppRoutes tree: that would remount AnalyticsTracker and all route effects
-    // on every navigation, producing unnecessary API requests and page views.
-    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
-      this.setState({ hasError: false });
+    // Reset an existing error when the route changes.
+    // Keep the route tree and analytics component mounted normally.
+    if (
+      prevProps.resetKey !== this.props.resetKey &&
+      this.state.hasError
+    ) {
+      this.setState({
+        hasError: false,
+      });
     }
   }
 
@@ -289,10 +335,12 @@ class AppErrorBoundary extends Component<
             <h1 className="text-2xl font-semibold text-[#2a1a10]">
               Page could not be loaded
             </h1>
+
             <p className="mt-3 text-sm leading-6 text-stone-600">
               Something went wrong while opening this page. Please reload and
               try again.
             </p>
+
             <button
               type="button"
               onClick={this.handleReload}
@@ -300,6 +348,7 @@ class AppErrorBoundary extends Component<
             >
               Reload page
             </button>
+
             <Link
               to="/"
               className="ml-4 inline-flex min-h-11 items-center justify-center rounded-xl border border-stone-200 px-5 py-2.5 font-medium text-stone-700 transition hover:bg-stone-50 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
@@ -352,22 +401,31 @@ function ScrollToTop() {
   const { pathname, search } = useLocation();
 
   useEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    window.scrollTo({
+      top: 0,
+      left: 0,
+      behavior: "auto",
+    });
   }, [pathname, search]);
 
   return null;
 }
 
 /* -------------------------------------------------------------------------- */
-/* Routes                                                                      */
-/* IMPORTANT: only <Route> elements/fragments may be children of <Routes>.     */
+/* Application routes                                                         */
 /* -------------------------------------------------------------------------- */
 
 function AppRoutes() {
   return (
     <>
+      {/* Old custom tracker disabled intentionally. */}
       {/* <AnalyticsTracker /> */}
+
+      {/* New Google Analytics 4 tracker — ACTIVE. */}
+      <GoogleAnalytics />
+
       <ScrollToTop />
+
       <Suspense fallback={<RouteLoader />}>
         <Routes>
           {/* Public pages share the main site layout. */}
@@ -377,17 +435,26 @@ function AppRoutes() {
             {/* Temples */}
             <Route path="temples" element={<Temples />} />
             <Route path="temples/:slug" element={<TempleDetail />} />
-            <Route path="temple/:slug" element={<Navigate to="/temples" replace />} />
+            <Route
+              path="temple/:slug"
+              element={<Navigate to="/temples" replace />}
+            />
 
             {/* Services */}
             <Route path="services" element={<Services />} />
             <Route path="services/:slug" element={<ServiceDetail />} />
-            <Route path="puja-services" element={<Navigate to="/services" replace />} />
+            <Route
+              path="puja-services"
+              element={<Navigate to="/services" replace />}
+            />
 
             {/* Pandits */}
             <Route path="pandits" element={<Pandits />} />
             <Route path="pandits/:slug" element={<PanditDetail />} />
-            <Route path="pandit/:slug" element={<Navigate to="/pandits" replace />} />
+            <Route
+              path="pandit/:slug"
+              element={<Navigate to="/pandits" replace />}
+            />
 
             {/* Ashrams */}
             <Route path="ashrams" element={<AshramList />} />
@@ -399,7 +466,10 @@ function AppRoutes() {
 
             {/* Subscriptions */}
             <Route path="subscriptions" element={<Subscriptions />} />
-            <Route path="subscription" element={<Navigate to="/subscriptions" replace />} />
+            <Route
+              path="subscription"
+              element={<Navigate to="/subscriptions" replace />}
+            />
 
             {/* Panchang and astrology */}
             <Route path="panchang" element={<PanchangPage />} />
@@ -407,8 +477,14 @@ function AppRoutes() {
             <Route path="rashifal" element={<PanchangPage />} />
             <Route path="kundli" element={<PanchangPage />} />
             <Route path="gochar" element={<PanchangPage />} />
-            <Route path="jyotish" element={<Navigate to="/kundli" replace />} />
-            <Route path="horoscope" element={<Navigate to="/rashifal" replace />} />
+            <Route
+              path="jyotish"
+              element={<Navigate to="/kundli" replace />}
+            />
+            <Route
+              path="horoscope"
+              element={<Navigate to="/rashifal" replace />}
+            />
 
             {/* Events */}
             <Route path="events" element={<EventList />} />
@@ -417,11 +493,20 @@ function AppRoutes() {
             {/* Yatra and spiritual places */}
             <Route path="spiritual-places" element={<Places />} />
             <Route path="spiritual-places/:slug" element={<PlaceDetail />} />
-            <Route path="places" element={<Navigate to="/spiritual-places" replace />} />
+            <Route
+              path="places"
+              element={<Navigate to="/spiritual-places" replace />}
+            />
             <Route path="packages" element={<Packages />} />
             <Route path="packages/:slug" element={<PackageDetail />} />
-            <Route path="packages/:slug/enquiry" element={<PackageEnquiry />} />
-            <Route path="yatra-packages" element={<Navigate to="/packages" replace />} />
+            <Route
+              path="packages/:slug/enquiry"
+              element={<PackageEnquiry />}
+            />
+            <Route
+              path="yatra-packages"
+              element={<Navigate to="/packages" replace />}
+            />
 
             {/* Media */}
             <Route path="gallery" element={<Gallery />} />
@@ -449,7 +534,7 @@ function AppRoutes() {
             />
           </Route>
 
-          {/* Role-specific dashboards are outside the public layout. */}
+          {/* Role-specific dashboards */}
           <Route
             path="/pandit/dashboard"
             element={
@@ -467,6 +552,7 @@ function AppRoutes() {
               </RequireRole>
             }
           />
+
           <Route
             path="/temple-manager/dashboard"
             element={<Navigate to="/temple/dashboard" replace />}
@@ -480,6 +566,7 @@ function AppRoutes() {
               </RequireRole>
             }
           />
+
           <Route
             path="/ashram-manager/dashboard"
             element={<Navigate to="/ashram/dashboard" replace />}
@@ -502,6 +589,7 @@ function AppRoutes() {
               </RequireRole>
             }
           />
+
           <Route
             path="/admin"
             element={<Navigate to="/admin/dashboard" replace />}
@@ -517,8 +605,6 @@ function AppRoutes() {
 
 /* -------------------------------------------------------------------------- */
 /* Route-aware error boundary                                                 */
-/* Reset the boundary when the user navigates to another pathname, so a      */
-/* failed page does not force a full browser reload to leave the error screen. */
 /* -------------------------------------------------------------------------- */
 
 function RouteErrorBoundary() {

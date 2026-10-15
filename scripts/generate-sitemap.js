@@ -1,72 +1,135 @@
 /**
- * DivyaDhara — Sitemap Generator
+ * DivyaDhara static sitemap generator.
  * File: scripts/generate-sitemap.js
  *
- * Generates public/sitemap.xml from:
- * 1. Static public routes.
- * 2. Published, indexable URLs from seo_entries.
- * 3. Published, indexable URLs from seo_location_pages.
+ * Reads static exports from src/data/content.ts.
+ * No SQLite/database access.
  *
- * Environment variables:
- * SITE_URL=https://divyadhara.in
- * DIVYADHARA_DB_PATH=data/divyadhara.sqlite
+ * Run: node scripts/generate-sitemap.js
+ *
+ * .env:
+ * SITE_URL=https://divya-dhara.in
  * SITEMAP_OUTPUT=public/sitemap.xml
- * SITEMAP_REQUIRE_DATABASE=true
  */
 
 import fs from "node:fs";
 import path from "node:path";
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const require = createRequire(import.meta.url);
-
-const PROJECT_ROOT = path.resolve(
+const ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
 
-const SITE_URL = normalizeOrigin(
-  process.env.SITE_URL || "https://divyadhara.in",
+const SCRIPT = fileURLToPath(import.meta.url);
+const EXPORT_MODE = "DIVYADHARA_SITEMAP_EXPORTS_ONLY";
+const MARKER = "__DIVYADHARA_SITEMAP_DATA__";
+
+/* =========================================================
+   ENVIRONMENT CONFIGURATION
+========================================================= */
+
+function loadEnv(file) {
+  if (!fs.existsSync(file)) return;
+
+  const text = fs
+    .readFileSync(file, "utf8")
+    .replace(/^\uFEFF/, "");
+
+  for (const original of text.split(/\r?\n/)) {
+    let line = original.trim();
+
+    if (!line || line.startsWith("#")) continue;
+
+    if (line.startsWith("export ")) {
+      line = line.slice(7).trim();
+    }
+
+    const equals = line.indexOf("=");
+
+    if (equals < 1) continue;
+
+    const key = line.slice(0, equals).trim();
+
+    if (
+      !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ||
+      process.env[key] !== undefined
+    ) {
+      continue;
+    }
+
+    let value = line.slice(equals + 1).trim();
+
+    const first = value[0];
+    const last = value[value.length - 1];
+
+    if (
+      (first === '"' && last === '"') ||
+      (first === "'" && last === "'")
+    ) {
+      value = value.slice(1, -1);
+
+      if (first === '"') {
+        value = value
+          .replace(/\\n/g, "\n")
+          .replace(/\\r/g, "\r")
+          .replace(/\\"/g, '"');
+      }
+    } else {
+      value = value.replace(/\s+#.*$/, "").trim();
+    }
+
+    process.env[key] = value;
+  }
+}
+
+loadEnv(path.join(ROOT, ".env"));
+
+function getOrigin(value) {
+  let url;
+
+  try {
+    url = new URL(String(value).trim());
+  } catch {
+    throw new Error(`SITE_URL is invalid: ${value}`);
+  }
+
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new Error("SITE_URL must use http or https.");
+  }
+
+  if (
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      "SITE_URL must be an origin only, e.g. https://divya-dhara.in",
+    );
+  }
+
+  return url.origin;
+}
+
+const SITE = getOrigin(
+  process.env.SITE_URL || "https://divya-dhara.in",
 );
 
-const OUTPUT_PATH = path.resolve(
-  PROJECT_ROOT,
+const OUTPUT = path.resolve(
+  ROOT,
   process.env.SITEMAP_OUTPUT || "public/sitemap.xml",
 );
 
-const DATABASE_PATH = path.resolve(
-  PROJECT_ROOT,
-  process.env.DIVYADHARA_DB_PATH || "data/divyadhara.sqlite",
-);
+const MAX_URLS = 50_000;
+const MAX_BYTES = 50 * 1024 * 1024;
 
-const REQUIRE_DATABASE =
-  String(process.env.SITEMAP_REQUIRE_DATABASE || "").toLowerCase() ===
-  "true";
-
-const STATIC_ROUTES = [
-  { path: "/", changefreq: "daily", priority: 1.0 },
-  { path: "/temples", changefreq: "daily", priority: 0.9 },
-  { path: "/services", changefreq: "weekly", priority: 0.9 },
-  { path: "/pandits", changefreq: "weekly", priority: 0.9 },
-  { path: "/ashrams", changefreq: "weekly", priority: 0.8 },
-  { path: "/courses", changefreq: "weekly", priority: 0.8 },
-  { path: "/panchang", changefreq: "daily", priority: 0.9 },
-  { path: "/calendar", changefreq: "weekly", priority: 0.7 },
-  { path: "/events", changefreq: "daily", priority: 0.8 },
-  { path: "/spiritual-places", changefreq: "weekly", priority: 0.9 },
-  { path: "/packages", changefreq: "weekly", priority: 0.9 },
-  { path: "/gallery", changefreq: "weekly", priority: 0.6 },
-  { path: "/videos", changefreq: "weekly", priority: 0.6 },
-  { path: "/articles", changefreq: "weekly", priority: 0.7 },
-  { path: "/about", changefreq: "monthly", priority: 0.5 },
-  { path: "/contact", changefreq: "monthly", priority: 0.5 },
-];
-
-const DEFAULT_CHANGEFREQ = "weekly";
 const DEFAULT_PRIORITY = 0.6;
+const DEFAULT_FREQ = "weekly";
 
-const VALID_CHANGEFREQ = new Set([
+const VALID_FREQ = new Set([
   "always",
   "hourly",
   "daily",
@@ -76,15 +139,68 @@ const VALID_CHANGEFREQ = new Set([
   "never",
 ]);
 
-function normalizeOrigin(value) {
-  const url = new URL(String(value).trim());
+/* =========================================================
+   PUBLIC STATIC ROUTES
+========================================================= */
 
-  if (!["http:", "https:"].includes(url.protocol)) {
-    throw new Error(`SITE_URL must use http or https: ${value}`);
-  }
+const STATIC_ROUTES = [
+  ["/", "daily", 1.0],
+  ["/temples", "daily", 0.9],
+  ["/services", "weekly", 0.9],
+  ["/pandits", "weekly", 0.9],
+  ["/ashrams", "weekly", 0.8],
+  ["/courses", "weekly", 0.8],
+  ["/subscriptions", "monthly", 0.6],
+  ["/panchang", "daily", 0.9],
+  ["/calendar", "weekly", 0.7],
+  ["/rashifal", "daily", 0.7],
+  ["/kundli", "weekly", 0.7],
+  ["/gochar", "weekly", 0.6],
+  ["/events", "daily", 0.8],
+  ["/spiritual-places", "weekly", 0.9],
+  ["/packages", "weekly", 0.9],
+  ["/gallery", "weekly", 0.6],
+  ["/videos", "weekly", 0.6],
+  ["/articles", "weekly", 0.7],
+  ["/about", "monthly", 0.5],
+  ["/contact", "monthly", 0.5],
+];
 
-  return url.origin.replace(/\/+$/, "");
-}
+/* =========================================================
+   PRIVATE / BLOCKED ROUTES
+========================================================= */
+
+const BLOCKED = [
+  /^\/api(?:\/|$)/i,
+  /^\/admin(?:\/|$)/i,
+  /^\/dashboard(?:\/|$)/i,
+  /^\/login\/?$/i,
+  /^\/register\/?$/i,
+  /^\/forgot(?:-password)?\/?$/i,
+  /^\/reset(?:-password)?\/?$/i,
+  /^\/account(?:\/|$)/i,
+  /^\/checkout(?:\/|$)/i,
+  /^\/payment(?:\/|$)/i,
+  /^\/orders?(?:\/|$)/i,
+  /^\/visitor\/dashboard(?:\/|$)/i,
+  /^\/pandit\/dashboard(?:\/|$)/i,
+  /^\/temple\/dashboard(?:\/|$)/i,
+  /^\/ashram\/dashboard(?:\/|$)/i,
+  /^\/sales(?:\/|$)/i,
+  /^\/super[-_]?admin(?:\/|$)/i,
+];
+
+const diagnostic = {
+  foreign: 0,
+  query: 0,
+  blocked: 0,
+  invalid: 0,
+  noindex: 0,
+};
+
+/* =========================================================
+   XML AND URL HELPERS
+========================================================= */
 
 function xmlEscape(value) {
   return String(value)
@@ -95,468 +211,676 @@ function xmlEscape(value) {
     .replace(/'/g, "&apos;");
 }
 
-function cleanPath(value) {
+function cleanUrl(value) {
   const raw = String(value ?? "").trim();
 
   if (!raw || raw.startsWith("//")) {
+    diagnostic.invalid++;
     return null;
   }
 
   let url;
 
   try {
-    url = new URL(raw, `${SITE_URL}/`);
+    url = new URL(raw, `${SITE}/`);
   } catch {
+    diagnostic.invalid++;
     return null;
   }
 
-  if (url.origin !== SITE_URL) {
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password
+  ) {
+    diagnostic.invalid++;
     return null;
   }
 
-  if (!["http:", "https:"].includes(url.protocol)) {
+  if (url.origin !== SITE) {
+    diagnostic.foreign++;
     return null;
   }
 
-  // Sitemap entries should be canonical URLs without query strings.
   if (url.search || url.hash) {
+    diagnostic.query++;
     return null;
   }
 
   const pathname = url.pathname.replace(/\/{2,}/g, "/");
 
-  const blockedRoutes = [
-    /^\/api(?:\/|$)/i,
-    /^\/admin(?:\/|$)/i,
-    /^\/dashboard(?:\/|$)/i,
-    /^\/login\/?$/i,
-    /^\/register\/?$/i,
-    /^\/forgot(?:-password)?\/?$/i,
-    /^\/account(?:\/|$)/i,
-    /^\/visitor\/dashboard(?:\/|$)/i,
-    /^\/pandit\/dashboard(?:\/|$)/i,
-    /^\/temple\/dashboard(?:\/|$)/i,
-    /^\/ashram\/dashboard(?:\/|$)/i,
-    /^\/sales(?:\/|$)/i,
-  ];
-
-  if (blockedRoutes.some((pattern) => pattern.test(pathname))) {
+  if (BLOCKED.some((regex) => regex.test(pathname))) {
+    diagnostic.blocked++;
     return null;
   }
 
-  return `${SITE_URL}${
-    pathname === "/" ? "/" : pathname.replace(/\/+$/, "")
+  return `${SITE}${
+    pathname === "/"
+      ? "/"
+      : pathname.replace(/\/+$/, "")
   }`;
 }
 
-function normalizeDate(value) {
-  if (!value) {
+function cleanDate(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
     return null;
   }
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
+  return Number.isNaN(date.getTime())
+    ? null
+    : date.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function cleanSlug(value) {
+  let slug = String(value ?? "").trim();
+
+  while (slug.startsWith("/")) {
+    slug = slug.slice(1);
+  }
+
+  while (slug.endsWith("/")) {
+    slug = slug.slice(0, -1);
+  }
+
+  if (
+    !slug ||
+    slug.startsWith("http:") ||
+    slug.startsWith("https:") ||
+    slug.includes("?") ||
+    slug.includes("#") ||
+    slug.includes(String.fromCharCode(92))
+  ) {
     return null;
   }
 
-  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
+  const parts = slug.split("/");
+
+  if (
+    parts.some(
+      (part) =>
+        !part ||
+        part === "." ||
+        part === "..",
+    )
+  ) {
+    return null;
+  }
+
+  return parts
+    .map((part) => {
+      try {
+        return encodeURIComponent(decodeURIComponent(part));
+      } catch {
+        return encodeURIComponent(part);
+      }
+    })
+    .join("/");
 }
 
-function normalizePriority(value) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) {
+function cleanPriority(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
     return DEFAULT_PRIORITY;
   }
 
-  return Math.min(1, Math.max(0, number));
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? Math.max(0, Math.min(1, number))
+    : DEFAULT_PRIORITY;
 }
 
-function normalizeChangefreq(value) {
-  const normalized = String(value || "").toLowerCase();
+function cleanFreq(value) {
+  const freq = String(value || "").trim().toLowerCase();
 
-  return VALID_CHANGEFREQ.has(normalized)
-    ? normalized
-    : DEFAULT_CHANGEFREQ;
+  return VALID_FREQ.has(freq)
+    ? freq
+    : DEFAULT_FREQ;
 }
 
-function tableExists(db, tableName) {
-  return Boolean(
-    db
-      .prepare(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
-      )
-      .get(tableName),
-  );
-}
+/* =========================================================
+   LISTING INDEXABILITY
+========================================================= */
 
-function tableColumns(db, tableName) {
-  if (!tableExists(db, tableName)) {
-    return new Set();
-  }
+function isIndexable(record) {
+  const flag =
+    record.is_indexable ??
+    record.isIndexable ??
+    record.indexable;
 
-  return new Set(
-    db
-      .prepare(`PRAGMA table_info("${tableName.replace(/"/g, '""')}")`)
-      .all()
-      .map((column) => String(column.name)),
-  );
-}
+  const flagText = String(flag ?? "").trim().toLowerCase();
 
-function isIndexableRow(row) {
   if (
-    row.is_indexable !== undefined &&
-    Number(row.is_indexable) !== 1
+    flag === false ||
+    flag === 0 ||
+    ["false", "0", "no"].includes(flagText)
   ) {
     return false;
   }
 
-  if (row.status !== undefined) {
-    const status = String(row.status ?? "").toLowerCase();
+  const isPublic =
+    record.isPublic ?? record.is_public;
 
-    if (!["published", "active", "approved"].includes(status)) {
-      return false;
-    }
+  if (isPublic === false || isPublic === 0) {
+    return false;
   }
 
-  if (row.robots !== undefined) {
-    const robots = String(row.robots ?? "").toLowerCase();
+  const isPublished =
+    record.isPublished ?? record.is_published;
 
-    if (robots.includes("noindex")) {
-      return false;
-    }
+  if (isPublished === false || isPublished === 0) {
+    return false;
+  }
+
+  const robots = String(
+    record.robots ?? record.robotsTag ?? "",
+  ).toLowerCase();
+
+  if (
+    robots.includes("noindex") ||
+    robots.split(/[\s,]+/).includes("none")
+  ) {
+    return false;
+  }
+
+  if (record.noindex === true || record.noIndex === true) {
+    return false;
+  }
+
+  const status = String(record.status ?? "")
+    .trim()
+    .toLowerCase();
+
+  return ![
+    "draft",
+    "private",
+    "unpublished",
+    "archived",
+    "deleted",
+    "hidden",
+    "inactive",
+    "rejected",
+    "disabled",
+    "pending",
+  ].includes(status);
+}
+
+function lastmodOf(record) {
+  return (
+    record.lastmod ??
+    record.lastmod_at ??
+    record.updatedAt ??
+    record.updated_at ??
+    record.modifiedAt ??
+    record.modified_at ??
+    null
+  );
+}
+
+/* =========================================================
+   URL MAP / DEDUPLICATION
+========================================================= */
+
+function addUrl(map, candidate) {
+  const loc = cleanUrl(candidate.loc ?? candidate.path);
+
+  if (!loc) return false;
+
+  const incoming = {
+    loc,
+    lastmod: cleanDate(candidate.lastmod),
+    changefreq: cleanFreq(candidate.changefreq),
+    priority: cleanPriority(candidate.priority),
+  };
+
+  const current = map.get(loc);
+
+  if (!current) {
+    map.set(loc, incoming);
+    return true;
+  }
+
+  if (
+    incoming.lastmod &&
+    (!current.lastmod || incoming.lastmod > current.lastmod)
+  ) {
+    current.lastmod = incoming.lastmod;
+  }
+
+  current.priority = Math.max(
+    current.priority,
+    incoming.priority,
+  );
+
+  const ranks = {
+    always: 7,
+    hourly: 6,
+    daily: 5,
+    weekly: 4,
+    monthly: 3,
+    yearly: 2,
+    never: 1,
+  };
+
+  if (ranks[incoming.changefreq] > ranks[current.changefreq]) {
+    current.changefreq = incoming.changefreq;
   }
 
   return true;
 }
 
-function addUrl(urlMap, candidate) {
-  const loc = cleanPath(
-    candidate.loc || candidate.path || candidate.canonical_url,
-  );
-
-  if (!loc) {
-    return;
-  }
-
-  const incoming = {
-    loc,
-    lastmod: normalizeDate(candidate.lastmod),
-    changefreq: normalizeChangefreq(candidate.changefreq),
-    priority: normalizePriority(candidate.priority),
-  };
-
-  const existing = urlMap.get(loc);
-
-  if (!existing) {
-    urlMap.set(loc, incoming);
-    return;
-  }
-
-  if (
-    incoming.lastmod &&
-    (!existing.lastmod || incoming.lastmod > existing.lastmod)
-  ) {
-    existing.lastmod = incoming.lastmod;
-  }
-
-  existing.priority = Math.max(
-    existing.priority,
-    incoming.priority,
-  );
-}
-
-function addStaticRoutes(urlMap) {
-  for (const route of STATIC_ROUTES) {
-    addUrl(urlMap, {
-      loc: route.path,
-      changefreq: route.changefreq,
-      priority: route.priority,
-    });
+function addStaticRoutes(map) {
+  for (const [route, changefreq, priority] of STATIC_ROUTES) {
+    if (
+      !addUrl(map, {
+        loc: route,
+        changefreq,
+        priority,
+      })
+    ) {
+      throw new Error(`Invalid static route: ${route}`);
+    }
   }
 }
 
-function addDatabaseRoutes(urlMap) {
-  if (!fs.existsSync(DATABASE_PATH)) {
-    const message = `SQLite database not found at ${DATABASE_PATH}`;
+/* =========================================================
+   TYPESCRIPT STATIC DATA LOADER
+   Runs this same file in a child process with tsx.
+   No database connection is used.
+========================================================= */
 
-    if (REQUIRE_DATABASE) {
-      throw new Error(message);
+async function exportStaticDataOnly() {
+  const moduleUrl = pathToFileURL(
+    path.join(ROOT, "src", "data", "content.ts"),
+  ).href;
+
+  const content = await import(moduleUrl);
+
+  const definitions = [
+    {
+      name: "temples",
+      route: "/temples",
+      key: "TEMPLES",
+      required: true,
+    },
+    {
+      name: "pandits",
+      route: "/pandits",
+      key: "PANDITS",
+      required: true,
+    },
+    {
+      name: "services",
+      route: "/services",
+      key: "SERVICES",
+      required: true,
+    },
+    {
+      name: "ashrams",
+      route: "/ashrams",
+      key: "ASHRAMS",
+    },
+    {
+      name: "courses",
+      route: "/courses",
+      key: "COURSES",
+    },
+    {
+      name: "events",
+      route: "/events",
+      key: "EVENTS",
+    },
+    {
+      name: "spiritualPlaces",
+      route: "/spiritual-places",
+      key: "PLACES",
+    },
+    {
+      name: "packages",
+      route: "/packages",
+      key: "PACKAGES",
+    },
+    {
+      name: "articles",
+      route: "/articles",
+      key: "ARTICLES",
+    },
+  ];
+
+  const result = definitions.map((definition) => {
+    const records = content[definition.key];
+
+    if (!Array.isArray(records)) {
+      if (definition.required) {
+        throw new Error(
+          `Required export ${definition.key} is missing or is not an array in src/data/content.ts`,
+        );
+      }
+
+      return {
+        name: definition.name,
+        route: definition.route,
+        total: 0,
+        records: [],
+      };
     }
 
-    console.warn(
-      `[sitemap] WARNING: ${message}; generating static routes only.`,
-    );
-
     return {
-      seoEntries: 0,
-      locationPages: 0,
+      name: definition.name,
+      route: definition.route,
+      total: records.length,
+
+      records: records.map((record) =>
+        record && typeof record === "object"
+          ? {
+              slug: String(record.slug ?? ""),
+              lastmod: lastmodOf(record),
+
+              is_indexable:
+                record.is_indexable ??
+                record.isIndexable ??
+                record.indexable,
+
+              isPublic:
+                record.isPublic ??
+                record.is_public,
+
+              isPublished:
+                record.isPublished ??
+                record.is_published,
+
+              robots:
+                record.robots ??
+                record.robotsTag,
+
+              noindex:
+                record.noindex ??
+                record.noIndex,
+
+              status: record.status,
+            }
+          : null,
+      ),
     };
-  }
-
-  let Database;
-
-  try {
-    Database = require("better-sqlite3");
-  } catch (error) {
-    const message =
-      "Cannot load better-sqlite3. Ensure it is installed and rebuilt for this Node.js version.";
-
-    if (REQUIRE_DATABASE) {
-      throw new Error(message, { cause: error });
-    }
-
-    console.warn(
-      `[sitemap] WARNING: ${message}; generating static routes only.`,
-    );
-
-    return {
-      seoEntries: 0,
-      locationPages: 0,
-    };
-  }
-
-  const db = new Database(DATABASE_PATH, {
-    readonly: true,
-    fileMustExist: true,
   });
 
-  let seoEntries = 0;
-  let locationPages = 0;
-
-  try {
-    // Central SEO records.
-    if (tableExists(db, "seo_entries")) {
-      const columns = tableColumns(db, "seo_entries");
-
-      if (columns.has("path")) {
-        const selectColumns = [
-          "path",
-          ...(columns.has("canonical_url")
-            ? ["canonical_url"]
-            : []),
-          ...(columns.has("status") ? ["status"] : []),
-          ...(columns.has("is_indexable")
-            ? ["is_indexable"]
-            : []),
-          ...(columns.has("robots") ? ["robots"] : []),
-          ...(columns.has("lastmod_at")
-            ? ["lastmod_at"]
-            : []),
-          ...(columns.has("updated_at")
-            ? ["updated_at"]
-            : []),
-          ...(columns.has("published_at")
-            ? ["published_at"]
-            : []),
-          ...(columns.has("sitemap_priority")
-            ? ["sitemap_priority"]
-            : []),
-          ...(columns.has("sitemap_changefreq")
-            ? ["sitemap_changefreq"]
-            : []),
-        ];
-
-        const rows = db
-          .prepare(
-            `SELECT ${selectColumns
-              .map((name) => `"${name}"`)
-              .join(", ")} FROM seo_entries`,
-          )
-          .all();
-
-        for (const row of rows) {
-          if (!isIndexableRow(row)) {
-            continue;
-          }
-
-          const canonical = String(
-            row.canonical_url || "",
-          ).trim();
-
-          addUrl(urlMap, {
-            loc: canonical || row.path,
-            path: row.path,
-            lastmod:
-              row.lastmod_at ||
-              row.updated_at ||
-              row.published_at,
-            priority: row.sitemap_priority,
-            changefreq: row.sitemap_changefreq,
-          });
-
-          seoEntries += 1;
-        }
-      } else {
-        console.warn(
-          "[sitemap] seo_entries exists but has no path column; skipped.",
-        );
-      }
-    }
-
-    // Published location landing pages.
-    if (tableExists(db, "seo_location_pages")) {
-      const columns = tableColumns(db, "seo_location_pages");
-
-      if (columns.has("path")) {
-        const selectColumns = [
-          "path",
-          ...(columns.has("canonical_path")
-            ? ["canonical_path"]
-            : []),
-          ...(columns.has("status") ? ["status"] : []),
-          ...(columns.has("is_indexable")
-            ? ["is_indexable"]
-            : []),
-          ...(columns.has("lastmod_at")
-            ? ["lastmod_at"]
-            : []),
-          ...(columns.has("updated_at")
-            ? ["updated_at"]
-            : []),
-          ...(columns.has("published_at")
-            ? ["published_at"]
-            : []),
-          ...(columns.has("sitemap_priority")
-            ? ["sitemap_priority"]
-            : []),
-          ...(columns.has("sitemap_changefreq")
-            ? ["sitemap_changefreq"]
-            : []),
-        ];
-
-        const rows = db
-          .prepare(
-            `SELECT ${selectColumns
-              .map((name) => `"${name}"`)
-              .join(", ")} FROM seo_location_pages`,
-          )
-          .all();
-
-        for (const row of rows) {
-          if (!isIndexableRow(row)) {
-            continue;
-          }
-
-          addUrl(urlMap, {
-            loc: row.canonical_path || row.path,
-            lastmod:
-              row.lastmod_at ||
-              row.updated_at ||
-              row.published_at,
-            priority: row.sitemap_priority,
-            changefreq: row.sitemap_changefreq,
-          });
-
-          locationPages += 1;
-        }
-      } else {
-        console.warn(
-          "[sitemap] seo_location_pages exists but has no path column; skipped.",
-        );
-      }
-    }
-  } finally {
-    db.close();
-  }
-
-  return {
-    seoEntries,
-    locationPages,
-  };
+  console.log(`${MARKER}${JSON.stringify(result)}`);
 }
 
-function buildXml(urlMap) {
-  const entries = [...urlMap.values()].sort((a, b) =>
-    a.loc.localeCompare(b.loc),
+function readStaticListings() {
+  const child = spawnSync(
+    process.execPath,
+    ["--import", "tsx", SCRIPT],
+    {
+      cwd: ROOT,
+      encoding: "utf8",
+      maxBuffer: 30 * 1024 * 1024,
+      env: {
+        ...process.env,
+        [EXPORT_MODE]: "true",
+      },
+    },
   );
 
-  // Standard sitemap limit: 50,000 URLs per sitemap file.
-  if (entries.length > 50000) {
+  if (child.error) {
     throw new Error(
-      `Found ${entries.length} URLs. Sitemap exceeds the 50,000 URL limit; implement a sitemap index and split files.`,
+      `Could not start TypeScript loader: ${child.error.message}. Check that tsx is installed.`,
     );
   }
 
-  const xmlUrls = entries.map((entry) => {
-    const fields = [
+  if (child.status !== 0) {
+    throw new Error(
+      "Could not import src/data/content.ts through tsx. " +
+        "Check tsx installation and source imports.\n" +
+        [child.stderr, child.stdout]
+          .filter(Boolean)
+          .join("\n")
+          .trim(),
+    );
+  }
+
+  const line = child.stdout
+    .split(/\r?\n/)
+    .reverse()
+    .find((text) => text.startsWith(MARKER));
+
+  if (!line) {
+    throw new Error(
+      "Static data loader returned no JSON. Child output:\n" +
+        child.stdout,
+    );
+  }
+
+  try {
+    return JSON.parse(line.slice(MARKER.length));
+  } catch (error) {
+    throw new Error(
+      `Could not parse static listing data: ${
+        error instanceof Error
+          ? error.message
+          : error
+      }`,
+    );
+  }
+}
+
+/* =========================================================
+   CREATE DETAIL URLS FROM STATIC LISTINGS
+========================================================= */
+
+function addListingRoutes(map) {
+  const collections = readStaticListings();
+  const report = [];
+
+  for (const collection of collections) {
+    let added = 0;
+    let invalid = 0;
+    let skipped = 0;
+
+    for (const record of collection.records) {
+      if (!record || typeof record !== "object") {
+        invalid++;
+        continue;
+      }
+
+      if (!isIndexable(record)) {
+        skipped++;
+        diagnostic.noindex++;
+        continue;
+      }
+
+      const slug = cleanSlug(record.slug);
+
+      if (!slug) {
+        invalid++;
+        continue;
+      }
+
+      const loc = `${collection.route}/${slug}`;
+      const absoluteUrl = `${SITE}${loc}`;
+      const existed = map.has(absoluteUrl);
+
+      const priority =
+        collection.name === "temples" ||
+        collection.name === "services"
+          ? 0.8
+          : 0.7;
+
+      const accepted = addUrl(map, {
+        loc,
+        lastmod: record.lastmod,
+        changefreq:
+          collection.name === "events"
+            ? "weekly"
+            : "monthly",
+        priority,
+      });
+
+      if (accepted && !existed) added++;
+    }
+
+    report.push({
+      name: collection.name,
+      total: collection.total,
+      added,
+      invalid,
+      skipped,
+    });
+  }
+
+  return report;
+}
+
+/* =========================================================
+   SITEMAP XML GENERATION
+========================================================= */
+
+function buildXml(map) {
+  const entries = [...map.values()].sort(
+    (a, b) => a.loc.localeCompare(b.loc),
+  );
+
+  if (entries.length > MAX_URLS) {
+    throw new Error(
+      `Found ${entries.length} URLs; sitemap limit is ${MAX_URLS}. Split into multiple sitemaps and add a sitemap index.`,
+    );
+  }
+
+  const body = entries.map((entry) => {
+    const lines = [
       "  <url>",
       `    <loc>${xmlEscape(entry.loc)}</loc>`,
     ];
 
     if (entry.lastmod) {
-      fields.push(
+      lines.push(
         `    <lastmod>${xmlEscape(entry.lastmod)}</lastmod>`,
       );
     }
 
-    fields.push(
+    lines.push(
       `    <changefreq>${entry.changefreq}</changefreq>`,
     );
 
-    fields.push(
+    lines.push(
       `    <priority>${entry.priority.toFixed(1)}</priority>`,
+      "  </url>",
     );
 
-    fields.push("  </url>");
-
-    return fields.join("\n");
+    return lines.join("\n");
   });
 
-  return [
+  const xml = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-    ...xmlUrls,
+    ...body,
     "</urlset>",
     "",
   ].join("\n");
+
+  const bytes = Buffer.byteLength(xml, "utf8");
+
+  if (bytes > MAX_BYTES) {
+    throw new Error(
+      `Generated sitemap is ${bytes} bytes; maximum uncompressed sitemap size is 50 MB.`,
+    );
+  }
+
+  return xml;
 }
 
+/* =========================================================
+   MAIN
+========================================================= */
+
 function main() {
-  const urlMap = new Map();
+  const map = new Map();
 
-  addStaticRoutes(urlMap);
+  addStaticRoutes(map);
 
-  const stats = addDatabaseRoutes(urlMap);
+  const report = addListingRoutes(map);
+  const xml = buildXml(map);
 
-  fs.mkdirSync(path.dirname(OUTPUT_PATH), {
+  fs.mkdirSync(path.dirname(OUTPUT), {
     recursive: true,
   });
 
-  fs.writeFileSync(
-    OUTPUT_PATH,
-    buildXml(urlMap),
-    "utf8",
-  );
+  fs.writeFileSync(OUTPUT, xml, "utf8");
 
   console.log("[sitemap] Generated successfully.");
-  console.log(`[sitemap] Site: ${SITE_URL}`);
-  console.log(`[sitemap] Output: ${OUTPUT_PATH}`);
+  console.log(`[sitemap] Site origin: ${SITE}`);
+  console.log(`[sitemap] Output file: ${OUTPUT}`);
   console.log(
     `[sitemap] Static routes configured: ${STATIC_ROUTES.length}`,
   );
+
+  console.log("[sitemap] Static listing summary:");
+
+  for (const item of report) {
+    console.log(
+      `[sitemap]   ${item.name}: ${item.total} records, ` +
+        `${item.added} URLs added, ` +
+        `${item.invalid} invalid skipped, ` +
+        `${item.skipped} non-indexable skipped`,
+    );
+  }
+
+  console.log(`[sitemap] Unique URLs written: ${map.size}`);
+  console.log(`[sitemap] Public URL after deployment: ${SITE}/sitemap.xml`);
   console.log(
-    `[sitemap] SEO entries scanned: ${stats.seoEntries}`,
+    "[sitemap] Database access: disabled (static TypeScript data only).",
   );
-  console.log(
-    `[sitemap] Location pages scanned: ${stats.locationPages}`,
-  );
-  console.log(
-    `[sitemap] Unique URLs written: ${urlMap.size}`,
-  );
-  console.log(
-    `[sitemap] Public URL: ${SITE_URL}/sitemap.xml`,
-  );
+
+  if (
+    diagnostic.foreign ||
+    diagnostic.query ||
+    diagnostic.blocked ||
+    diagnostic.invalid ||
+    diagnostic.noindex
+  ) {
+    console.log(
+      `[sitemap] Filter counts: other-domain=${diagnostic.foreign}, ` +
+        `query/fragment=${diagnostic.query}, ` +
+        `blocked=${diagnostic.blocked}, ` +
+        `invalid=${diagnostic.invalid}, ` +
+        `non-indexable=${diagnostic.noindex}`,
+    );
+  }
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(
-    "[sitemap] Failed:",
-    error instanceof Error ? error.message : error,
-  );
+if (process.env[EXPORT_MODE] === "true") {
+  try {
+    await exportStaticDataOnly();
+  } catch (error) {
+    console.error(
+      "[sitemap] Static export error:",
+      error instanceof Error
+        ? error.stack || error.message
+        : error,
+    );
 
-  process.exitCode = 1;
+    process.exitCode = 1;
+  }
+} else {
+  try {
+    main();
+  } catch (error) {
+    console.error(
+      "[sitemap] Failed:",
+      error instanceof Error
+        ? error.message
+        : error,
+    );
+
+    process.exitCode = 1;
+  }
 }
