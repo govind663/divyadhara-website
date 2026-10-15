@@ -774,7 +774,7 @@ Dhanyavaad.`,
             onClick={handleBackToTop}
             aria-label="Back to top"
             title="Back to top"
-            className="group relative grid h-12 w-12 shrink-0 place-items-center rounded-full border border-amber-200/70 bg-gradient-to-br from-amber-300 via-amber-500 to-orange-600 text-[#2a1a10] shadow-[0_10px_28px_-7px_rgba(245,158,11,0.75)] transition duration-300 hover:-translate-y-1 hover:scale-110 hover:shadow-[0_14px_34px_-6px_rgba(245,158,11,0.9)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200 focus-visible:ring-offset-2 focus-visible:ring-offset-char-900 motion-reduce:transition-none"
+            className="group relative grid h-12 w-12 shrink-0 place-items-center rounded-full border border-amber-200/70 bg-linear-to-br from-amber-300 via-amber-500 to-orange-600 text-[#2a1a10] shadow-[0_10px_28px_-7px_rgba(245,158,11,0.75)] transition duration-300 hover:-translate-y-1 hover:scale-110 hover:shadow-[0_14px_34px_-6px_rgba(245,158,11,0.9)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200 focus-visible:ring-offset-2 focus-visible:ring-offset-char-900 motion-reduce:transition-none"
           >
             <span
               className="absolute inset-0 rounded-full border border-amber-200/70 opacity-70 motion-safe:animate-ping motion-reduce:animate-none"
@@ -795,7 +795,7 @@ Dhanyavaad.`,
           rel="noreferrer"
           aria-label="Chat with DivyaDhara on WhatsApp"
           title="Chat with DivyaDhara on WhatsApp"
-          className="group relative grid h-14 w-14 shrink-0 place-items-center rounded-full border border-emerald-200/80 bg-gradient-to-br from-[#39ed7d] via-[#25D366] to-[#0b9f50] text-white shadow-[0_12px_30px_-6px_rgba(37,211,102,0.75)] transition duration-300 hover:-translate-y-1 hover:scale-110 hover:shadow-[0_16px_36px_-6px_rgba(37,211,102,0.9)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-char-900 motion-reduce:transition-none"
+          className="group relative grid h-14 w-14 shrink-0 place-items-center rounded-full border border-emerald-200/80 bg-linear-to-br from-[#39ed7d] via-[#25D366] to-[#0b9f50] text-white shadow-[0_12px_30px_-6px_rgba(37,211,102,0.75)] transition duration-300 hover:-translate-y-1 hover:scale-110 hover:shadow-[0_16px_36px_-6px_rgba(37,211,102,0.9)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-char-900 motion-reduce:transition-none"
         >
           <span
             className="absolute inset-0 rounded-full bg-[#25D366]/60 motion-safe:animate-ping motion-reduce:animate-none"

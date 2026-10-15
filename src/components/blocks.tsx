@@ -1371,7 +1371,7 @@ export function EnquiryForm({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wide text-stone-500">Selected puja / services</p>
-                <p className="mt-1 break-words text-sm font-semibold text-stone-900">
+                <p className="mt-1 wrap-break-word text-sm font-semibold text-stone-900">
                   {selectedServiceNames.length ? selectedServiceNames.join(", ") : "No service selected yet"}
                 </p>
               </div>
@@ -1928,7 +1928,7 @@ export function EnquiryForm({
       {/* Honeypot — kept visually hidden for basic bot protection. */}
       <div
         aria-hidden="true"
-        className="absolute -left-[9999px] h-0 w-0 overflow-hidden"
+        className="absolute left-[-9999px] h-0 w-0 overflow-hidden"
       >
         <label htmlFor={`${instanceId}-website`}>
           Website

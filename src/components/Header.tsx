@@ -1125,7 +1125,7 @@ export default function Header() {
     <>
       <div
         id="divyadhara-google-translate"
-        className="fixed -left-[10000px] top-0 h-px w-px overflow-hidden"
+        className="fixed left-[-10000px] top-0 h-px w-px overflow-hidden"
         aria-hidden="true"
       />
       {/* ===================================================
@@ -1367,7 +1367,7 @@ export default function Header() {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 6, scale: 0.98 }}
                     transition={{ duration: 0.16 }}
-                    className="absolute right-0 top-full z-[70] mt-2 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-orange-900/10 bg-white shadow-2xl shadow-orange-950/20"
+                    className="absolute right-0 top-full z-70 mt-2 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-orange-900/10 bg-white shadow-2xl shadow-orange-950/20"
                   >
                     <div className="border-b border-orange-900/10 bg-linear-to-br from-orange-50 to-amber-50 px-4 py-3.5">
                       <div className="flex items-center gap-2">

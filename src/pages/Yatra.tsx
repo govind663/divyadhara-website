@@ -579,7 +579,7 @@ export function PlaceDetail() {
         id="place-enquiry"
         className="scroll-mt-24 px-4 pb-16 pt-8 md:px-6 lg:px-8"
       >
-        <div className="mx-auto max-w-7xl rounded-[2rem] border border-orange-200/70 bg-linear-to-br from-[#fffaf0] via-white to-orange-50/70 p-5 shadow-sm md:p-8 lg:p-10">
+        <div className="mx-auto max-w-7xl rounded-4xl border border-orange-200/70 bg-linear-to-br from-[#fffaf0] via-white to-orange-50/70 p-5 shadow-sm md:p-8 lg:p-10">
           <EnquiryIntro
             eyebrow="Your Sacred Journey"
             title={`Plan Your Visit to ${p.name}`}
@@ -762,7 +762,7 @@ export function PackageDetail() {
             <ol className="relative mt-5 space-y-5 border-l-2 border-orange-200 pl-6">
               {pk.itinerary.map((day) => (
                 <li key={day.day} className="relative">
-                  <span className="absolute left-[-2.05rem] top-0 grid h-8 w-8 place-items-center rounded-full bg-linear-to-br from-orange-600 to-amber-500 text-[10px] font-extrabold text-white ring-4 ring-[#fffdf7]">
+                  <span className="absolute left-[-2.05rem] top-0 grid h-8 w-8 place-items-center rounded-full bg-linear-to-br from-orange-600 to-amber-500 text-[10px] font-extrabold text-white ring-4 ring-cream-50">
                     {day.day.replace("Day ", "D")}
                   </span>
                   <p className="text-xs font-bold uppercase tracking-widest text-orange-700">
@@ -877,7 +877,7 @@ export function PackageDetail() {
         id="package-enquiry"
         className="scroll-mt-24 px-4 pb-16 pt-6 md:px-6 lg:px-8"
       >
-        <div className="mx-auto max-w-7xl rounded-[2rem] border border-orange-200/70 bg-linear-to-br from-[#fffaf0] via-white to-orange-50/70 p-5 shadow-sm md:p-8 lg:p-10">
+        <div className="mx-auto max-w-7xl rounded-4xl border border-orange-200/70 bg-linear-to-br from-[#fffaf0] via-white to-orange-50/70 p-5 shadow-sm md:p-8 lg:p-10">
           <EnquiryIntro
             eyebrow="Your Yatra Reservation"
             title={`Plan Your Journey: ${pk.name}`}
@@ -942,7 +942,7 @@ export function PackageEnquiry() {
         ]}
       />
 
-      <section className="mt-8 rounded-[2rem] border border-orange-200/70 bg-linear-to-br from-[#fffaf0] via-white to-orange-50/70 p-5 md:p-8 lg:p-10">
+      <section className="mt-8 rounded-4xl border border-orange-200/70 bg-linear-to-br from-[#fffaf0] via-white to-orange-50/70 p-5 md:p-8 lg:p-10">
         <EnquiryIntro
           eyebrow="Reserve Your Seat"
           title={pk ? `Enquire About ${pk.name}` : "Plan Your Yatra"}
