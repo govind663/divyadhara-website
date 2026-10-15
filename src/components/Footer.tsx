@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   CalendarDays,
@@ -20,6 +20,10 @@ import {
   Users,
   Images,
   BookOpen,
+  Instagram,
+  Youtube,
+  Facebook,
+  ArrowUp,
 } from "lucide-react";
 
 import {
@@ -46,6 +50,54 @@ const OFFICE_MAP_URL =
 
 const PHONE_HREF = `tel:${DISPLAY_PHONE.replace(/[^\d+]/g, "")}`;
 const EMAIL_HREF = `mailto:${CONTACT_EMAIL}`;
+
+/* =========================================================
+   SOCIAL MEDIA LINKS
+   Configure these in the project-root .env file.
+   YouTube defaults to the official DivyaDhara channel.
+   Instagram/Facebook are hidden until real URLs are configured.
+========================================================= */
+
+const SOCIAL_LINKS = {
+  instagram: import.meta.env.VITE_INSTAGRAM_URL?.trim() || "",
+  youtube:
+    import.meta.env.VITE_YOUTUBE_URL?.trim() ||
+    "https://www.youtube.com/@DivyaDhara-k9t",
+  facebook: import.meta.env.VITE_FACEBOOK_URL?.trim() || "",
+};
+
+type SocialItem = {
+  key: "instagram" | "youtube" | "facebook";
+  label: string;
+  href: string;
+  Icon: typeof Instagram;
+  className: string;
+};
+
+const SOCIAL_ITEMS: SocialItem[] = [
+  {
+    key: "instagram",
+    label: "Instagram",
+    href: SOCIAL_LINKS.instagram,
+    Icon: Instagram,
+    className:
+      "bg-gradient-to-br from-[#833AB4] via-[#E1306C] to-[#FCAF45]",
+  },
+  {
+    key: "youtube",
+    label: "YouTube",
+    href: SOCIAL_LINKS.youtube,
+    Icon: Youtube,
+    className: "bg-[#FF0000]",
+  },
+  {
+    key: "facebook",
+    label: "Facebook",
+    href: SOCIAL_LINKS.facebook,
+    Icon: Facebook,
+    className: "bg-[#1877F2]",
+  },
+];
 
 /* =========================================================
    FOOTER NAVIGATION TYPES
@@ -200,6 +252,26 @@ export default function Footer() {
   const [emailError, setEmailError] = useState("");
   const [emailRequested, setEmailRequested] =
     useState(false);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+
+  useEffect(() => {
+    const updateBackToTopVisibility = () => {
+      setShowBackToTop(window.scrollY > 320);
+    };
+
+    updateBackToTopVisibility();
+    window.addEventListener("scroll", updateBackToTopVisibility, {
+      passive: true,
+    });
+
+    return () => {
+      window.removeEventListener("scroll", updateBackToTopVisibility);
+    };
+  }, []);
+
+  const handleBackToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const dashboardPath = user
     ? getDashboardPathForRole(user.role)
@@ -381,7 +453,7 @@ Dhanyavaad.`,
           MAIN FOOTER
       ==================================================== */}
 
-      <div className="relative mx-auto grid max-w-7xl gap-10 px-4 py-12 md:grid-cols-[1.35fr_repeat(4,1fr)] md:px-6 lg:px-8">
+      <div className="relative mx-auto grid max-w-7xl gap-8 px-4 py-8 md:grid-cols-[1.35fr_repeat(4,1fr)] md:px-6 lg:px-8">
         {/* =================================================
             BRAND / CONTACT
         ================================================== */}
@@ -473,12 +545,12 @@ Dhanyavaad.`,
 
           {/* Direct support actions */}
 
-          <div className="mt-6 grid gap-2 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2">
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2">
             <a
               href={whatsappHref}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center justify-center gap-2 rounded-xl bg-[#25D366] px-4 py-2.5 text-xs font-bold text-white transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+              className="flex items-center justify-center gap-2 rounded-xl bg-[#25D366] px-3 py-2 text-xs font-bold text-white transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
             >
               <MessageCircle size={15} />
               WhatsApp Seva Desk
@@ -488,14 +560,63 @@ Dhanyavaad.`,
               href={OFFICE_MAP_URL}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-stone-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+              className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-stone-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
             >
               <MapPinned size={15} />
               Open Map
             </a>
           </div>
 
-          <p className="mt-5 text-[11px] leading-5 text-stone-500">
+          {/* =================================================
+              SOCIAL MEDIA — compact, horizontally aligned
+          ================================================== */}
+
+          <section
+            className="mt-4"
+            aria-label="DivyaDhara social media"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+              <h4 className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-400">
+                Connect with us
+              </h4>
+
+              <div className="flex items-center gap-2">
+                {SOCIAL_ITEMS.filter((item) => Boolean(item.href)).map(
+                  ({ key, label, href, Icon, className }) => (
+                    <a
+                      key={key}
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Visit DivyaDhara on ${label}`}
+                      title={label}
+                      className={`group inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white shadow-md transition duration-200 hover:-translate-y-0.5 hover:scale-105 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-char-900 ${className}`}
+                    >
+                      <Icon
+                        size={17}
+                        strokeWidth={2.2}
+                        aria-hidden="true"
+                      />
+                    </a>
+                  ),
+                )}
+              </div>
+            </div>
+
+            <p className="mt-1.5 max-w-xs text-[11px] leading-4 text-stone-500">
+              Temple stories, puja guidance, pilgrimage inspiration and
+              spiritual updates from DivyaDhara.
+            </p>
+
+            {(!SOCIAL_LINKS.instagram ||
+              !SOCIAL_LINKS.facebook) && (
+              <p className="mt-1 text-[10px] leading-4 text-stone-500">
+                Configure Instagram and Facebook URLs in the project-root .env file.
+              </p>
+            )}
+          </section>
+
+          <p className="mt-3 text-[11px] leading-4 text-stone-500">
             DivyaDhara Seva Desk · 7 AM – 10 PM IST
             <br />
             For bookings, enquiries, grievances and partnership
@@ -543,7 +664,7 @@ Dhanyavaad.`,
       ==================================================== */}
 
       <div className="relative border-y border-white/10 bg-black/10">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6 md:flex-row md:items-center md:justify-between md:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:flex-row md:items-center md:justify-between md:px-6 lg:px-8">
           <div>
             <p className="flex items-center gap-2 text-sm font-bold text-amber-100">
               <Compass
@@ -577,14 +698,14 @@ Dhanyavaad.`,
 
             <Link
               to="/services"
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-stone-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-stone-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
             >
               Puja Services
             </Link>
 
             <Link
               to="/rashifal"
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs font-bold text-stone-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-stone-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
             >
               Rashifal
             </Link>
@@ -642,28 +763,58 @@ Dhanyavaad.`,
       </div>
 
       {/* ===================================================
-          FLOATING WHATSAPP
+          FLOATING ACTIONS — WHATSAPP + BACK TO TOP
+          Aligned together and styled for DivyaDhara's saffron/gold theme.
       ==================================================== */}
 
-      <a
-        href={whatsappHref}
-        target="_blank"
-        rel="noreferrer"
-        aria-label="Chat with DivyaDhara on WhatsApp"
-        className="fixed bottom-5 right-5 z-50 grid h-14 w-14 place-items-center rounded-full bg-[#25D366] text-white shadow-[0_12px_30px_-6px_rgba(37,211,102,0.7)] transition hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2"
-      >
-        <MessageCircle
-          size={26}
-          fill="currentColor"
-          strokeWidth={0}
-          aria-hidden="true"
-        />
+      <div className="fixed bottom-5 right-4 z-50 flex items-center gap-3 sm:right-5 sm:gap-3.5">
+        {showBackToTop && (
+          <button
+            type="button"
+            onClick={handleBackToTop}
+            aria-label="Back to top"
+            title="Back to top"
+            className="group relative grid h-12 w-12 shrink-0 place-items-center rounded-full border border-amber-200/70 bg-gradient-to-br from-amber-300 via-amber-500 to-orange-600 text-[#2a1a10] shadow-[0_10px_28px_-7px_rgba(245,158,11,0.75)] transition duration-300 hover:-translate-y-1 hover:scale-110 hover:shadow-[0_14px_34px_-6px_rgba(245,158,11,0.9)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200 focus-visible:ring-offset-2 focus-visible:ring-offset-char-900 motion-reduce:transition-none"
+          >
+            <span
+              className="absolute inset-0 rounded-full border border-amber-200/70 opacity-70 motion-safe:animate-ping motion-reduce:animate-none"
+              aria-hidden="true"
+            />
+            <ArrowUp
+              size={22}
+              strokeWidth={2.8}
+              className="relative transition-transform duration-300 group-hover:-translate-y-1 motion-reduce:transition-none"
+              aria-hidden="true"
+            />
+          </button>
+        )}
 
-        <span
-          className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-red-500"
-          aria-hidden="true"
-        />
-      </a>
+        <a
+          href={whatsappHref}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Chat with DivyaDhara on WhatsApp"
+          title="Chat with DivyaDhara on WhatsApp"
+          className="group relative grid h-14 w-14 shrink-0 place-items-center rounded-full border border-emerald-200/80 bg-gradient-to-br from-[#39ed7d] via-[#25D366] to-[#0b9f50] text-white shadow-[0_12px_30px_-6px_rgba(37,211,102,0.75)] transition duration-300 hover:-translate-y-1 hover:scale-110 hover:shadow-[0_16px_36px_-6px_rgba(37,211,102,0.9)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-char-900 motion-reduce:transition-none"
+        >
+          <span
+            className="absolute inset-0 rounded-full bg-[#25D366]/60 motion-safe:animate-ping motion-reduce:animate-none"
+            aria-hidden="true"
+          />
+          <MessageCircle
+            size={26}
+            fill="currentColor"
+            strokeWidth={0}
+            className="relative drop-shadow-sm transition-transform duration-300 group-hover:rotate-[-8deg] motion-reduce:transition-none"
+            aria-hidden="true"
+          />
+
+          <span
+            className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-orange-500 shadow-sm"
+            aria-hidden="true"
+          />
+        </a>
+      </div>
     </footer>
   );
 }
