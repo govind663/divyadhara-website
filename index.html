@@ -1,36 +1,89 @@
 <!doctype html>
 <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
 
-<head>
-  <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/YouTube_Chanel_Icon.svg" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="/YouTube_Chanel_Icon.svg"
+    />
 
-  <meta name="description" content="DivyaDhara — India's premium digital spiritual ecosystem. Discover temples, book pandits & pujas, explore ashrams, courses, Panchang, events and sacred yatras." />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
 
-  <meta name="theme-color" content="#c2410c" />
+    <meta
+      name="description"
+      content="DivyaDhara — India's premium digital spiritual ecosystem. Discover temples, book pandits & pujas, explore ashrams, courses, Panchang, events and sacred yatras."
+    />
 
-  <meta property="og:site_name" content="DivyaDhara" />
-  <meta property="og:type" content="website" />
+    <meta name="theme-color" content="#c2410c" />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <meta property="og:site_name" content="DivyaDhara" />
+    <meta property="og:type" content="website" />
 
-  <link
-    href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Inter:wght@300..800&family=Tiro+Devanagari+Sanskrit:ital@0;1&display=swap"
-    rel="stylesheet" />
+    <!-- Font connections -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin
+    />
 
-  <title>
-    DivyaDhara — Temples, Pandits, Pujas, Yatras & Spiritual Wisdom of India
-  </title>
+    <!-- Google Analytics connection -->
+    <link
+      rel="preconnect"
+      href="https://www.googletagmanager.com"
+    />
 
-  
-</head>
+    <!-- Website fonts -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Inter:wght@300..800&family=Tiro+Devanagari+Sanskrit:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
 
-<body>
-  <div id="root"></div>
+    <title>
+      DivyaDhara — Temples, Pandits, Pujas, Yatras & Spiritual Wisdom of India
+    </title>
 
-  <script type="module" src="/src/main.tsx"></script>
-</body>
+    <!-- =========================================================
+      GOOGLE ANALYTICS 4
+      Measurement ID: G-0SNJG66G5W
+      React Router will send page_view events manually.
+    ========================================================= -->
+    <script>
+      window.dataLayer = window.dataLayer || [];
 
+      window.gtag = function () {
+        window.dataLayer.push(arguments);
+      };
+    </script>
+
+    <script
+      async
+      src="https://www.googletagmanager.com/gtag/js?id=G-0SNJG66G5W"
+    ></script>
+
+    <script>
+      window.gtag("js", new Date());
+
+      // Disable automatic page views.
+      // GoogleAnalytics.tsx handles SPA navigation page views.
+      window.gtag("config", "G-0SNJG66G5W", {
+        send_page_view: false,
+      });
+
+      // Tell analytics.ts that the Google tag is already initialized.
+      window.__divyaDharaGAInitialized = true;
+    </script>
+  </head>
+
+  <body>
+    <div id="root"></div>
+
+    <!-- React application -->
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
