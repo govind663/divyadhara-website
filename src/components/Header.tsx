@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability */
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -20,6 +21,7 @@ import {
   Compass,
   Crown,
   Flame,
+  Globe,
   Heart,
   Images,
   Landmark,
@@ -40,12 +42,28 @@ import {
   useApp,
 } from "../context/AppContext";
 import { waLink, cx } from "../lib/utils";
+
 import {
   TEMPLES,
   SERVICES,
   PLACES,
   PACKAGES,
 } from "../data/content";
+
+declare global {
+  interface Window {
+    googleTranslateElementInit?: () => void;
+    __divyaDharaPendingLanguage?: string;
+    google?: {
+      translate?: {
+        TranslateElement: new (
+          options: { pageLanguage: string; includedLanguages: string; autoDisplay?: boolean },
+          elementId: string,
+        ) => unknown;
+      };
+    };
+  }
+}
 
 /* =========================================================
    TYPES
@@ -281,6 +299,56 @@ const MOBILE_LINKS: MobileNavItem[] = LINKS.map(
           href: link.href,
         },
 );
+
+/**
+ * Indian language choices for the in-page Google Translate widget.
+ * State names are discoverability hints; translation availability is still
+ * controlled by Google's website widget and its currently supported languages.
+ */
+const TRANSLATION_LANGUAGES = [
+  { code: "en", label: "English", native: "English", region: "Pan-India", states: "All States and Union Territories" },
+  { code: "hi", label: "Hindi", native: "हिन्दी", region: "North & Central India", states: "Uttar Pradesh, Madhya Pradesh, Bihar, Rajasthan, Haryana, Himachal Pradesh, Uttarakhand, Delhi, Chhattisgarh, Jharkhand" },
+  { code: "doi", label: "Dogri", native: "डोगरी", region: "North India", states: "Jammu and Kashmir" },
+  { code: "ks", label: "Kashmiri", native: "कॉशुर", region: "North India", states: "Jammu and Kashmir" },
+  { code: "pa", label: "Punjabi", native: "ਪੰਜਾਬੀ", region: "North India", states: "Punjab, Chandigarh, Haryana, Delhi" },
+  { code: "sd", label: "Sindhi", native: "سنڌي", region: "West & North India", states: "Sindhi-speaking communities across India, especially Gujarat, Maharashtra and Rajasthan" },
+  { code: "bn", label: "Bengali", native: "বাংলা", region: "East & Northeast India", states: "West Bengal, Tripura, Assam, Jharkhand" },
+  { code: "as", label: "Assamese", native: "অসমীয়া", region: "Northeast India", states: "Assam" },
+  { code: "brx", label: "Bodo", native: "बड़ो", region: "Northeast India", states: "Assam" },
+  { code: "mni-Mtei", label: "Manipuri (Meitei)", native: "মৈতৈলোন্", region: "Northeast India", states: "Manipur" },
+  { code: "ne", label: "Nepali", native: "नेपाली", region: "Northeast & East India", states: "Sikkim, West Bengal (Darjeeling and Kalimpong), Assam" },
+  { code: "or", label: "Odia", native: "ଓଡ଼ିଆ", region: "East India", states: "Odisha" },
+  { code: "mai", label: "Maithili", native: "मैथिली", region: "East India", states: "Bihar, Jharkhand" },
+  { code: "bho", label: "Bhojpuri", native: "भोजपुरी", region: "East & North India", states: "Bihar, eastern Uttar Pradesh, Jharkhand" },
+  { code: "gu", label: "Gujarati", native: "ગુજરાતી", region: "West India", states: "Gujarat, Dadra and Nagar Haveli and Daman and Diu, Maharashtra" },
+  { code: "kok", label: "Konkani", native: "कोंकणी", region: "West India", states: "Goa, coastal Karnataka, Maharashtra" },
+  { code: "mr", label: "Marathi", native: "मराठी", region: "West & Central India", states: "Maharashtra, Goa, parts of Madhya Pradesh and Karnataka" },
+  { code: "kn", label: "Kannada", native: "ಕನ್ನಡ", region: "South India", states: "Karnataka" },
+  { code: "ml", label: "Malayalam", native: "മലയാളം", region: "South India", states: "Kerala, Lakshadweep" },
+  { code: "ta", label: "Tamil", native: "தமிழ்", region: "South India", states: "Tamil Nadu, Puducherry" },
+  { code: "te", label: "Telugu", native: "తెలుగు", region: "South & Central India", states: "Andhra Pradesh, Telangana, parts of Karnataka and Tamil Nadu" },
+  { code: "sa", label: "Sanskrit", native: "संस्कृतम्", region: "Pan-India", states: "Classical language studied and used in traditions across India" },
+  { code: "sat", label: "Santali", native: "ᱥᱟᱱᱛᱟᱲᱤ", region: "East & Central India", states: "Jharkhand, Odisha, West Bengal, Assam" },
+  { code: "ur", label: "Urdu", native: "اردو", region: "Pan-India", states: "Widely used across multiple states and Union Territories" },
+] as const;
+
+const TRANSLATION_REGIONS = [
+  "Pan-India",
+  "North India",
+  "North & Central India",
+  "North & East India",
+  "East India",
+  "East & North India",
+  "East & Northeast India",
+  "Northeast India",
+  "Northeast & East India",
+  "West India",
+  "West & North India",
+  "West & Central India",
+  "South India",
+  "South & Central India",
+  "East & Central India",
+] as const;
 
 /* =========================================================
    CHILD ICONS
@@ -595,12 +663,126 @@ export default function Header() {
   const [scrolled, setScrolled] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const [languageQuery, setLanguageQuery] = useState("");
   const [q, setQ] = useState("");
 
   const searchButtonRef = useRef<HTMLButtonElement>(null);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const mobileDialogRef = useRef<HTMLElement>(null);
+
+  // Google Website Translator runs in-page without a Cloud API key.
+  // Keep its native controls off-canvas and suppress the injected top banner
+  // so it does not push the original DivyaDhara layout down.
+  useEffect(() => {
+    const styleId = "divyadhara-google-translate-fixes";
+    let style = document.getElementById(styleId) as HTMLStyleElement | null;
+
+    if (!style) {
+      style = document.createElement("style");
+      style.id = styleId;
+      style.textContent = `
+        html { scroll-padding-top: 5rem; }
+        body { top: 0 !important; position: static !important; }
+        .goog-te-banner-frame,
+        iframe.goog-te-banner-frame,
+        .skiptranslate > iframe,
+        #goog-gt-tt,
+        .goog-te-balloon-frame,
+        .goog-te-menu-frame { visibility: hidden !important; display: none !important; }
+        .goog-te-spinner-pos { display: none !important; }
+        body > .skiptranslate { display: none !important; }
+        #divyadhara-google-translate,
+        #divyadhara-google-translate * { max-width: 1px !important; }
+      `;
+      document.head.appendChild(style);
+    }
+
+    const keepPageAtTop = () => {
+      if (document.body.style.top && document.body.style.top !== "0px") {
+        document.body.style.top = "0px";
+      }
+      const banner = document.querySelector<HTMLElement>(
+        ".goog-te-banner-frame, iframe.goog-te-banner-frame",
+      );
+      if (banner) {
+        banner.style.setProperty("display", "none", "important");
+        banner.style.setProperty("visibility", "hidden", "important");
+      }
+    };
+
+    const observer = new MutationObserver(keepPageAtTop);
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["style", "class"],
+    });
+    keepPageAtTop();
+
+    const applyPendingLanguage = () => {
+      const pendingLanguage = window.__divyaDharaPendingLanguage;
+      const combo = document.querySelector<HTMLSelectElement>(".goog-te-combo");
+      if (!pendingLanguage || !combo) return false;
+
+      combo.value = pendingLanguage === "en" ? "" : pendingLanguage;
+      combo.dispatchEvent(new Event("change", { bubbles: true }));
+      delete window.__divyaDharaPendingLanguage;
+      return true;
+    };
+
+    const initializeWidget = () => {
+      const TranslateElement = window.google?.translate?.TranslateElement;
+      if (!TranslateElement) return;
+
+      const container = document.getElementById("divyadhara-google-translate");
+      if (!container || container.dataset.initialized === "true") {
+        applyPendingLanguage();
+        return;
+      }
+
+      new TranslateElement(
+        {
+          pageLanguage: "en",
+          includedLanguages: TRANSLATION_LANGUAGES.map((language) => language.code).join(","),
+          autoDisplay: false,
+        },
+        "divyadhara-google-translate",
+      );
+      container.dataset.initialized = "true";
+
+      // Google creates its select asynchronously; retry briefly instead of
+      // losing a language choice made while the widget was still loading.
+      let attempts = 0;
+      const applyWhenReady = () => {
+        if (applyPendingLanguage() || attempts++ >= 30) return;
+        window.setTimeout(applyWhenReady, 200);
+      };
+      applyWhenReady();
+    };
+
+    window.googleTranslateElementInit = initializeWidget;
+
+    if (window.google?.translate?.TranslateElement) {
+      initializeWidget();
+    } else {
+      let script = document.getElementById("divyadhara-google-translate-script") as HTMLScriptElement | null;
+      if (!script) {
+        script = document.createElement("script");
+        script.id = "divyadhara-google-translate-script";
+        script.src = "https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
+        script.async = true;
+        script.onerror = () => {
+          // Keep the site's navigation usable if the third-party script fails.
+          delete window.googleTranslateElementInit;
+        };
+        document.head.appendChild(script);
+      }
+    }
+
+    return () => observer.disconnect();
+  }, []);
 
   const { user } = useApp();
   const loc = useLocation();
@@ -640,6 +822,8 @@ export default function Header() {
   useEffect(() => {
     setMobile(false);
     setSearchOpen(false);
+    setLanguageOpen(false);
+    setLanguageQuery("");
     setQ("");
   }, [loc.pathname]);
 
@@ -661,7 +845,9 @@ export default function Header() {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
 
-      if (searchOpen) {
+      if (languageOpen) {
+        setLanguageOpen(false);
+      } else if (searchOpen) {
         setSearchOpen(false);
         setQ("");
         window.requestAnimationFrame(() => searchButtonRef.current?.focus());
@@ -673,7 +859,7 @@ export default function Header() {
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [mobile, searchOpen]);
+  }, [mobile, searchOpen, languageOpen]);
 
   useEffect(() => {
     if (searchOpen) {
@@ -881,12 +1067,67 @@ export default function Header() {
     nav(href);
   };
 
+  const changeSiteLanguage = (targetLanguage: string) => {
+    setLanguageOpen(false);
+    setLanguageQuery("");
+
+    // Google Translate changes the rendered DOM and stores its selection in a
+    // `googtrans` cookie. Clearing that state and reloading is the most
+    // reliable way to restore the untouched source page when English is chosen.
+    if (targetLanguage === "en") {
+      window.__divyaDharaPendingLanguage = "en";
+      const hostname = window.location.hostname;
+      const parentDomain = hostname.split(".").slice(-2).join(".");
+      const cookiePaths = ["/", window.location.pathname || "/"];
+      const cookieDomains = ["", `; domain=${hostname}`, `; domain=.${hostname}`, `; domain=${parentDomain}`, `; domain=.${parentDomain}`];
+
+      for (const path of cookiePaths) {
+        for (const domain of cookieDomains) {
+          document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=${path}${domain}; SameSite=Lax`;
+        }
+      }
+
+      const combo = document.querySelector<HTMLSelectElement>(".goog-te-combo");
+      if (combo) {
+        combo.value = "";
+        combo.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+
+      // Reload removes text that the widget already replaced in the DOM.
+      window.setTimeout(() => window.location.reload(), 80);
+      return;
+    }
+
+    const applyLanguage = (attempt = 0) => {
+      const combo = document.querySelector<HTMLSelectElement>(".goog-te-combo");
+      if (combo) {
+        const optionExists = Array.from(combo.options).some((option) => option.value === targetLanguage);
+        if (optionExists) {
+          combo.value = targetLanguage;
+          combo.dispatchEvent(new Event("change", { bubbles: true }));
+          delete window.__divyaDharaPendingLanguage;
+          return;
+        }
+      }
+
+      window.__divyaDharaPendingLanguage = targetLanguage;
+      if (attempt < 30) window.setTimeout(() => applyLanguage(attempt + 1), 200);
+    };
+
+    applyLanguage();
+  };
+
   const generalWhatsappHref = waLink(
     "Namaste DivyaDhara! 🙏 I need guidance for darshan, puja, pandit, Ashram, yatra or spiritual learning.",
   );
 
   return (
     <>
+      <div
+        id="divyadhara-google-translate"
+        className="fixed -left-[10000px] top-0 h-px w-px overflow-hidden"
+        aria-hidden="true"
+      />
       {/* ===================================================
           TRUST STRIP
       ==================================================== */}
@@ -1096,6 +1337,126 @@ export default function Header() {
           </nav>
 
           <div className="flex items-center gap-2">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setLanguageOpen((open) => !open)}
+                aria-label="Translate DivyaDhara website"
+                aria-haspopup="menu"
+                aria-expanded={languageOpen}
+                aria-controls="divyadhara-language-menu"
+                title="Read in your language"
+                className="flex h-10 items-center justify-center gap-1.5 rounded-full border border-orange-900/15 bg-white px-2.5 text-stone-700 transition hover:border-orange-500 hover:text-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 sm:px-3"
+              >
+                <Globe size={17} aria-hidden="true" />
+                <span className="hidden text-xs font-semibold sm:inline">Language</span>
+                <ChevronDown
+                  size={13}
+                  className={cx("hidden transition sm:block", languageOpen && "rotate-180")}
+                  aria-hidden="true"
+                />
+              </button>
+
+              <AnimatePresence>
+                {languageOpen && (
+                  <motion.div
+                    id="divyadhara-language-menu"
+                    role="menu"
+                    aria-label="Choose website language"
+                    initial={{ opacity: 0, y: 6, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 6, scale: 0.98 }}
+                    transition={{ duration: 0.16 }}
+                    className="absolute right-0 top-full z-[70] mt-2 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-orange-900/10 bg-white shadow-2xl shadow-orange-950/20"
+                  >
+                    <div className="border-b border-orange-900/10 bg-linear-to-br from-orange-50 to-amber-50 px-4 py-3.5">
+                      <div className="flex items-center gap-2">
+                        <span className="grid h-9 w-9 place-items-center rounded-xl bg-white text-orange-700 shadow-sm">
+                          <Globe size={18} aria-hidden="true" />
+                        </span>
+                        <div>
+                          <p className="text-sm font-bold text-stone-900">Choose your language</p>
+                          <p className="mt-0.5 text-xs text-stone-600">भारत की भाषाएँ · All India</p>
+                        </div>
+                      </div>
+                      <label className="mt-3 flex items-center gap-2 rounded-xl border border-orange-900/10 bg-white px-3 py-2.5 focus-within:ring-2 focus-within:ring-orange-300">
+                        <Search size={15} className="shrink-0 text-stone-400" aria-hidden="true" />
+                        <input
+                          type="search"
+                          value={languageQuery}
+                          onChange={(event) => setLanguageQuery(event.target.value)}
+                          placeholder="Search language or state…"
+                          aria-label="Search by language or state"
+                          className="min-w-0 w-full bg-transparent text-sm text-stone-800 outline-none placeholder:text-stone-400"
+                        />
+                        {languageQuery && (
+                          <button type="button" onClick={() => setLanguageQuery("")} aria-label="Clear language search" className="rounded p-0.5 text-stone-400 hover:text-stone-700">
+                            <X size={14} />
+                          </button>
+                        )}
+                      </label>
+                    </div>
+
+                    <div className="max-h-[min(62vh,460px)] overflow-y-auto p-2.5">
+                      {TRANSLATION_REGIONS.map((region) => {
+                        const languages = TRANSLATION_LANGUAGES.filter((language) => {
+                          const matchesRegion = language.region === region;
+                          const search = normalizeSearchText(languageQuery);
+                          const matchesSearch = !search ||
+                            normalizeSearchText(language.label).includes(search) ||
+                            normalizeSearchText(language.native).includes(search) ||
+                            normalizeSearchText(language.states).includes(search) ||
+                            normalizeSearchText(language.region).includes(search);
+                          return matchesRegion && matchesSearch;
+                        });
+
+                        if (!languages.length) return null;
+
+                        return (
+                          <section key={region} className="mb-3 last:mb-0">
+                            <p className="px-2 pb-1.5 pt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-orange-800/80">{region}</p>
+                            <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                              {languages.map((language) => (
+                                <button
+                                  key={language.code}
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => changeSiteLanguage(language.code)}
+                                  title={`Used in: ${language.states}`}
+                                  className="group flex min-w-0 items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-left transition hover:border-orange-200 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+                                >
+                                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-stone-100 text-[11px] font-bold text-stone-600 transition group-hover:bg-white group-hover:text-orange-800">{language.code === "en" ? "EN" : language.code.toUpperCase().slice(0, 2)}</span>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block truncate text-sm font-semibold text-stone-800">{language.label}</span>
+                                    <span className="block truncate text-xs text-stone-500">{language.native} · {language.states}</span>
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          </section>
+                        );
+                      })}
+
+                      {!TRANSLATION_LANGUAGES.some((language) => {
+                        const search = normalizeSearchText(languageQuery);
+                        return !search || normalizeSearchText(language.label).includes(search) || normalizeSearchText(language.native).includes(search) || normalizeSearchText(language.states).includes(search) || normalizeSearchText(language.region).includes(search);
+                      }) && (
+                        <div className="px-4 py-8 text-center">
+                          <Globe size={22} className="mx-auto mb-2 text-stone-300" />
+                          <p className="text-sm font-semibold text-stone-700">No matching language found</p>
+                          <p className="mt-1 text-xs text-stone-500">Try a language name or a state name.</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <p className="border-t border-orange-900/10 bg-stone-50 px-3 py-2 text-[10px] leading-4 text-stone-500">
+                      Translation stays on this page. Availability depends on Google Translate; sacred names and terms may need verification.
+                    </p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
             <button
               ref={searchButtonRef}
               type="button"
