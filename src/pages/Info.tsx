@@ -1,560 +1,1225 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import {
-  HeartHandshake,
-  Eye,
-  Compass,
-  Users,
-  Landmark,
-  BookOpen,
-  ShieldCheck,
-  ArrowRight,
   MapPin,
-  Phone,
-  Mail,
+  Clock,
+  CalendarDays,
   MessageCircle,
-  Send,
-  CheckCircle2,
+  Users,
+  Ticket,
+  Sparkles,
+  ArrowRight,
+  CalendarCheck,
+  Compass,
+  Camera,
+  Search,
+  SlidersHorizontal,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Instagram,
+  Facebook,
+  Linkedin,
+  AtSign,
+  Share2,
+  Copy,
 } from "lucide-react";
-import { useSEO, orgSchema } from "../lib/seo";
-import { Breadcrumbs, Reveal, SectionHead, Counter } from "../components/ui";
-import { PageHero, WhatsAppBand } from "../components/blocks";
-import { waLink, DISPLAY_PHONE, CONTACT_EMAIL } from "../lib/utils";
 
-const OFFICE_ADDRESS =
-  "Nav Durga Niwas, Plot No. 473, Sector 4, Ghansoli, Navi Mumbai – 400701, Maharashtra, India";
+import { EVENTS } from "../data/content";
+import { useSEO } from "../lib/seo";
+import { Breadcrumbs, Reveal, SectionHead } from "../components/ui";
+import { EventCard } from "../components/cards";
+import {
+  EnquiryForm,
+  PageHero,
+  WhatsAppBand,
+} from "../components/blocks";
+import { waLink, formatDate } from "../lib/utils";
 
-const OFFICE_MAP_URL =
-  "https://www.google.com/maps?q=Nav+Durga+Niwas,+Plot+No.+473,+Sector+4,+Ghansoli,+Navi+Mumbai+400701,+Maharashtra,+India&output=embed";
+/* =========================================================
+   EVENTS LIST + SEARCH / FILTER / PAGINATION
+========================================================= */
 
-const OFFICE_MAP_SEARCH_URL =
-  "https://www.google.com/maps/search/?api=1&query=Nav+Durga+Niwas,+Plot+No.+473,+Sector+4,+Ghansoli,+Navi+Mumbai+400701,+Maharashtra,+India";
+const EVENT_PAGE_SIZE = 6;
 
-export function About() {
+type EventDateScope = "all" | "upcoming" | "past";
+
+function getEventTimestamp(value: string): number | null {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.getTime();
+}
+
+function isEventUpcoming(value: string): boolean {
+  const timestamp = getEventTimestamp(value);
+  if (timestamp === null) return false;
+
+  const eventDay = new Date(timestamp);
+  eventDay.setHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return eventDay.getTime() >= today.getTime();
+}
+
+function getEventSearchText(event: (typeof EVENTS)[number]): string {
+  return [
+    event.title,
+    event.category,
+    event.description,
+    event.venue,
+    event.city,
+    event.organizer,
+    event.time,
+    ...(event.schedule ?? []).map((item) => `${item.t} ${item.item}`),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function EventShareButtons({
+  event,
+  compact = false,
+}: {
+  event: (typeof EVENTS)[number];
+  compact?: boolean;
+}) {
+  const [message, setMessage] = useState("");
+
+  const pageUrl =
+    typeof window === "undefined"
+      ? `https://divya-dhara.in/events/${event.slug}`
+      : `${window.location.origin}/events/${event.slug}`;
+
+  const shareText = `${event.title} | ${formatDate(event.date)}\n${event.venue}, ${event.city}\nExplore event details on DivyaDhara: ${pageUrl}`;
+  const encodedUrl = encodeURIComponent(pageUrl);
+  const encodedText = encodeURIComponent(shareText);
+
+  const socialLinks = [
+    {
+      id: "whatsapp",
+      label: "WhatsApp",
+      icon: MessageCircle,
+      className: "bg-[#25D366] text-white hover:bg-[#128C7E] hover:shadow-[0_8px_22px_rgba(37,211,102,0.35)]",
+      url: `https://wa.me/?text=${encodedText}`,
+    },
+    {
+      id: "instagram",
+      label: "Instagram",
+      icon: Instagram,
+      className: "bg-gradient-to-tr from-[#FEDA75] via-[#D62976] to-[#4F5BD5] text-white hover:shadow-[0_8px_22px_rgba(214,41,118,0.35)]",
+      url: null,
+    },
+    {
+      id: "facebook",
+      label: "Facebook",
+      icon: Facebook,
+      className: "bg-[#1877F2] text-white hover:shadow-[0_8px_22px_rgba(24,119,242,0.35)]",
+      url: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
+    },
+    {
+      id: "linkedin",
+      label: "LinkedIn",
+      icon: Linkedin,
+      className: "bg-[#0A66C2] text-white hover:shadow-[0_8px_22px_rgba(10,102,194,0.35)]",
+      url: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`,
+    },
+    {
+      id: "threads",
+      label: "Threads",
+      icon: AtSign,
+      className: "bg-[#101010] text-white hover:bg-[#303030] hover:shadow-[0_8px_22px_rgba(0,0,0,0.25)]",
+      url: `https://www.threads.net/intent/post?text=${encodedText}`,
+    },
+  ] as const;
+
+  async function copy(text: string) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setMessage("Event link and details copied.");
+        return;
+      }
+    } catch {
+      // Continue to the fallback below.
+    }
+
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const success = document.execCommand("copy");
+      document.body.removeChild(textarea);
+
+      if (success) {
+        setMessage("Event link and details copied.");
+        return;
+      }
+    } catch {
+      // The manual copy prompt below is the final fallback.
+    }
+
+    window.prompt("Copy event details:", text);
+    setMessage("Copy the event details from the prompt.");
+  }
+
+  return (
+    <div className="min-w-0">
+      <div className="flex flex-wrap items-center gap-2">
+        {!compact && (
+          <span className="mr-1 inline-flex items-center gap-1.5 text-xs font-bold text-stone-600">
+            <Share2 size={14} /> Share event
+          </span>
+        )}
+
+        {socialLinks.map((social) => {
+          const Icon = social.icon;
+
+          return (
+            <button
+              key={social.id}
+              type="button"
+              onClick={() => {
+                if (social.id === "instagram") {
+                  void copy(shareText);
+                  window.open("https://www.instagram.com/", "_blank", "noopener,noreferrer");
+                  return;
+                }
+
+                window.open(social.url ?? pageUrl, "_blank", "noopener,noreferrer");
+                setMessage(`Opening ${social.label} sharing.`);
+              }}
+              className={`group relative inline-flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-transparent shadow-sm transition-all duration-300 ease-out hover:-translate-y-1.5 hover:scale-110 hover:rotate-3 hover:shadow-lg active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none ${social.className}`}
+              title={`Share on ${social.label}`}
+              aria-label={`Share ${event.title} on ${social.label}`}
+            >
+              <Icon size={compact ? 17 : 19} strokeWidth={2.2} className="relative z-10 transition-transform duration-300 group-hover:scale-110" />
+              <span aria-hidden="true" className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full motion-reduce:transition-none" />
+            </button>
+          );
+        })}
+
+        <button
+          type="button"
+          onClick={() => void copy(shareText)}
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-orange-900/15 bg-[#fff8ed] text-[#5b3927] transition-all duration-300 hover:-translate-y-1 hover:scale-110 hover:bg-orange-100 hover:shadow-md active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 motion-reduce:transform-none motion-reduce:transition-none"
+          title="Copy event link"
+          aria-label={`Copy link for ${event.title}`}
+        >
+          <Copy size={16} />
+        </button>
+      </div>
+
+      {message && (
+        <p className="mt-2 text-xs text-emerald-700" role="status" aria-live="polite">
+          {message}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function EventList() {
+  const [query, setQuery] = useState("");
+  const [cat, setCat] = useState("");
+  const [city, setCity] = useState("");
+  const [dateScope, setDateScope] = useState<EventDateScope>("all");
+  const [page, setPage] = useState(1);
+
   useSEO({
-    title: "About DivyaDhara — Mission, Trust & Philosophy | DivyaDhara",
+    title: "Spiritual Events in India — Festivals, Katha & Satsang | DivyaDhara",
     description:
-      "DivyaDhara is India's premium digital spiritual ecosystem — our story, mission, philosophy, verification promise and community seva.",
-    path: "/about",
-    schema: orgSchema(),
+      "Discover spiritual festivals, Bhagavat Katha, satsangs, yoga gatherings, Rath Yatra and cultural programmes across India. Search events by name, category, city and date, and enquire about registration.",
+    path: "/events",
   });
+
+  const categories = useMemo(
+    () => [...new Set(EVENTS.map((event) => event.category).filter(Boolean))].sort(),
+    [],
+  );
+
+  const cities = useMemo(
+    () => [...new Set(EVENTS.map((event) => event.city).filter(Boolean))].sort(),
+    [],
+  );
+
+  const filteredEvents = useMemo(() => {
+    const search = query.trim().toLowerCase();
+
+    const filtered = EVENTS.filter((event) => {
+      const matchesSearch = !search || getEventSearchText(event).includes(search);
+      const matchesCategory = !cat || event.category === cat;
+      const matchesCity = !city || event.city === city;
+      const upcoming = isEventUpcoming(event.date);
+      const matchesDate =
+        dateScope === "all" ||
+        (dateScope === "upcoming" && upcoming) ||
+        (dateScope === "past" && !upcoming);
+
+      return matchesSearch && matchesCategory && matchesCity && matchesDate;
+    });
+
+    return filtered.sort((a, b) => {
+      const timeA = getEventTimestamp(a.date);
+      const timeB = getEventTimestamp(b.date);
+
+      // Known dates first; upcoming events appear before past events.
+      if (timeA === null && timeB === null) return a.title.localeCompare(b.title);
+      if (timeA === null) return 1;
+      if (timeB === null) return -1;
+
+      const upcomingA = isEventUpcoming(a.date);
+      const upcomingB = isEventUpcoming(b.date);
+      if (upcomingA !== upcomingB) return upcomingA ? -1 : 1;
+
+      return upcomingA ? timeA - timeB : timeB - timeA;
+    });
+  }, [query, cat, city, dateScope]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredEvents.length / EVENT_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const visibleEvents = filteredEvents.slice(
+    (safePage - 1) * EVENT_PAGE_SIZE,
+    safePage * EVENT_PAGE_SIZE,
+  );
+
+  function resetFilters() {
+    setQuery("");
+    setCat("");
+    setCity("");
+    setDateScope("all");
+    setPage(1);
+  }
 
   return (
     <>
       <PageHero
-        eyebrow="About · Our Sankalpa"
-        title="Carrying Bharat's Sacred Light, Digitally"
-        sub="We are sevaks first, technologists second — building the trusted bridge between timeless tradition and modern pilgrims."
-        image="/images/hero-varanasi.jpeg"
+        eyebrow="Utsav · Satsang · Katha"
+        title="Spiritual Events"
+        sub="Discover festivals, kathas, satsangs and cultural programmes that bring India's spiritual traditions to life. Explore event details, venues, programme schedules and registration enquiries."
+        image="/images/festival-crowd.jpeg"
       />
 
-      <div className="mx-auto max-w-7xl px-4 py-10 md:px-6 lg:px-8">
+      <main className="mx-auto max-w-7xl px-4 py-8 md:px-6 lg:px-8">
         <Breadcrumbs
           items={[
             { label: "Home", href: "/" },
-            { label: "About" },
+            { label: "Events" },
           ]}
         />
 
-        <div className="mt-10 grid items-center gap-10 lg:grid-cols-2">
-          <Reveal>
-            <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-orange-700">
-              Our Story
-            </p>
-
-            <h2 className="font-display mt-2 text-3xl font-semibold md:text-4xl">
-              Born on the ghats of Kashi, built for all of Bharat.
-            </h2>
-
-            <div className="prose-sacred mt-4">
-              <p>
-                DivyaDhara began with a simple observation: millions of devotees
-                struggle with the practical side of devotion — which pandit to
-                trust, what the correct vidhi is, when the temple opens, how to
-                plan a yatra with elderly parents.
+        <Reveal className="mt-8">
+          <div className="grid gap-5 rounded-3xl border border-orange-900/10 bg-[#fffaf3] p-6 md:grid-cols-[1fr_auto] md:items-center md:p-8">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-orange-700">
+                Celebrate Together
               </p>
-
-              <p>
-                We spent months with archakas in Kashi, Gurukkals in Madurai,
-                Rawals in Ukhimath and Bhattars in Tirupati — documenting
-                timings, vidhis and maryadas directly from the source. That
-                fieldwork became this platform: verified pandits, transparent
-                pricing, real darshan data and acharya-led learning.
-              </p>
-
-              <p>
-                Today DivyaDhara guides pilgrims across Jyotirlingas, Char Dham,
-                Shakti shrines and ashram circuits — while keeping one rule
-                above all:{" "}
-                <strong>never commercialise faith; always serve it.</strong>
+              <h2 className="font-display mt-2 text-2xl font-semibold text-[#2a1a10] md:text-3xl">
+                Find Your Next Spiritual Gathering
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-stone-600">
+                Search by event name, city or organiser, compare categories and review event dates before contacting the organiser. Details and availability should be reconfirmed before travelling.
               </p>
             </div>
-          </Reveal>
-
-          <Reveal delay={0.1}>
-            <div className="relative overflow-hidden rounded-4xl">
-              <img
-                src="/images/ashram-dawn.jpeg"
-                alt="Ashram at dawn"
-                className="h-105 w-full object-cover"
-              />
-
-              <div className="absolute bottom-4 left-4 right-4 rounded-2xl bg-black/55 p-5 text-white backdrop-blur">
-                <p className="font-sanskrit text-lg text-amber-300">
-                  ॥ सेवा परमो धर्मः ॥
-                </p>
-                <p className="text-sm text-stone-200">
-                  Seva is the highest dharma — our team's operating mantra.
-                </p>
-              </div>
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-100 text-orange-700">
+              <Sparkles size={28} />
             </div>
-          </Reveal>
-        </div>
-
-        {/* mission vision */}
-        <div className="mt-14 grid gap-4 md:grid-cols-3">
-          {[
-            {
-              i: <Eye size={20} />,
-              t: "Mission",
-              d: "Make every darshan, puja and yatra simple, transparent and shastra-true — for every Indian family, in their own language.",
-            },
-            {
-              i: <Compass size={20} />,
-              t: "Vision",
-              d: "A Bharat where no devotee feels lost: the right temple, pandit, muhurat and route — one trusted search away.",
-            },
-            {
-              i: <HeartHandshake size={20} />,
-              t: "Philosophy",
-              d: "Shraddha with viveka — deep devotion guided by knowledge. We document, verify and explain; the shraddha remains yours.",
-            },
-          ].map((c, i) => (
-            <Reveal key={c.t} delay={i * 0.08}>
-              <div className="sacred-border h-full rounded-3xl border border-orange-900/10 bg-white p-7 text-center">
-                <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-linear-to-br from-orange-600 to-amber-500 text-white">
-                  {c.i}
-                </span>
-
-                <h3 className="font-display mt-3 text-xl font-semibold">
-                  {c.t}
-                </h3>
-
-                <p className="mt-2 text-sm leading-relaxed text-stone-600">
-                  {c.d}
-                </p>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-
-        {/* stats + trust */}
-        <div className="mt-14 rounded-4xl bg-char-900 p-8 text-white md:p-12">
-          <div className="grid gap-8 text-center md:grid-cols-4">
-            {[
-              { v: 1200, s: "+", l: "Temples documented" },
-              { v: 350, s: "+", l: "Verified pandits" },
-              { v: 52000, s: "+", l: "Pilgrims guided" },
-              { v: 40, s: "+", l: "Sacred kshetras served" },
-            ].map((x) => (
-              <div key={x.l}>
-                <p className="font-display text-4xl font-bold text-amber-300">
-                  <Counter to={x.v} suffix={x.s} />
-                </p>
-                <p className="mt-1 text-sm text-stone-300">{x.l}</p>
-              </div>
-            ))}
           </div>
-        </div>
+        </Reveal>
 
-        <div className="mt-14">
-          <SectionHead
-            eyebrow="Trust & Verification"
-            title="Why devotees trust DivyaDhara"
-          />
+        {/* All controls stay aligned in one row on large screens. */}
+        <section
+          className="mt-8 rounded-3xl border border-orange-900/10 bg-[#fffaf5] p-4 md:p-6"
+          aria-label="Search and filter spiritual events"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-orange-700">
+                Explore by Interest
+              </p>
+              <h2 className="font-display mt-1 text-xl font-semibold text-[#2a1a10] md:text-2xl">
+                Browse Events
+              </h2>
+            </div>
+            <p className="text-sm text-stone-500" aria-live="polite">
+              {filteredEvents.length} {filteredEvents.length === 1 ? "event" : "events"} found
+            </p>
+          </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            {[
-              {
-                i: <ShieldCheck size={20} />,
-                t: "Verified, never anonymous",
-                d: "Government ID, guru/parampara reference and mantra-path review for every pandit. No fake reviews — ever.",
-              },
-              {
-                i: <BookOpen size={20} />,
-                t: "Source-first documentation",
-                d: "Timings, vidhis and histories recorded with temple trusts and practising archakas — not scraped.",
-              },
-              {
-                i: <Users size={20} />,
-                t: "Seva team in 7 languages",
-                d: "Hindi, English, Tamil, Telugu, Kannada, Marathi, Bengali — real humans on call and WhatsApp.",
-              },
-              {
-                i: <Landmark size={20} />,
-                t: "Dharma-first commerce",
-                d: "Transparent dakshina, printed receipts on yatras, and free guidance that never expires after payment.",
-              },
-            ].map((c, i) => (
-              <Reveal key={c.t} delay={i * 0.06}>
-                <div className="sacred-border flex items-start gap-4 rounded-3xl border border-orange-900/10 bg-white p-6">
-                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-emerald-900 text-amber-300">
-                    {c.i}
-                  </span>
+          <div className="mt-5 grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(220px,1.5fr)_minmax(150px,1fr)_minmax(150px,1fr)_minmax(150px,1fr)_auto]">
+            <label className="block min-w-0">
+              <span className="mb-1.5 block text-xs font-bold text-stone-600">Search events</span>
+              <span className="relative block">
+                <Search size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setPage(1);
+                  }}
+                  placeholder="Event, venue, organiser..."
+                  className="w-full rounded-xl border border-orange-900/15 bg-white py-3 pl-10 pr-3 text-sm text-[#2a1a10] outline-none transition placeholder:text-stone-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
+                />
+              </span>
+            </label>
 
-                  <div>
-                    <h3 className="font-display text-lg font-semibold">
-                      {c.t}
-                    </h3>
-                    <p className="mt-1 text-sm text-stone-600">{c.d}</p>
+            <label className="block min-w-0">
+              <span className="mb-1.5 block text-xs font-bold text-stone-600">Category</span>
+              <select
+                value={cat}
+                onChange={(event) => {
+                  setCat(event.target.value);
+                  setPage(1);
+                }}
+                className="w-full rounded-xl border border-orange-900/15 bg-white px-3 py-3 text-sm text-[#2a1a10] outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
+              >
+                <option value="">All categories</option>
+                {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
+            </label>
+
+            <label className="block min-w-0">
+              <span className="mb-1.5 block text-xs font-bold text-stone-600">City</span>
+              <select
+                value={city}
+                onChange={(event) => {
+                  setCity(event.target.value);
+                  setPage(1);
+                }}
+                className="w-full rounded-xl border border-orange-900/15 bg-white px-3 py-3 text-sm text-[#2a1a10] outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
+              >
+                <option value="">All cities</option>
+                {cities.map((eventCity) => <option key={eventCity} value={eventCity}>{eventCity}</option>)}
+              </select>
+            </label>
+
+            <label className="block min-w-0">
+              <span className="mb-1.5 block text-xs font-bold text-stone-600">Event date</span>
+              <select
+                value={dateScope}
+                onChange={(event) => {
+                  setDateScope(event.target.value as EventDateScope);
+                  setPage(1);
+                }}
+                className="w-full rounded-xl border border-orange-900/15 bg-white px-3 py-3 text-sm text-[#2a1a10] outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
+              >
+                <option value="all">All events</option>
+                <option value="upcoming">Upcoming events</option>
+                <option value="past">Past events</option>
+              </select>
+            </label>
+
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-orange-900/15 bg-white px-4 py-3 text-sm font-bold text-stone-700 transition hover:border-orange-300 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+            >
+              <X size={16} /> Reset
+            </button>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-orange-900/10 pt-4 text-xs text-stone-500">
+            <p className="flex items-center gap-1.5"><SlidersHorizontal size={14} /> Filter results to find a suitable event.</p>
+            <p>Confirm dates, venue and fees with the organiser before attending.</p>
+          </div>
+        </section>
+
+        <section className="mt-8" aria-label="Spiritual event listings">
+          {visibleEvents.length > 0 ? (
+            <div className="grid items-stretch gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {visibleEvents.map((event, index) => (
+                <div key={event.slug} className="min-w-0">
+                  <EventCard e={event} i={index} />
+                  <div className="mt-3 px-1">
+                    <EventShareButtons event={event} compact />
                   </div>
                 </div>
-              </Reveal>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-3xl border border-dashed border-orange-900/20 bg-white px-6 py-14 text-center">
+              <CalendarDays size={34} className="mx-auto text-orange-600" />
+              <h3 className="font-display mt-4 text-xl font-semibold text-[#2a1a10]">
+                No matching events found
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-stone-600">
+                Try another keyword, city or date filter to discover more gatherings.
+              </p>
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="btn-saffron mt-5 rounded-2xl px-5 py-3 text-sm font-bold text-white"
+              >
+                Show All Events
+              </button>
+            </div>
+          )}
+        </section>
+
+        {filteredEvents.length > EVENT_PAGE_SIZE && (
+          <nav aria-label="Event listing pagination" className="mt-10 flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setPage((current) => Math.max(1, current - 1));
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              disabled={safePage === 1}
+              className="inline-flex items-center gap-1 rounded-xl border border-orange-900/15 bg-white px-4 py-2.5 text-sm font-bold text-[#4a2c1a] transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft size={16} /> Previous
+            </button>
+
+            {Array.from({ length: totalPages }, (_, index) => index + 1).map((number) => (
+              <button
+                key={number}
+                type="button"
+                onClick={() => {
+                  setPage(number);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+                aria-current={safePage === number ? "page" : undefined}
+                className={`grid h-10 w-10 place-items-center rounded-xl text-sm font-extrabold transition ${
+                  safePage === number
+                    ? "bg-[#2a1a10] text-amber-300"
+                    : "border border-orange-900/15 bg-white text-stone-700 hover:bg-orange-50"
+                }`}
+              >
+                {number}
+              </button>
             ))}
-          </div>
-        </div>
 
-        {/* team */}
-        <div className="mt-14">
-          <SectionHead
-            eyebrow="Sevaks"
-            title="Guided by tradition, run with care"
-            sub="A small Varanasi-rooted team of researchers, yatra experts and Vedic advisors."
-          />
+            <button
+              type="button"
+              onClick={() => {
+                setPage((current) => Math.min(totalPages, current + 1));
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              disabled={safePage === totalPages}
+              className="inline-flex items-center gap-1 rounded-xl border border-orange-900/15 bg-white px-4 py-2.5 text-sm font-bold text-[#4a2c1a] transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next <ChevronRight size={16} />
+            </button>
+          </nav>
+        )}
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="mt-14 border-t border-orange-900/10 pt-10">
+          <SectionHead eyebrow="Plan your visit" title="Before You Attend" />
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
             {[
-              "Vedic Advisory Board — Kashi Vidvat Parishad scholars review every vidhi and muhurat.",
-              "Kshetra Researchers — on-ground documentation across 7 states and counting.",
-              "Yatra Operations — ex-tourism professionals running sattvic, senior-friendly batches.",
-              "Seva Desk — pilgrim support in 7 languages, 7 AM – 10 PM IST.",
-            ].map((t, i) => (
-              <Reveal key={i} delay={i * 0.07}>
-                <div className="h-full rounded-3xl bg-linear-to-br from-orange-50 to-amber-50 p-6 ring-1 ring-orange-200">
-                  <p className="font-display text-lg font-semibold text-[#2a1a10]">
-                    {
-                      [
-                        "Vedic Board",
-                        "Researchers",
-                        "Yatra Team",
-                        "Seva Desk",
-                      ][i]
-                    }
-                  </p>
-
-                  <p className="mt-2 text-sm text-stone-600">{t}</p>
+              { icon: CalendarCheck, title: "Verify the schedule", text: "Event dates and programme timings may change. Confirm details with the organiser before you travel." },
+              { icon: MapPin, title: "Check the venue", text: "Review the venue and route ahead of time, especially for large festivals and pilgrimage gatherings." },
+              { icon: Ticket, title: "Ask about entry", text: "Registration, tickets and charges can vary by event. Confirm availability and terms with the organiser." },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <div key={item.title} className="rounded-3xl border border-orange-900/10 bg-white p-6">
+                  <div className="grid h-11 w-11 place-items-center rounded-2xl bg-orange-100 text-orange-800"><Icon size={22} /></div>
+                  <h3 className="mt-4 font-display text-lg font-semibold text-[#2a1a10]">{item.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-stone-600">{item.text}</p>
                 </div>
-              </Reveal>
-            ))}
+              );
+            })}
           </div>
-        </div>
-
-        <div className="mt-12">
-          <WhatsAppBand
-            title="Want to serve with us?"
-            sub="Pandits, guides, translators and photographers — join the DivyaDhara seva network."
-            message="Namaste! I want to join DivyaDhara as a seva partner (pandit/guide/translator)."
-          />
-        </div>
-
-        <p className="mt-8 text-center">
-          <Link
-            to="/contact"
-            className="inline-flex items-center gap-2 text-sm font-bold text-orange-700 underline underline-offset-4"
-          >
-            Contact us <ArrowRight size={15} />
-          </Link>
-        </p>
-      </div>
+        </section>
+      </main>
     </>
   );
 }
 
-export function Contact() {
+/* =========================================================
+   EVENT DETAIL
+========================================================= */
+
+export function EventDetail() {
+  const { slug } = useParams();
+
+  const e = EVENTS.find((x) => x.slug === slug);
+
   useSEO({
-    title: "Contact DivyaDhara — Seva Desk, WhatsApp & Address",
-    description:
-      "Reach DivyaDhara: Navi Mumbai office address, phone, email, WhatsApp seva desk and contact form. Replies within a few hours, 7 AM – 10 PM IST.",
-    path: "/contact",
+    title: e
+      ? `${e.title} — ${formatDate(e.date)} | DivyaDhara Events`
+      : "Event Not Found | DivyaDhara",
+    description: e
+      ? `${e.title} at ${e.venue}, ${e.city} on ${formatDate(e.date)}. ${e.description.slice(0, 140)}`
+      : "The requested event could not be found. Explore spiritual festivals, kathas and satsangs on DivyaDhara.",
+    path: `/events/${slug}`,
+    image: e?.image,
+    schema: e
+      ? {
+          "@context": "https://schema.org",
+          "@type": "Event",
+          name: e.title,
+          startDate: e.date,
+          url: typeof window !== "undefined" ? `${window.location.origin}/events/${e.slug}` : `https://divya-dhara.in/events/${e.slug}`,
+          location: {
+            "@type": "Place",
+            name: e.venue,
+            address: {
+              "@type": "PostalAddress",
+              addressLocality: e.city,
+              addressCountry: "IN",
+            },
+          },
+          organizer: {
+            "@type": "Organization",
+            name: e.organizer,
+          },
+          image: e.image,
+          description: e.description,
+        }
+      : undefined,
   });
 
-  const [f, setF] = useState({
-    name: "",
-    phone: "",
-    topic: "General",
-    message: "",
-  });
+  const related = useMemo(() => {
+    if (!e) return [];
 
-  const [done, setDone] = useState(false);
+    return EVENTS.filter((item) => item.slug !== slug)
+      .map((item) => ({
+        event: item,
+        score:
+          (item.category === e.category ? 3 : 0) +
+          (item.city.toLowerCase() === e.city.toLowerCase() ? 2 : 0),
+      }))
+      .sort((a, b) => b.score - a.score || a.event.title.localeCompare(b.event.title))
+      .slice(0, 3)
+      .map((item) => item.event);
+  }, [slug, e]);
 
-  const input =
-    "w-full rounded-xl border border-orange-900/15 bg-white px-4 py-3 text-sm outline-none placeholder:text-stone-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-200";
+  if (!e) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-24 text-center">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-orange-100 text-orange-700">
+          <CalendarDays size={28} />
+        </div>
 
-  const phoneHref = `tel:${DISPLAY_PHONE.replace(/[^\d+]/g, "")}`;
-  const emailHref = `mailto:${CONTACT_EMAIL}`;
+        <h1 className="font-display mt-5 text-3xl font-bold text-[#2a1a10]">
+          Event Not Found
+        </h1>
+
+        <p className="mt-3 text-stone-600">
+          This event may have moved or may no longer be listed. Explore other
+          spiritual events on DivyaDhara.
+        </p>
+
+        <Link
+          to="/events"
+          className="btn-saffron mt-6 inline-flex items-center gap-2 rounded-2xl px-6 py-3 text-sm font-bold text-white"
+        >
+          Explore All Events
+          <ArrowRight size={16} />
+        </Link>
+      </div>
+    );
+  }
+
+  const wa = waLink(
+    `Namaste! I want to enquire about registration for ${e.title} on ${formatDate(e.date)} at ${e.venue}, ${e.city}. Please share the registration process, availability and any applicable charges.`
+  );
+
+  const d = new Date(e.date);
+
+  const eventDate = Number.isNaN(d.getTime())
+    ? null
+    : d;
+
+  const mapQuery = encodeURIComponent(`${e.venue}, ${e.city}`);
+
+  const registrationContext =
+    `Event registration: ${e.title}; ` +
+    `date: ${formatDate(e.date)}; ` +
+    `venue: ${e.venue}, ${e.city}`;
 
   return (
     <>
-      <PageHero
-        eyebrow="Sampark · Contact"
-        title="We're Here to Serve"
-        sub="Seva desk open 7 AM – 10 PM IST · Replies within a few hours in 7 languages."
-        image="/images/hero-varanasi.jpeg"
-      />
+      {/* EVENT HERO */}
+      <section className="relative isolate overflow-hidden bg-char-900 text-white">
+        <img
+          src={e.image}
+          alt={`${e.title} — spiritual event`}
+          className="kenburns absolute inset-0 h-full w-full object-cover"
+        />
 
-      <div className="mx-auto max-w-7xl px-4 py-10 md:px-6 lg:px-8">
+        <div className="absolute inset-0 bg-linear-to-t from-char-900 via-black/60 to-black/30" />
+
+        <div className="relative mx-auto max-w-7xl px-4 pb-12 pt-16 md:px-6 md:pb-16 lg:px-8 lg:pt-20">
+          <Breadcrumbs
+            items={[
+              { label: "Home", href: "/" },
+              { label: "Events", href: "/events" },
+              { label: e.title },
+            ]}
+          />
+
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            {eventDate && (
+              <div className="min-w-20 rounded-2xl bg-white px-4 py-3 text-center shadow-lg">
+                <span className="block text-3xl font-extrabold leading-none text-orange-800">
+                  {eventDate.getDate()}
+                </span>
+
+                <span className="mt-1 block text-[10px] font-bold uppercase text-stone-500">
+                  {eventDate.toLocaleString("en-IN", {
+                    month: "short",
+                    year: "numeric",
+                  })}
+                </span>
+              </div>
+            )}
+
+            <span className="rounded-full bg-orange-600 px-3.5 py-2 text-xs font-bold text-white">
+              {e.category}
+            </span>
+
+            <span className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-3.5 py-2 text-xs font-bold text-white backdrop-blur">
+              <Clock size={14} />
+              {e.time}
+            </span>
+          </div>
+
+          <h1 className="font-display mt-5 max-w-4xl text-4xl font-semibold leading-tight md:text-5xl lg:text-6xl">
+            {e.title}
+          </h1>
+
+          <p className="mt-4 flex flex-wrap items-center gap-2 text-sm leading-6 text-stone-200 md:text-base">
+            <MapPin size={17} className="shrink-0 text-amber-400" />
+            {e.venue}, {e.city}
+          </p>
+
+          <p className="mt-2 text-sm text-white/75">
+            Organised by{" "}
+            <span className="font-semibold text-amber-200">
+              {e.organizer}
+            </span>
+          </p>
+
+          <div className="mt-8 flex flex-wrap gap-3">
+            <a
+              href={wa}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-2xl bg-[#25D366] px-6 py-3.5 text-sm font-bold text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-[#1fb85a]"
+            >
+              <MessageCircle size={17} />
+              Enquire on WhatsApp
+            </a>
+
+            <a
+              href="#register"
+              className="btn-saffron inline-flex items-center gap-2 rounded-2xl px-6 py-3.5 text-sm font-bold text-white transition hover:-translate-y-0.5"
+            >
+              <CalendarCheck size={17} />
+              Registration Enquiry
+            </a>
+          </div>
+
+          <div className="mt-6 max-w-2xl border-t border-white/15 pt-5">
+            <EventShareButtons event={e} />
+          </div>
+
+          <div className="mt-9 grid max-w-3xl gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-white/15 bg-black/20 p-4 backdrop-blur-sm">
+              <CalendarDays size={20} className="text-amber-300" />
+
+              <p className="mt-3 text-sm font-bold">Event Date</p>
+
+              <p className="mt-1 text-xs leading-5 text-white/70">
+                {formatDate(e.date)}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-white/15 bg-black/20 p-4 backdrop-blur-sm">
+              <Clock size={20} className="text-amber-300" />
+
+              <p className="mt-3 text-sm font-bold">Programme Time</p>
+
+              <p className="mt-1 text-xs leading-5 text-white/70">
+                {e.time}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-white/15 bg-black/20 p-4 backdrop-blur-sm">
+              <Ticket size={20} className="text-amber-300" />
+
+              <p className="mt-3 text-sm font-bold">Entry Information</p>
+
+              <p className="mt-1 text-xs leading-5 text-white/70">
+                {e.fee}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* MAIN EVENT CONTENT — FULL WIDTH, NO FORM SIDEBAR */}
+      <main className="mx-auto max-w-7xl px-4 py-12 md:px-6 lg:px-8">
         <Breadcrumbs
           items={[
             { label: "Home", href: "/" },
-            { label: "Contact" },
+            { label: "Events", href: "/events" },
+            { label: e.title },
           ]}
         />
 
-        <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_1.1fr]">
-          <div className="space-y-4">
-            {[
-              {
-                i: <MapPin size={18} />,
-                t: "Visit / Post",
-                d: OFFICE_ADDRESS,
-                href: OFFICE_MAP_SEARCH_URL,
-              },
-              {
-                i: <Phone size={18} />,
-                t: "Call the Seva Desk",
-                d: `${DISPLAY_PHONE} · 7 AM – 10 PM IST`,
-                href: phoneHref,
-              },
-              {
-                i: <Mail size={18} />,
-                t: "Email",
-                d: CONTACT_EMAIL,
-                href: emailHref,
-              },
-              {
-                i: <MessageCircle size={18} />,
-                t: "WhatsApp (fastest)",
-                d: "Tap to chat — darshan, puja, pandit, yatra, course help",
-              },
-            ].map((c, i) => (
-              <Reveal key={c.t} delay={i * 0.06}>
-                <div className="sacred-border flex items-start gap-4 rounded-3xl border border-orange-900/10 bg-white p-5">
-                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-linear-to-br from-orange-600 to-amber-500 text-white">
-                    {c.i}
-                  </span>
+        {/* ABOUT THE EVENT */}
+        <Reveal className="mt-8">
+          <div className="grid gap-6 lg:grid-cols-[0.75fr_1.25fr] lg:gap-12">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-orange-700">
+                Discover the Celebration
+              </p>
 
-                  <div className="min-w-0">
-                    <h3 className="font-bold text-[#2a1a10]">{c.t}</h3>
+              <h2 className="font-display mt-3 text-3xl font-semibold leading-tight text-[#2a1a10] md:text-4xl">
+                About This Event
+              </h2>
 
-                    {c.href ? (
-                      <a
-                        href={c.href}
-                        target={c.href.startsWith("http") ? "_blank" : undefined}
-                        rel={
-                          c.href.startsWith("http")
-                            ? "noreferrer"
-                            : undefined
-                        }
-                        className="mt-0.5 block text-sm text-stone-600 transition hover:text-orange-700 hover:underline"
-                      >
-                        {c.d}
-                      </a>
-                    ) : (
-                      <p className="mt-0.5 text-sm text-stone-600">{c.d}</p>
-                    )}
-
-                    {i === 3 && (
-                      <a
-                        href={waLink("Namaste DivyaDhara!")}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-2 inline-flex items-center gap-2 rounded-xl bg-[#25D366] px-4 py-2 text-[13px] font-bold text-white transition hover:brightness-95"
-                      >
-                        <MessageCircle size={15} />
-                        Open WhatsApp
-                      </a>
-                    )}
-
-                    {i === 0 && (
-                      <a
-                        href={OFFICE_MAP_SEARCH_URL}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-2 inline-flex items-center gap-2 text-xs font-bold text-orange-700 underline underline-offset-4"
-                      >
-                        <MapPin size={14} />
-                        Open in Google Maps
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </Reveal>
-            ))}
-
-            <div className="overflow-hidden rounded-3xl border border-orange-900/10 bg-stone-100 shadow-sm">
-              <iframe
-                title="DivyaDhara Navi Mumbai office map"
-                src={OFFICE_MAP_URL}
-                className="h-72 w-full"
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-                allowFullScreen
-              />
+              <p className="mt-4 text-sm leading-7 text-stone-600">
+                Explore the event's purpose, traditions and programme
+                information before planning your visit.
+              </p>
             </div>
 
-            <p className="px-1 text-xs leading-relaxed text-stone-500">
-              Office: {OFFICE_ADDRESS}
+            <div className="rounded-3xl border border-orange-900/10 bg-white p-6 shadow-sm md:p-8">
+              <p className="leading-8 text-stone-600">{e.description}</p>
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl border border-orange-900/10 bg-orange-50/70 p-4">
+                  <CalendarDays size={19} className="text-orange-700" />
+
+                  <p className="mt-3 text-xs font-bold uppercase tracking-wide text-stone-500">
+                    Date
+                  </p>
+
+                  <p className="mt-1 text-sm font-bold text-[#2a1a10]">
+                    {formatDate(e.date)}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-orange-900/10 bg-orange-50/70 p-4">
+                  <Clock size={19} className="text-orange-700" />
+
+                  <p className="mt-3 text-xs font-bold uppercase tracking-wide text-stone-500">
+                    Time
+                  </p>
+
+                  <p className="mt-1 text-sm font-bold text-[#2a1a10]">
+                    {e.time}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-orange-900/10 bg-orange-50/70 p-4">
+                  <Ticket size={19} className="text-orange-700" />
+
+                  <p className="mt-3 text-xs font-bold uppercase tracking-wide text-stone-500">
+                    Entry
+                  </p>
+
+                  <p className="mt-1 text-sm font-bold text-[#2a1a10]">
+                    {e.fee}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Reveal>
+
+        {/* PROGRAMME SCHEDULE */}
+        <Reveal className="mt-12">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-orange-700">
+                Event Timetable
+              </p>
+
+              <h2 className="font-display mt-2 flex items-center gap-2 text-2xl font-semibold text-[#2a1a10] md:text-3xl">
+                <CalendarDays size={23} className="text-orange-600" />
+                Programme Schedule
+              </h2>
+            </div>
+
+            <p className="max-w-md text-sm leading-6 text-stone-500">
+              Review the listed activities and timings. Confirm the latest
+              programme with the organiser before attending.
             </p>
           </div>
 
-          <Reveal delay={0.1}>
-            {done ? (
-              <div className="grid h-full place-items-center rounded-3xl border border-emerald-200 bg-emerald-50 p-10 text-center">
-                <div>
-                  <CheckCircle2 size={44} className="mx-auto text-emerald-600" />
+          <div className="mt-5 overflow-hidden rounded-3xl border border-orange-900/10 bg-white shadow-sm">
+            <div className="flex items-center gap-3 border-b border-orange-900/10 bg-orange-50/70 px-5 py-4">
+              <Clock size={18} className="text-orange-700" />
 
-                  <h2 className="font-display mt-3 text-2xl font-semibold text-emerald-950">
-                    Message received 🙏
+              <p className="text-sm font-bold text-[#2a1a10]">
+                Event Activities & Timings
+              </p>
+            </div>
+
+            <div>
+              {e.schedule.map((s, i) => (
+                <div
+                  key={`${s.t}-${s.item}`}
+                  className={`flex flex-col gap-1 px-5 py-4 sm:flex-row sm:items-center sm:gap-6 ${
+                    i % 2 ? "bg-orange-50/40" : "bg-white"
+                  } ${
+                    i !== e.schedule.length - 1
+                      ? "border-b border-orange-900/5"
+                      : ""
+                  }`}
+                >
+                  <span className="flex shrink-0 items-center gap-2 text-sm font-extrabold text-orange-800 sm:w-32">
+                    <Clock size={14} />
+                    {s.t}
+                  </span>
+
+                  <span className="text-sm leading-6 text-stone-700">
+                    {s.item}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Reveal>
+
+        {/* ORGANIZER & VENUE */}
+        <Reveal className="mt-12">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-orange-700">
+              Plan Your Visit
+            </p>
+
+            <h2 className="font-display mt-2 text-2xl font-semibold text-[#2a1a10] md:text-3xl">
+              Organiser & Venue
+            </h2>
+          </div>
+
+          <div className="mt-5 grid gap-5 md:grid-cols-2">
+            <div className="rounded-3xl border border-orange-900/10 bg-white p-6 shadow-sm md:p-8">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100 text-orange-700">
+                <Users size={23} />
+              </div>
+
+              <h3 className="mt-5 text-lg font-bold text-[#2a1a10]">
+                Event Organiser
+              </h3>
+
+              <p className="mt-3 text-sm leading-7 text-stone-600">
+                {e.organizer}
+              </p>
+
+              <p className="mt-3 text-sm leading-6 text-stone-500">
+                Contact the organiser to confirm registration, programme
+                timings, group arrangements and other event-specific details.
+              </p>
+
+              <a
+                href={wa}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-orange-800 underline decoration-orange-300 underline-offset-4 transition hover:text-orange-600"
+              >
+                <MessageCircle size={16} />
+                Ask About Registration
+              </a>
+            </div>
+
+            <div className="rounded-3xl border border-orange-900/10 bg-white p-6 shadow-sm md:p-8">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100 text-orange-700">
+                <MapPin size={23} />
+              </div>
+
+              <h3 className="mt-5 text-lg font-bold text-[#2a1a10]">
+                Event Venue
+              </h3>
+
+              <p className="mt-3 text-sm leading-7 text-stone-600">
+                {e.venue}, {e.city}
+              </p>
+
+              <div className="mt-5 overflow-hidden rounded-2xl border border-orange-900/10">
+                <iframe
+                  title={`Map of ${e.venue}, ${e.city}`}
+                  src={`https://www.google.com/maps?q=${mapQuery}&output=embed`}
+                  className="h-56 w-full"
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                />
+              </div>
+
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${mapQuery}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-orange-800 underline decoration-orange-300 underline-offset-4 transition hover:text-orange-600"
+              >
+                <Compass size={16} />
+                Open Venue in Google Maps
+              </a>
+            </div>
+          </div>
+        </Reveal>
+
+        {/* GLIMPSES */}
+        <Reveal className="mt-12">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-100 text-orange-700">
+              <Camera size={22} />
+            </div>
+
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-orange-700">
+                Moments of Devotion
+              </p>
+
+              <h2 className="font-display mt-1 text-2xl font-semibold text-[#2a1a10] md:text-3xl">
+                Event Glimpses
+              </h2>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="group relative overflow-hidden rounded-3xl">
+              <img
+                src={e.image}
+                alt={`${e.title} event`}
+                loading="lazy"
+                className="h-56 w-full object-cover transition duration-700 group-hover:scale-105 md:h-64"
+              />
+
+              <div className="absolute inset-0 bg-linear-to-t from-black/50 to-transparent" />
+
+              <p className="absolute bottom-4 left-4 text-sm font-bold text-white">
+                {e.title}
+              </p>
+            </div>
+
+            <div className="group relative overflow-hidden rounded-3xl">
+              <img
+                src="/images/aarti-night.jpeg"
+                alt="Traditional evening aarti"
+                loading="lazy"
+                className="h-56 w-full object-cover transition duration-700 group-hover:scale-105 md:h-64"
+              />
+
+              <div className="absolute inset-0 bg-linear-to-t from-black/40 to-transparent" />
+
+              <p className="absolute bottom-4 left-4 text-sm font-bold text-white">
+                Evening Aarti
+              </p>
+            </div>
+
+            <div className="group relative overflow-hidden rounded-3xl">
+              <img
+                src="/images/festival-crowd.jpeg"
+                alt="Devotees gathering at a spiritual festival"
+                loading="lazy"
+                className="h-56 w-full object-cover transition duration-700 group-hover:scale-105 md:h-64"
+              />
+
+              <div className="absolute inset-0 bg-linear-to-t from-black/40 to-transparent" />
+
+              <p className="absolute bottom-4 left-4 text-sm font-bold text-white">
+                Festival Gathering
+              </p>
+            </div>
+          </div>
+        </Reveal>
+      </main>
+
+      {/* WHATSAPP SUPPORT BAND */}
+      <div className="mx-auto max-w-7xl px-4 pb-8 md:px-6 lg:px-8">
+        <WhatsAppBand
+          title="Coming with family or a bhajan mandali?"
+          sub="Ask about group registration, senior assistance and yajman opportunities before planning your visit."
+          message={`Namaste! I would like information about group registration for ${e.title} on ${formatDate(e.date)} at ${e.venue}, ${e.city}. Please guide me.`}
+        />
+      </div>
+
+      {/* RELATED EVENTS */}
+      <section className="mx-auto max-w-7xl px-4 pb-12 md:px-6 lg:px-8">
+        <SectionHead
+          eyebrow="More Utsavs"
+          title="Other Events"
+        />
+
+        {related.length > 0 ? (
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {related.map((x, i) => (
+              <EventCard key={x.slug} e={x} i={i} />
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-2xl border border-orange-900/10 bg-white p-6 text-sm text-stone-600">
+            More events will be listed here when available.
+          </p>
+        )}
+
+        <div className="mt-6 flex justify-center">
+          <Link
+            to="/events"
+            className="inline-flex items-center gap-2 rounded-2xl border border-orange-900/15 bg-white px-5 py-3 text-sm font-bold text-orange-900 transition hover:border-orange-700/40 hover:bg-orange-50"
+          >
+            Explore All Events
+            <ArrowRight size={16} />
+          </Link>
+        </div>
+      </section>
+
+      {/* FULL-WIDTH EVENT REGISTRATION FORM — AFTER OTHER EVENTS */}
+      <section
+        id="register"
+        className="scroll-mt-24 border-y border-orange-900/10 bg-[#fffaf3] py-12 md:py-16"
+      >
+        <div className="mx-auto max-w-7xl px-4 md:px-6 lg:px-8">
+          <div className="overflow-hidden rounded-[2rem] border border-orange-900/10 bg-white shadow-[0_20px_70px_-35px_rgba(120,53,15,0.25)]">
+            <div className="grid lg:grid-cols-[0.85fr_1.15fr]">
+              {/* LEFT: EVENT INFORMATION */}
+              <div className="relative overflow-hidden bg-[#2a1a10] p-6 text-white md:p-9 lg:p-10">
+                <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full border border-amber-300/15" />
+
+                <div className="absolute -right-7 -top-7 h-40 w-40 rounded-full border border-amber-300/10" />
+
+                <div className="relative">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-amber-200/20 bg-white/5 px-3.5 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-200">
+                    <Sparkles size={14} />
+                    Join the Celebration
+                  </div>
+
+                  <h2 className="font-display mt-6 text-3xl font-semibold leading-tight md:text-4xl">
+                    Register Your Interest
                   </h2>
 
-                  <p className="mt-2 text-sm text-emerald-900/80">
-                    Dhanyavaad, {f.name.split(" ")[0] || "devotee"}. Our seva
-                    team will respond shortly.
+                  <p className="mt-4 text-sm leading-7 text-white/75">
+                    Interested in attending {e.title}? Share your enquiry to
+                    learn about the registration process, programme
+                    availability and visit arrangements.
                   </p>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDone(false);
-                      setF({
-                        name: "",
-                        phone: "",
-                        topic: "General",
-                        message: "",
-                      });
-                    }}
-                    className="mt-5 rounded-xl border border-emerald-300 bg-white px-4 py-2 text-sm font-bold text-emerald-800 transition hover:bg-emerald-100"
-                  >
-                    Send another message
-                  </button>
+                  <div className="mt-8 space-y-5">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-amber-200">
+                        <CalendarDays size={19} />
+                      </div>
+
+                      <div>
+                        <p className="text-sm font-bold text-white">
+                          Event Date & Time
+                        </p>
+
+                        <p className="mt-1 text-sm leading-6 text-white/65">
+                          {formatDate(e.date)} · {e.time}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-amber-200">
+                        <MapPin size={19} />
+                      </div>
+
+                      <div>
+                        <p className="text-sm font-bold text-white">
+                          Venue
+                        </p>
+
+                        <p className="mt-1 text-sm leading-6 text-white/65">
+                          {e.venue}, {e.city}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-amber-200">
+                        <Ticket size={19} />
+                      </div>
+
+                      <div>
+                        <p className="text-sm font-bold text-white">
+                          Entry Information
+                        </p>
+
+                        <p className="mt-1 text-sm leading-6 text-white/65">
+                          {e.fee}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-amber-200">
+                        <Users size={19} />
+                      </div>
+
+                      <div>
+                        <p className="text-sm font-bold text-white">
+                          Organised By
+                        </p>
+
+                        <p className="mt-1 text-sm leading-6 text-white/65">
+                          {e.organizer}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-5">
+                    <p className="text-sm font-bold text-amber-200">
+                      Prefer WhatsApp?
+                    </p>
+
+                    <p className="mt-2 text-sm leading-6 text-white/70">
+                      Contact us about the registration process, group
+                      attendance and event arrangements.
+                    </p>
+
+                    <a
+                      href={wa}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#1fb85a] sm:w-auto"
+                    >
+                      <MessageCircle size={17} />
+                      Enquire on WhatsApp
+                    </a>
+                  </div>
                 </div>
               </div>
-            ) : (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setDone(true);
-                }}
-                className="rounded-3xl border border-orange-900/10 bg-white p-6 shadow-xl shadow-orange-900/5 md:p-8"
-              >
-                <h2 className="font-display text-2xl font-semibold">
-                  Send a Message
-                </h2>
 
-                <p className="mt-1 text-sm text-stone-500">
-                  Grievances, partnerships, press and general help — all
-                  welcome.
-                </p>
+              {/* RIGHT: EXISTING ENQUIRY FORM */}
+              <div className="p-5 md:p-8 lg:p-10">
+                <div className="mb-6">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-orange-700">
+                    Event Registration Enquiry
+                  </p>
 
-                <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label
-                      className="mb-1 block text-xs font-bold text-stone-600"
-                      htmlFor="c-name"
-                    >
-                      Name *
-                    </label>
+                  <h3 className="font-display mt-2 text-2xl font-semibold text-[#2a1a10] md:text-3xl">
+                    Plan Your Event Visit
+                  </h3>
 
-                    <input
-                      id="c-name"
-                      required
-                      value={f.name}
-                      onChange={(e) => setF({ ...f, name: e.target.value })}
-                      className={input}
-                      placeholder="Your name"
-                    />
-                  </div>
-
-                  <div>
-                    <label
-                      className="mb-1 block text-xs font-bold text-stone-600"
-                      htmlFor="c-phone"
-                    >
-                      Phone *
-                    </label>
-
-                    <input
-                      id="c-phone"
-                      type="tel"
-                      required
-                      value={f.phone}
-                      onChange={(e) => setF({ ...f, phone: e.target.value })}
-                      className={input}
-                      placeholder="+91 …"
-                      autoComplete="tel"
-                    />
-                  </div>
+                  <p className="mt-3 text-sm leading-6 text-stone-600">
+                    Fill out the enquiry form below to share your interest in
+                    this event.
+                  </p>
                 </div>
 
-                <div className="mt-3">
-                  <label
-                    className="mb-1 block text-xs font-bold text-stone-600"
-                    htmlFor="c-topic"
-                  >
-                    Topic
-                  </label>
-
-                  <select
-                    id="c-topic"
-                    value={f.topic}
-                    onChange={(e) => setF({ ...f, topic: e.target.value })}
-                    className={input}
-                  >
-                    {[
-                      "General",
-                      "Darshan help",
-                      "Puja / Pandit booking",
-                      "Yatra",
-                      "Course",
-                      "Partnership",
-                      "Grievance",
-                    ].map((o) => (
-                      <option key={o}>{o}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="mt-3">
-                  <label
-                    className="mb-1 block text-xs font-bold text-stone-600"
-                    htmlFor="c-msg"
-                  >
-                    Message *
-                  </label>
-
-                  <textarea
-                    id="c-msg"
-                    required
-                    rows={5}
-                    value={f.message}
-                    onChange={(e) => setF({ ...f, message: e.target.value })}
-                    className={input}
-                    placeholder="How may we serve you?"
+                <div className="rounded-2xl border border-orange-900/10 bg-[#fffdf9] p-3 sm:p-5">
+                  <EnquiryForm
+                    context={registrationContext}
+                    title="Register for Event"
                   />
                 </div>
 
-                <button
-                  type="submit"
-                  className="btn-saffron mt-4 flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-sm font-bold text-white"
-                >
-                  <Send size={15} />
-                  Send Message
-                </button>
-              </form>
-            )}
-          </Reveal>
+                <p className="mt-4 text-xs leading-5 text-stone-500">
+                  Submitting an enquiry does not itself confirm a registration
+                  or ticket. Please verify availability, applicable fees and
+                  registration details with the organiser.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
     </>
   );
 }
