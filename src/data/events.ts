@@ -1,11 +1,10 @@
 /**
- * DivyaDhara event directory.
+ * DivyaDhara Hindu festival and spiritual-event directory.
  *
- * Data policy:
- * - Include real, publicly documented festivals and organiser-listed events.
- * - Do not invent event schedules, prices, DivyaDhara partnerships or registrations.
- * - Source URLs are retained so dates and organiser details can be checked.
- * - Annual observance dates based on a Panchang should be rechecked before travel.
+ * Curated events preserve organiser/source links. The live calendar adapter
+ * reads a public, state-aware Hindu-festival dataset whose maintainers describe
+ * monthly refreshes and upcoming-year seeding. The feed is third-party data,
+ * not an official government source; check local Panchang/organiser notices.
  */
 
 export type DhamEvent = {
@@ -13,7 +12,7 @@ export type DhamEvent = {
   title: string;
   category: string;
   date: string; // ISO date, YYYY-MM-DD
-  endDate?: string; // ISO date for multi-day events
+  endDate?: string;
   time: string;
   venue: string;
   city: string;
@@ -22,14 +21,19 @@ export type DhamEvent = {
   description: string;
   schedule: { t: string; item: string }[];
   fee: string;
-
-  /** Public page about the event or its official organiser. */
   officialUrl?: string;
-  /** Page used to check the published date or calendar observance. */
   sourceUrl?: string;
-  /** Explain whether the date/programme still needs organiser confirmation. */
   dateNote?: string;
+  /** true for a calendar observance, which is not necessarily an organised ticketed event */
+  isCalendarObservance?: boolean;
+  /** Regional calendar label when supplied by the live feed */
+  region?: string;
 };
+
+export const HINDU_CALENDAR_SOURCE_URL =
+  "https://github.com/ganeshsp1/hindu-festivals-api";
+const LIVE_CALENDAR_URL =
+  "https://cdn.jsdelivr.net/gh/ganeshsp1/hindu-festivals-api@main/data/latest.json";
 
 export const EVENTS: DhamEvent[] = [
   {
@@ -255,3 +259,377 @@ export const EVENTS: DhamEvent[] = [
       "5 July 2027 is the Panchang-listed date. Verify the final date and programme through SJTA/local authorities before making travel plans.",
   },
 ];
+
+type RawRecord = Record<string, unknown>;
+
+export type EventDirectoryResult = {
+  events: DhamEvent[];
+  status: "live" | "fallback" | "empty";
+  currentYear: number;
+  refreshedAt: string;
+  message?: string;
+};
+
+function asRecord(value: unknown): RawRecord | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as RawRecord)
+    : null;
+}
+
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  }
+  return "";
+}
+
+function extractIsoDate(value: unknown): string {
+  if (typeof value === "string") {
+    const match = value.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+    return match?.[1] ?? "";
+  }
+  const record = asRecord(value);
+  if (record) {
+    return extractIsoDate(
+      record.iso ?? record.date ?? record.value ?? record.start ?? record.startDate,
+    );
+  }
+  return "";
+}
+
+function rawName(record: RawRecord): string {
+  const value = record.name ?? record.title ?? record.festival ?? record.event ?? record.label;
+  if (typeof value === "string") return value.trim();
+  const nested = asRecord(value);
+  if (nested) return firstString(nested.en, nested.english, nested.name, nested.hi, nested.hindi);
+  return "";
+}
+
+function rawRegion(record: RawRecord): string {
+  const value =
+    record.state_proxy ??
+    record.region ??
+    record.state ??
+    record.states ??
+    record.location ??
+    record.region_name;
+
+  if (Array.isArray(value)) return value.filter((item) => typeof item === "string").join(", ");
+  if (typeof value === "string") return value;
+  return "";
+}
+
+function collectRawRecords(value: unknown, output: RawRecord[] = []): RawRecord[] {
+  if (Array.isArray(value)) {
+    for (const item of value) collectRawRecords(item, output);
+    return output;
+  }
+
+  const record = asRecord(value);
+  if (!record) return output;
+
+  const name = rawName(record);
+  const date = extractIsoDate(record.date ?? record.datetime ?? record.startDate ?? record.isoDate);
+  if (name && date) {
+    output.push(record);
+    return output;
+  }
+
+  for (const child of Object.values(record)) {
+    if (Array.isArray(child) || asRecord(child)) collectRawRecords(child, output);
+  }
+  return output;
+}
+
+function toTitleCase(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
+
+function slugify(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function isClearlyNonHindu(record: RawRecord, name: string): boolean {
+  const religion = firstString(record.religion, record.faith, record.religious_group).toLowerCase();
+  if (religion && !/(hindu|sanatan|vedic)/i.test(religion)) return true;
+
+  // Some aggregate festival datasets also include national holidays and other faiths.
+  // Exclude known non-Hindu entries unless the source explicitly tags them Hindu.
+  if (/(hindu|sanatan|vedic)/i.test(religion)) return false;
+  return /\b(eid|ramadan|ramzan|muharram|christmas|good friday|easter|guru nanak jayanti|buddha purnima|buddha jayanti|mahavir jayanti|maharashtra diwas|parsi new year|independence day|republic day|gandhi jayanti|ambedkar jayanti|national youth day|chhatrapati shivaji maharaj jayanti)\b/i.test(name);
+}
+
+function categoryFor(name: string, record: RawRecord): string {
+  if (Array.isArray(record.type)) {
+    const types = record.type.filter((item): item is string => typeof item === "string");
+    if (types.length) return types.join(" / ");
+  }
+
+  const supplied = firstString(record.category, record.type, record.kind);
+  if (supplied) return supplied;
+
+  if (/(ekadashi|amavasya|purnima|pradosh|chaturthi|vrat|ashtami)/i.test(name)) {
+    return "Vrat & Tithi";
+  }
+  if (/(sankranti|pongal|bihu|ugadi|gudi padwa|new year)/i.test(name)) {
+    return "Regional Hindu Festival";
+  }
+  return "Hindu Festival";
+}
+
+function makeLiveEvents(record: RawRecord, fallbackRegion = ""): DhamEvent[] {
+  const recordName = rawName(record);
+  const date = extractIsoDate(record.date ?? record.datetime ?? record.startDate ?? record.isoDate);
+  if (!recordName || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
+
+  const dateObject = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(dateObject.getTime())) return [];
+
+  // Some calendar feeds group several same-day observances in a comma-separated name.
+  // Split those into separate searchable records while retaining slash-based aliases.
+  const titles = [...new Set(recordName.split(/\s*,\s*/).map((item) => item.trim()).filter(Boolean))];
+  const regionRaw = rawRegion(record) || fallbackRegion;
+  const region = /^(all india|india|national|pan[- ]india)$/i.test(regionRaw)
+    ? "India"
+    : toTitleCase(regionRaw);
+  const endDate = extractIsoDate(record.endDate ?? record.end_date);
+  const originalDescription = firstString(record.description, record.details, record.summary);
+  const locationDescription = region
+    ? `Regional observance reported for ${region}.`
+    : "Pan-India calendar observance; check your local city and regional Panchang.";
+  const dateNote =
+    `Date provided by the live Hindu-festival calendar feed${region ? ` for ${region}` : ""}. ` +
+    "Observance can differ by city, sunrise rule and regional tradition; confirm locally before travelling.";
+
+  const rawOfficial = firstString(record.officialUrl, record.official_url, record.organizer_url, record.canonical_url, record.url);
+  const officialUrl = /^https?:\/\//i.test(rawOfficial) ? rawOfficial : undefined;
+
+  return titles
+    .filter((title) => !isClearlyNonHindu(record, title))
+    .map((title) => ({
+      slug: `calendar-${slugify(title)}-${date}-${slugify(region || "india")}`,
+      title,
+      category: categoryFor(title, record),
+      date,
+      ...(endDate && endDate >= date ? { endDate } : {}),
+      time: "Local Panchang observance; confirm the city-specific timing",
+      venue: region && region !== "India"
+        ? `Regional Hindu calendar observance — ${region}`
+        : "Pan-India Hindu calendar observance; confirm the local venue",
+      city: region || "Pan-India",
+      region: region || "Pan-India",
+      image: /holi|rang/i.test(title)
+        ? "/images/festival-crowd.jpeg"
+        : /yoga|meditation/i.test(title)
+          ? "/images/yoga-course.jpeg"
+          : /aarti|deep|diwali|shiv/i.test(title)
+            ? "/images/aarti-night.jpeg"
+            : "/images/temple-corridor.jpeg",
+      organizer: firstString(record.organizer, record.organisation, record.organization) ||
+        "Not specified by the calendar feed — check the local temple or organiser",
+      description: originalDescription ||
+        `${title} is listed as a Hindu-calendar observance. ${locationDescription} This calendar entry does not itself confirm a ticketed event, a public programme, or an event organiser. Check the relevant temple, local Panchang or organiser for accurate timings and access information.`,
+      schedule: [
+        {
+          t: "Calendar observance",
+          item:
+            "The calendar date is listed for reference. This feed does not confirm local ceremonies, procession routes, entry rules or a ticketed programme; verify details with the relevant local organiser.",
+        },
+      ],
+      fee: "Not specified by the calendar feed. Check the local venue or organiser for any registration or charges.",
+      ...(officialUrl ? { officialUrl } : {}),
+      sourceUrl: HINDU_CALENDAR_SOURCE_URL,
+      dateNote,
+      isCalendarObservance: true,
+    }));
+}
+
+function eventDateKey(event: DhamEvent): string {
+  return event.date.slice(0, 10);
+}
+
+function coreTitle(title: string): string {
+  return slugify(title.split(/[—–|:]/, 1)[0]);
+}
+
+function mergeEvents(preferred: DhamEvent[], live: DhamEvent[]): DhamEvent[] {
+  const result: DhamEvent[] = [];
+  const indexByKey = new Map<string, number>();
+
+  for (const event of [...preferred, ...live]) {
+    const key = `${eventDateKey(event)}::${coreTitle(event.title)}`;
+    const existingIndex = indexByKey.get(key);
+
+    if (existingIndex === undefined) {
+      indexByKey.set(key, result.length);
+      result.push({ ...event });
+      continue;
+    }
+
+    const existing = result[existingIndex];
+    // Keep organiser-sourced detail ahead of generic calendar metadata.
+    if (existing.isCalendarObservance && event.isCalendarObservance) {
+      const regions = [...new Set(
+        `${existing.region || existing.city}, ${event.region || event.city}`
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      )];
+      existing.region = regions.join(", ");
+      existing.city = regions.length > 3 ? "Multiple regions" : regions.join(", ");
+      existing.venue = regions.length > 1
+        ? `Hindu-calendar observance across ${existing.city}`
+        : existing.venue;
+      existing.slug = `calendar-${slugify(existing.title)}-${existing.date}-${slugify(existing.city)}`;
+      existing.dateNote =
+        `Calendar date reported for: ${regions.join(", ")}. Regional observances may differ by city and tradition; verify with a local Panchang.`;
+    }
+  }
+
+  return result.sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
+}
+
+export function getCuratedEventsForCurrentAndFutureYears(
+  year = new Date().getFullYear(),
+): DhamEvent[] {
+  return EVENTS.filter((event) => Number(event.date.slice(0, 4)) >= year);
+}
+
+const ASTROTATHYA_CITY_PROXIES = [
+  { slug: "new-delhi", label: "New Delhi · North India" },
+  { slug: "mumbai", label: "Mumbai · West India" },
+  { slug: "bengaluru", label: "Bengaluru · South India" },
+  { slug: "chennai", label: "Chennai · South India" },
+  { slug: "kolkata", label: "Kolkata · East India" },
+  { slug: "hyderabad", label: "Hyderabad · Deccan" },
+] as const;
+
+const panchangCache = new Map<number, { fetchedAt: number; events: DhamEvent[] }>();
+
+/**
+ * Optional city-resolved supplement for the next year, currently documented by
+ * AstroTathya for 2025–2027. Errors are isolated per city so one unavailable
+ * city does not block the remaining national/regional calendar feed.
+ */
+async function fetchCityPanchangEvents(year: number): Promise<DhamEvent[]> {
+  if (year < 2025 || year > 2027) return [];
+
+  const now = Date.now();
+  const cached = panchangCache.get(year);
+  if (cached && now - cached.fetchedAt < (cached.events.length ? 6 : 1) * 60 * 60 * 1000) {
+    return cached.events;
+  }
+
+  const responses = await Promise.allSettled(
+    ASTROTATHYA_CITY_PROXIES.map(async (city) => {
+      const url = new URL("https://astrotathya.com/api/festivals");
+      url.searchParams.set("year", String(year));
+      url.searchParams.set("city", city.slug);
+
+      const response = await fetch(url.toString(), {
+        method: "GET",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+
+      if (!response.ok) return [] as DhamEvent[];
+
+      const payload: unknown = await response.json();
+      return collectRawRecords(payload)
+        .flatMap((record) => makeLiveEvents(record, city.label))
+        .filter((event) => Number(event.date.slice(0, 4)) === year)
+        .map((event) => ({
+          ...event,
+          sourceUrl: "https://astrotathya.com/developers",
+          dateNote:
+            `City-resolved Panchang date from AstroTathya for ${city.label}. ` +
+            "Dates may differ across regions and observance traditions; confirm with the local temple.",
+        }));
+    }),
+  );
+
+  const events = responses.flatMap((response) =>
+    response.status === "fulfilled" ? response.value : [],
+  );
+
+  panchangCache.set(year, { fetchedAt: now, events });
+  return events;
+}
+
+/**
+ * Loads the latest public Hindu-festival dataset and merges it with curated
+ * organiser-linked listings. It also checks the next year's city-based Panchang
+ * feed when supported. The year is resolved at runtime, so the UI rolls over
+ * without manually editing dates.
+ */
+export async function loadEventDirectory(): Promise<EventDirectoryResult> {
+  const currentYear = new Date().getFullYear();
+  const refreshedAt = new Date().toISOString();
+  const curated = getCuratedEventsForCurrentAndFutureYears(currentYear);
+
+  try {
+    const response = await fetch(LIVE_CALENDAR_URL, {
+      method: "GET",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Calendar feed returned HTTP ${response.status}`);
+    }
+
+    const payload: unknown = await response.json();
+    const allPrimaryEvents = collectRawRecords(payload)
+      .flatMap((record) => makeLiveEvents(record))
+      .filter((event) => Number(event.date.slice(0, 4)) >= currentYear)
+      .filter((event) => Number(event.date.slice(0, 4)) <= currentYear + 1);
+
+    const hasCurrentYearEntries = allPrimaryEvents.some(
+      (event) => Number(event.date.slice(0, 4)) === currentYear,
+    );
+
+    // If the statewide feed has not rolled over yet, try the city-resolved
+    // Panchang feed for this year (supported through 2027).
+    const currentYearSupplement = hasCurrentYearEntries || currentYear > 2027
+      ? []
+      : await fetchCityPanchangEvents(currentYear);
+
+    const nextYearSupplement = currentYear + 1 <= 2027
+      ? await fetchCityPanchangEvents(currentYear + 1)
+      : [];
+
+    const liveEvents = [...allPrimaryEvents, ...currentYearSupplement, ...nextYearSupplement];
+    const hasCurrentYearData = liveEvents.some(
+      (event) => Number(event.date.slice(0, 4)) === currentYear,
+    );
+
+    if (!hasCurrentYearData) {
+      throw new Error(`No current-year (${currentYear}) Hindu-calendar entries are available from the connected sources yet`);
+    }
+
+    return {
+      events: mergeEvents(curated, liveEvents),
+      status: "live",
+      currentYear,
+      refreshedAt,
+    };
+  } catch (error) {
+    return {
+      events: curated,
+      status: curated.length ? "fallback" : "empty",
+      currentYear,
+      refreshedAt,
+      message: error instanceof Error ? error.message : "Live calendar feed could not be loaded.",
+    };
+  }
+}

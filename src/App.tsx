@@ -153,17 +153,9 @@ const ArticleDetail = lazy(() =>
   })),
 );
 
-const About = lazy(() =>
-  import("./pages/Info").then((module) => ({
-    default: module.About,
-  })),
-);
+const About = lazy(() => import("./pages/About"));
 
-const Contact = lazy(() =>
-  import("./pages/Info").then((module) => ({
-    default: module.Contact,
-  })),
-);
+const Contact = lazy(() => import("./pages/Contact"));
 
 const Subscriptions = lazy(() => import("./pages/Subscriptions"));
 

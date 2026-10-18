@@ -1,5 +1,5 @@
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   MapPin,
@@ -11,7 +11,6 @@ import {
   Sparkles,
   ArrowRight,
   CalendarCheck,
-  CalendarPlus,
   Compass,
   Camera,
   Search,
@@ -28,7 +27,13 @@ import {
   ExternalLink,
 } from "lucide-react";
 
-import { EVENTS } from "../data/content";
+import {
+  EVENTS,
+  HINDU_CALENDAR_SOURCE_URL,
+  getCuratedEventsForCurrentAndFutureYears,
+  loadEventDirectory,
+  type DhamEvent,
+} from "../data/events";
 import { useSEO } from "../lib/seo";
 import { Breadcrumbs, Reveal, SectionHead } from "../components/ui";
 import { EventCard } from "../components/cards";
@@ -40,350 +45,75 @@ import {
 import { waLink, formatDate } from "../lib/utils";
 
 /* =========================================================
-   GOOGLE CALENDAR INTEGRATION
-   No Apple / Outlook .ics download.
-   Events are interpreted in India Standard Time.
-========================================================= */
-
-type CalendarTiming = {
-  allDay: boolean;
-  start: Date;
-  end: Date;
-  approximateEnd: boolean;
-};
-
-type ClockTime = {
-  hours: number;
-  minutes: number;
-};
-
-function parseClockTime(value: string): ClockTime | null {
-  const match = value.match(
-    /(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i,
-  );
-
-  if (!match) return null;
-
-  let hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  const meridiem = match[3].toUpperCase();
-
-  if (
-    hours < 1 ||
-    hours > 12 ||
-    minutes < 0 ||
-    minutes > 59
-  ) {
-    return null;
-  }
-
-  if (meridiem === "AM") {
-    hours = hours === 12 ? 0 : hours;
-  } else {
-    hours = hours === 12 ? 12 : hours + 12;
-  }
-
-  return { hours, minutes };
-}
-
-function getEventEndDate(event: (typeof EVENTS)[number]) {
-  if (!("endDate" in event)) return null;
-
-  const value = event.endDate;
-
-  if (typeof value !== "string") return null;
-
-  return /^\d{4}-\d{2}-\d{2}$/.test(value)
-    ? value
-    : null;
-}
-
-function getCalendarTiming(
-  event: (typeof EVENTS)[number],
-): CalendarTiming {
-  const dateMatch = event.date.match(
-    /^(\d{4})-(\d{2})-(\d{2})/,
-  );
-
-  if (!dateMatch) {
-    const now = new Date();
-    const fallback = new Date(
-      Date.UTC(
-        now.getUTCFullYear(),
-        now.getUTCMonth(),
-        now.getUTCDate(),
-      ),
-    );
-
-    return {
-      allDay: true,
-      start: fallback,
-      end: new Date(fallback.getTime() + 86400000),
-      approximateEnd: false,
-    };
-  }
-
-  const year = Number(dateMatch[1]);
-  const month = Number(dateMatch[2]);
-  const day = Number(dateMatch[3]);
-
-  const endDate = getEventEndDate(event);
-
-  const endDateMatch = endDate?.match(
-    /^(\d{4})-(\d{2})-(\d{2})$/,
-  );
-
-  const range = event.time.match(
-    /(\d{1,2}(?::\d{2})?\s*(?:AM|PM))\s*(?:-|–|—|to)\s*(\d{1,2}(?::\d{2})?\s*(?:AM|PM))/i,
-  );
-
-  const startTime = parseClockTime(
-    range?.[1] ?? event.time,
-  );
-
-  const endTime = range
-    ? parseClockTime(range[2])
-    : null;
-
-  const startDay = new Date(
-    Date.UTC(year, month - 1, day),
-  );
-
-  /*
-   * All-day events use an exclusive end date in Google Calendar.
-   * For an inclusive multi-day endDate, advance one day.
-   */
-  if (!startTime) {
-    const lastDay = endDateMatch
-      ? new Date(
-          Date.UTC(
-            Number(endDateMatch[1]),
-            Number(endDateMatch[2]) - 1,
-            Number(endDateMatch[3]),
-          ),
-        )
-      : startDay;
-
-    return {
-      allDay: true,
-      start: startDay,
-      end: new Date(lastDay.getTime() + 86400000),
-      approximateEnd: false,
-    };
-  }
-
-  /*
-   * Convert local India time to UTC for the Google Calendar
-   * date format. India Standard Time is UTC+05:30.
-   */
-  const start = new Date(
-    Date.UTC(
-      year,
-      month - 1,
-      day,
-      startTime.hours,
-      startTime.minutes,
-    ) -
-      330 * 60000,
-  );
-
-  let end: Date;
-  let approximateEnd = false;
-
-  if (endTime) {
-    const endYear = endDateMatch
-      ? Number(endDateMatch[1])
-      : year;
-
-    const endMonth = endDateMatch
-      ? Number(endDateMatch[2])
-      : month;
-
-    const endDay = endDateMatch
-      ? Number(endDateMatch[3])
-      : day;
-
-    end = new Date(
-      Date.UTC(
-        endYear,
-        endMonth - 1,
-        endDay,
-        endTime.hours,
-        endTime.minutes,
-      ) -
-        330 * 60000,
-    );
-
-    if (end.getTime() <= start.getTime()) {
-      end = new Date(end.getTime() + 86400000);
-    }
-  } else if (endDateMatch) {
-    /*
-     * The start time is known but no end time is published.
-     * Preserve the inclusive final event date and use a
-     * disclosed two-hour placeholder on that date.
-     */
-    end = new Date(
-      Date.UTC(
-        Number(endDateMatch[1]),
-        Number(endDateMatch[2]) - 1,
-        Number(endDateMatch[3]),
-        startTime.hours,
-        startTime.minutes,
-      ) -
-        330 * 60000 +
-        2 * 60 * 60000,
-    );
-    approximateEnd = true;
-  } else {
-    end = new Date(start.getTime() + 2 * 60 * 60000);
-    approximateEnd = true;
-  }
-
-  return {
-    allDay: false,
-    start,
-    end,
-    approximateEnd,
-  };
-}
-
-function formatCalendarDate(date: Date) {
-  const pad = (value: number) =>
-    String(value).padStart(2, "0");
-
-  return [
-    date.getUTCFullYear(),
-    pad(date.getUTCMonth() + 1),
-    pad(date.getUTCDate()),
-  ].join("");
-}
-
-function formatGoogleCalendarDate(date: Date) {
-  const indiaTime = new Date(
-    date.getTime() + 330 * 60000,
-  );
-
-  const pad = (value: number) =>
-    String(value).padStart(2, "0");
-
-  return (
-    `${indiaTime.getUTCFullYear()}` +
-    `${pad(indiaTime.getUTCMonth() + 1)}` +
-    `${pad(indiaTime.getUTCDate())}` +
-    `T${pad(indiaTime.getUTCHours())}` +
-    `${pad(indiaTime.getUTCMinutes())}00`
-  );
-}
-
-function getCalendarDescription(
-  event: (typeof EVENTS)[number],
-  timing: CalendarTiming,
-) {
-  const parts = [
-    event.description,
-    `Organiser: ${event.organizer}`,
-    `Entry information: ${event.fee}`,
-    `Event details: https://divya-dhara.in/events/${event.slug}`,
-  ];
-
-  if (timing.approximateEnd) {
-    parts.push(
-      "The published event time does not specify an end time. A two-hour placeholder has been used; please edit it in your calendar if needed.",
-    );
-  }
-
-  return parts.join("\n\n");
-}
-
-function getGoogleCalendarUrl(
-  event: (typeof EVENTS)[number],
-) {
-  const timing = getCalendarTiming(event);
-
-  const params = new URLSearchParams({
-    action: "TEMPLATE",
-    text: event.title,
-    details: getCalendarDescription(event, timing),
-    location: `${event.venue}, ${event.city}`,
-    ctz: "Asia/Kolkata",
-  });
-
-  const start = timing.allDay
-    ? formatCalendarDate(timing.start)
-    : formatGoogleCalendarDate(timing.start);
-
-  const end = timing.allDay
-    ? formatCalendarDate(timing.end)
-    : formatGoogleCalendarDate(timing.end);
-
-  params.set("dates", `${start}/${end}`);
-
-  return `https://calendar.google.com/calendar/render?${params.toString()}`;
-}
-
-function EventCalendarActions({
-  event,
-  compact = false,
-}: {
-  event: (typeof EVENTS)[number];
-  compact?: boolean;
-}) {
-  const timing = getCalendarTiming(event);
-
-  return (
-    <div className={`flex flex-wrap gap-2 ${compact ? "" : "mt-4"}`}>
-      <a
-        href={getGoogleCalendarUrl(event)}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center justify-center gap-2 rounded-xl border border-orange-700/20 bg-white px-3.5 py-2.5 text-xs font-bold text-[#5b3927] transition duration-300 hover:-translate-y-0.5 hover:border-orange-500 hover:bg-orange-50 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-orange-400 sm:text-sm"
-      >
-        <CalendarPlus
-          size={16}
-          className="text-orange-700"
-        />
-        Google Calendar
-      </a>
-
-      {timing.approximateEnd && !compact && (
-        <p className="basis-full text-xs leading-5 text-white/70">
-          The event is listed as “onwards”. Its end time is
-          unconfirmed; a two-hour placeholder is used.
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* =========================================================
    EVENT SEARCH / FILTER / PAGINATION
 ========================================================= */
 
 const EVENT_PAGE_SIZE = 6;
 
-type EventDateScope = "all" | "upcoming" | "past";
+type EventDateScope = "upcoming" | "all" | "ongoing" | "past";
+type EventDateStatus = "upcoming" | "ongoing" | "past" | "unknown";
 
+/**
+ * Validate an ISO date (or ISO datetime) without depending on the visitor's
+ * browser timezone. Event dates are displayed according to India Standard Time.
+ */
 function getEventTimestamp(value: string): number | null {
-  const date = new Date(value);
+  const dateOnly = value.slice(0, 10);
+  const match = dateOnly.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
 
-  return Number.isNaN(date.getTime())
-    ? null
-    : date.getTime();
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const timestamp = Date.UTC(year, month - 1, day);
+  const check = new Date(timestamp);
+
+  if (
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() !== month - 1 ||
+    check.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return timestamp;
 }
 
-function isEventUpcoming(value: string): boolean {
-  const timestamp = getEventTimestamp(value);
+function getIndiaTodayDate(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
 
-  if (timestamp === null) return false;
+  const read = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "";
 
-  const eventDay = new Date(timestamp);
-  eventDay.setHours(0, 0, 0, 0);
+  return `${read("year")}-${read("month")}-${read("day")}`;
+}
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+/**
+ * Multi-day festivals remain active through endDate. A same-day event is
+ * treated as ongoing today, not past. Invalid dates are kept out of date-only
+ * filters instead of being incorrectly classified as past.
+ */
+function getEventDateStatus(
+  event: Pick<DhamEvent, "date" | "endDate">,
+  today = getIndiaTodayDate(),
+): EventDateStatus {
+  const startDate = event.date.slice(0, 10);
+  if (getEventTimestamp(startDate) === null) return "unknown";
 
-  return eventDay.getTime() >= today.getTime();
+  const candidateEndDate = event.endDate?.slice(0, 10) ?? startDate;
+  const endDate =
+    getEventTimestamp(candidateEndDate) !== null && candidateEndDate >= startDate
+      ? candidateEndDate
+      : startDate;
+
+  if (endDate < today) return "past";
+  if (startDate > today) return "upcoming";
+  return "ongoing";
 }
 
 function getEventSearchText(
@@ -534,8 +264,9 @@ function EventShareButtons({
               onClick={() => {
                 if (social.id === "instagram") {
                   void copy(shareText);
+                  setMessage("Event details copied. Paste the link into your Instagram post or message.");
                   window.open(
-                    "https://www.instagram.com/",
+                    "https://www.instagram.com/divya_dhara108/",
                     "_blank",
                     "noopener,noreferrer",
                   );
@@ -600,9 +331,48 @@ export function EventList() {
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState("");
   const [city, setCity] = useState("");
+  // Start with future and currently-running events so visitors immediately see
+  // relevant upcoming festivals rather than old observances.
   const [dateScope, setDateScope] =
-    useState<EventDateScope>("all");
+    useState<EventDateScope>("upcoming");
   const [page, setPage] = useState(1);
+
+  const [directoryEvents, setDirectoryEvents] = useState<DhamEvent[]>(
+    () => getCuratedEventsForCurrentAndFutureYears(),
+  );
+  const [feedStatus, setFeedStatus] = useState<"loading" | "live" | "fallback" | "empty">("loading");
+  const [feedMessage, setFeedMessage] = useState("");
+  const [feedYear, setFeedYear] = useState(() => new Date().getFullYear());
+
+  // Resolve the current calendar year when loading, on tab return and hourly.
+  // This means the UI rolls into a new year without editing the event file.
+  useEffect(() => {
+    let active = true;
+
+    const refreshCalendar = async () => {
+      const result = await loadEventDirectory();
+      if (!active) return;
+      setDirectoryEvents(result.events);
+      setFeedStatus(result.status);
+      setFeedMessage(result.message ?? "");
+      setFeedYear(result.currentYear);
+    };
+
+    void refreshCalendar();
+    const intervalId = window.setInterval(() => void refreshCalendar(), 60 * 60 * 1000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refreshCalendar();
+    };
+    window.addEventListener("focus", onVisibilityChange);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onVisibilityChange);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
 
   useSEO({
     title:
@@ -616,26 +386,26 @@ export function EventList() {
     () =>
       [
         ...new Set(
-          EVENTS.map((event) => event.category).filter(Boolean),
+          directoryEvents.map((event) => event.category).filter(Boolean),
         ),
       ].sort(),
-    [],
+    [directoryEvents],
   );
 
   const cities = useMemo(
     () =>
       [
         ...new Set(
-          EVENTS.map((event) => event.city).filter(Boolean),
+          directoryEvents.map((event) => event.city).filter(Boolean),
         ),
       ].sort(),
-    [],
+    [directoryEvents],
   );
 
   const filteredEvents = useMemo(() => {
     const search = query.trim().toLowerCase();
 
-    const filtered = EVENTS.filter((event) => {
+    const filtered = directoryEvents.filter((event) => {
       const matchesSearch =
         !search || getEventSearchText(event).includes(search);
 
@@ -644,12 +414,14 @@ export function EventList() {
 
       const matchesCity = !city || event.city === city;
 
-      const upcoming = isEventUpcoming(event.date);
+      const dateStatus = getEventDateStatus(event);
 
       const matchesDate =
         dateScope === "all" ||
-        (dateScope === "upcoming" && upcoming) ||
-        (dateScope === "past" && !upcoming);
+        (dateScope === "upcoming" &&
+          (dateStatus === "upcoming" || dateStatus === "ongoing")) ||
+        (dateScope === "ongoing" && dateStatus === "ongoing") ||
+        (dateScope === "past" && dateStatus === "past");
 
       return (
         matchesSearch &&
@@ -670,18 +442,25 @@ export function EventList() {
       if (timeA === null) return 1;
       if (timeB === null) return -1;
 
-      const upcomingA = isEventUpcoming(a.date);
-      const upcomingB = isEventUpcoming(b.date);
+      const statusA = getEventDateStatus(a);
+      const statusB = getEventDateStatus(b);
+      const priority: Record<EventDateStatus, number> = {
+        ongoing: 0,
+        upcoming: 1,
+        past: 2,
+        unknown: 3,
+      };
 
-      if (upcomingA !== upcomingB) {
-        return upcomingA ? -1 : 1;
+      if (priority[statusA] !== priority[statusB]) {
+        return priority[statusA] - priority[statusB];
       }
 
-      return upcomingA
-        ? timeA - timeB
-        : timeB - timeA;
+      // Upcoming/ongoing: soonest first. Past events: most recent first.
+      return statusA === "past"
+        ? timeB - timeA
+        : timeA - timeB;
     });
-  }, [query, cat, city, dateScope]);
+  }, [directoryEvents, query, cat, city, dateScope]);
 
   const totalPages = Math.max(
     1,
@@ -699,7 +478,7 @@ export function EventList() {
     setQuery("");
     setCat("");
     setCity("");
-    setDateScope("all");
+    setDateScope("upcoming");
     setPage(1);
   }
 
@@ -719,6 +498,43 @@ export function EventList() {
             { label: "Events" },
           ]}
         />
+
+        <section
+          className="mt-5 rounded-2xl border border-orange-200 bg-orange-50/80 p-4 sm:p-5"
+          aria-live="polite"
+          aria-label="Hindu calendar data status"
+        >
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="flex items-center gap-2 text-sm font-bold text-[#2a1a10]">
+                <Sparkles size={17} className="text-orange-700" aria-hidden="true" />
+                {feedStatus === "loading"
+                  ? "Loading Hindu calendar…"
+                  : feedStatus === "live"
+                    ? `Hindu festival calendar connected · ${feedYear}`
+                    : feedStatus === "fallback"
+                      ? "Showing curated events while the live calendar is unavailable"
+                      : `No current-year calendar records available for ${feedYear}`}
+              </p>
+              <p className="mt-1 text-xs leading-6 text-stone-600 sm:text-sm">
+                Coverage follows source-published national and regional records plus selected city Panchang feeds; this is not an official register of every local temple event or every state's individual traditions. Calendar listings are observances, not confirmation of a ticketed event or local programme. Confirm timing and access with the local temple or organiser before travelling.
+              </p>
+              {feedMessage && feedStatus !== "live" && (
+                <p className="mt-1 text-xs text-stone-500">
+                  Live-feed status: {feedMessage}
+                </p>
+              )}
+            </div>
+            <a
+              href={HINDU_CALENDAR_SOURCE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-orange-800 underline underline-offset-4"
+            >
+              Calendar source <ExternalLink size={13} aria-hidden="true" />
+            </a>
+          </div>
+        </section>
 
         <Reveal className="mt-8">
           <div className="grid gap-5 rounded-3xl border border-orange-900/10 bg-[#fffaf3] p-6 md:grid-cols-[1fr_auto] md:items-center md:p-8">
@@ -855,8 +671,9 @@ export function EventList() {
                 }}
                 className="w-full rounded-xl border border-orange-900/15 bg-white px-3 py-3 text-sm text-[#2a1a10] outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
               >
+                <option value="upcoming">Upcoming &amp; ongoing</option>
                 <option value="all">All events</option>
-                <option value="upcoming">Upcoming events</option>
+                <option value="ongoing">Today / ongoing</option>
                 <option value="past">Past events</option>
               </select>
             </label>
@@ -874,7 +691,7 @@ export function EventList() {
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-orange-900/10 pt-4 text-xs text-stone-500">
             <p className="flex items-center gap-1.5">
               <SlidersHorizontal size={14} />
-              Filter results to find a suitable event.
+              Upcoming and ongoing events are shown first. Use the date filter to view all or past events.
             </p>
 
             <p>
@@ -899,18 +716,11 @@ export function EventList() {
                   <EventCard e={event} i={index} />
 
                   <div className="mt-3 rounded-2xl border border-orange-900/10 bg-[#fffaf3] p-3">
-                    {/* Only Google Calendar is displayed here. */}
-                    <EventCalendarActions
-                      event={event}
-                      compact
-                    />
-
-                    <div className="mt-3 border-t border-orange-900/10 pt-3">
-                      <EventShareButtons
-                        event={event}
-                        compact
-                      />
-                    </div>
+                    <p className="mb-2 flex items-center gap-1.5 text-xs font-bold text-stone-600">
+                      <Share2 size={13} aria-hidden="true" />
+                      Share this event
+                    </p>
+                    <EventShareButtons event={event} compact />
                   </div>
                 </div>
               ))}
@@ -1072,7 +882,39 @@ export function EventList() {
 
 export function EventDetail() {
   const { slug } = useParams();
-  const event = EVENTS.find((item) => item.slug === slug);
+  const [directoryEvents, setDirectoryEvents] = useState<DhamEvent[]>(
+    () => getCuratedEventsForCurrentAndFutureYears(),
+  );
+  const [calendarLoaded, setCalendarLoaded] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const refreshCalendar = async () => {
+      const result = await loadEventDirectory();
+      if (!active) return;
+      setDirectoryEvents(result.events);
+      setCalendarLoaded(true);
+    };
+
+    void refreshCalendar();
+    const intervalId = window.setInterval(() => void refreshCalendar(), 60 * 60 * 1000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refreshCalendar();
+    };
+    window.addEventListener("focus", onVisibilityChange);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onVisibilityChange);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
+  const event =
+    directoryEvents.find((item) => item.slug === slug) ??
+    EVENTS.find((item) => item.slug === slug);
 
   useSEO({
     title: event
@@ -1086,12 +928,15 @@ export function EventDetail() {
     path: `/events/${slug}`,
     image: event?.image,
 
-    schema: event
+    // Calendar-only observances do not imply a ticketed or organiser-run event.
+    // Emit Event structured data only for curated listings with event details.
+    schema: event && !event.isCalendarObservance
       ? {
           "@context": "https://schema.org",
           "@type": "Event",
           name: event.title,
           startDate: event.date,
+          ...(event.endDate ? { endDate: event.endDate } : {}),
           url: `https://divya-dhara.in/events/${event.slug}`,
           location: {
             "@type": "Place",
@@ -1115,7 +960,7 @@ export function EventDetail() {
   const related = useMemo(() => {
     if (!event) return [];
 
-    return EVENTS.filter(
+    return directoryEvents.filter(
       (item) => item.slug !== slug,
     )
       .map((item) => ({
@@ -1133,7 +978,21 @@ export function EventDetail() {
       )
       .slice(0, 3)
       .map((item) => item.event);
-  }, [slug, event]);
+  }, [slug, event, directoryEvents]);
+
+  if (!event && !calendarLoaded) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-24 text-center" role="status" aria-live="polite">
+        <CalendarDays size={32} className="mx-auto text-orange-600" aria-hidden="true" />
+        <h1 className="font-display mt-5 text-2xl font-bold text-[#2a1a10]">
+          Loading festival details…
+        </h1>
+        <p className="mt-2 text-sm text-stone-600">
+          Checking the current Hindu calendar.
+        </p>
+      </div>
+    );
+  }
 
   if (!event) {
     return (
@@ -1266,16 +1125,10 @@ export function EventDetail() {
             </a>
           </div>
 
-          {/* Only Google Calendar — no ICS button. */}
           <div className="mt-6 max-w-3xl border-t border-white/15 pt-5">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-200">
-              Save this event to your calendar
+            <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-amber-200">
+              Share this festival
             </p>
-
-            <EventCalendarActions event={event} />
-          </div>
-
-          <div className="mt-6 max-w-2xl border-t border-white/15 pt-5">
             <EventShareButtons event={event} />
           </div>
 
@@ -1350,6 +1203,27 @@ export function EventDetail() {
               <p className="leading-8 text-stone-600">
                 {event.description}
               </p>
+
+              {(event.dateNote || event.sourceUrl) && (
+                <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50/80 p-4">
+                  {event.dateNote && (
+                    <p className="text-sm leading-6 text-stone-700">
+                      {event.dateNote}
+                    </p>
+                  )}
+                  {event.sourceUrl && (
+                    <a
+                      href={event.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-orange-800 underline underline-offset-4"
+                    >
+                      Check calendar / organiser source
+                      <ExternalLink size={13} aria-hidden="true" />
+                    </a>
+                  )}
+                </div>
+              )}
 
               <div className="mt-6 grid gap-3 sm:grid-cols-3">
                 {[
