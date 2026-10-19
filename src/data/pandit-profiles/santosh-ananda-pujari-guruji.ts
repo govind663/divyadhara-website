@@ -12,7 +12,7 @@ const santoshAnandaPujariGuruji: Pandit = {
 
   experience: 20,
 
-  location: "Thakurli, Kalyan, Maharashtra",
+  location: "Navi Mumbai, Maharashtra",
 
   languages: ["Hindi", "Sanskrit", "Marathi"],
 

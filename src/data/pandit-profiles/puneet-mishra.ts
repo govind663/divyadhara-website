@@ -4,7 +4,7 @@ import { PUJA_CATEGORIES } from "../common/puja-catalogue";
 const puneetMishra: Pandit = {
   slug: "puneet-mishra",
 
-  name: "Puneet Mishra",
+  name: "Pandit Puneet Guruji",
 
   title: "Hindu Pandit Ji",
 
@@ -12,9 +12,9 @@ const puneetMishra: Pandit = {
 
   experience: 5,
 
-  location: "Mumbai, Maharashtra, India",
+  location: "Kalyan-Dombivli, Thane, Mumbai City & Suburban, Navi Mumbai, Panvel, Palghar.", 
 
-  languages: ["Hindi", "Sanskrit", "Marathi"],
+  languages: ["Hindi", "Sanskrit", "Marathi", "Gujarati", "Tamili", "Telugu"],
 
   /*
    * PANDIT STORY VIDEO

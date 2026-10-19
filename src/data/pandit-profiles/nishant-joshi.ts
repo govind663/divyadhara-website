@@ -6,75 +6,41 @@ const nishantJoshi: Pandit = {
 
   name: "Nishant Joshi",
 
-  title: "Experienced Hindu Pandit Ji",
+  title: "Kundli Jyotish & Samaysya Nivaran Consultant",
 
   photo: "/pandits_profile_img/निशांत श्रीकांत जोशी.jpeg",
 
   experience: 22,
 
-  location: "Mumbai, Maharashtra, India",
+  location: "Navi Mumbai, Thane",
 
   languages: ["Hindi", "Sanskrit", "Marathi"],
 
-  /*
-   * PANDIT STORY VIDEO
-   *
-   * Actual YouTube video ID yahan add karein.
-   * Example: "AbCd1234567"
-   *
-   * YouTube ID milne par empty string ko replace karein.
-   * Bina valid ID ke video button display nahi hoga.
-   */
+  // Add a verified YouTube video ID when one is provided.
+  // The Story button should remain hidden while this is empty.
   storyVideoId: "",
 
   specializations: [
-    "Satyanarayan Puja",
-    "Rudrabhishek",
-    "Havan",
-    "Vastu Shanti",
-    "Ganesh Puja",
-    "Pitru-related Rituals",
+    "Kundli Jyotish",
+    "Samaysya Nivaran",
   ],
 
-  // Services listed for Nishant Joshi.
-  // Confirm expertise before adding additional ceremonies.
-  pujaTypes: [
-    "Satyanarayan Puja",
-    "Rudrabhishek",
-    "Havan",
-    "Vastu Shanti Puja",
-    "Ganesh Puja",
-    "Pitru-related Rituals",
-  ],
+  // No puja ceremonies are inferred from the listed specializations.
+  // Add puja types only after the pandit confirms that they are offered.
+  pujaTypes: [],
 
   associatedWith: "To be confirmed",
 
   about:
-    "Nishant Joshi is a Hindu priest with 22 years of listed experience in traditional Hindu puja and Vedic rituals. His listed specializations include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Visitors can enquire about a suitable ceremony by sharing their preferred date, city or PIN code, language and specific requirements. Ritual procedures, service availability, duration, samagri requirements and pricing should be confirmed directly before a booking is finalized.",
+    "Nishant Joshi is listed on Divya Dhara with 22 years of experience and specializations in Kundli Jyotish and Samaysya Nivaran. Visitors can enquire about a consultation by sharing their requirements and preferred appointment time. The consultation process, availability, duration and pricing should be confirmed before an appointment is finalized. Specific puja ceremonies have not been listed and should be added only after confirmation.",
 
   services: [
     {
-      name: "Satyanarayan Puja",
+      name: "Kundli Jyotish Consultation",
       duration: "To be confirmed",
     },
     {
-      name: "Rudrabhishek",
-      duration: "To be confirmed",
-    },
-    {
-      name: "Havan",
-      duration: "To be confirmed",
-    },
-    {
-      name: "Vastu Shanti Puja",
-      duration: "To be confirmed",
-    },
-    {
-      name: "Ganesh Puja",
-      duration: "To be confirmed",
-    },
-    {
-      name: "Pitru-related Rituals",
+      name: "Samaysya Nivaran Consultation",
       duration: "To be confirmed",
     },
   ],
@@ -85,9 +51,8 @@ const nishantJoshi: Pandit = {
   authorizedContact: false,
 };
 
-// Shared website-wide puja catalogue.
-// This does not indicate that Nishant Joshi performs every
-// ceremony listed in the catalogue.
+// Shared website-wide puja catalogue. This does not indicate that Nishant
+// Joshi performs every ceremony listed in the catalogue.
 export { PUJA_CATEGORIES };
 
 export default nishantJoshi;
