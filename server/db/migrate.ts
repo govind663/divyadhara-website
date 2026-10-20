@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import * as fs from "node:fs";
 
 /*
- * DivyaDhara SQLite Master Migration — FINAL v4
+ * DivyaDhara SQLite Master Migration — FINAL v5
  *
  * Canonical source:
  *   server/db/schema.sql
@@ -56,8 +56,8 @@ const DATABASE_DIR = dirname(DATABASE_FILE);
 const SCHEMA_FILE = resolve(__dirname, "schema.sql");
 const BACKUP_DIR = resolve(DATABASE_DIR, "backups");
 
-const MIGRATION_KEY = "2026-10-03-phase2-role-alignment-v4";
-const MIGRATION_VERSION = 4;
+const MIGRATION_KEY = "2026-10-20-form-answer-storage-v5";
+const MIGRATION_VERSION = 5;
 
 const NO_BACKUP = process.argv.includes("--no-backup");
 const FORCE = process.argv.includes("--force");
@@ -325,6 +325,118 @@ function recordMigration(database: Database.Database, description: string): void
     `)
     .run(MIGRATION_KEY, MIGRATION_VERSION, description);
   database.pragma(`user_version = ${MIGRATION_VERSION}`);
+}
+
+
+
+/** Keep the standard form registry in sync with src/components/blocks.tsx.
+ * Dynamic business/puja questions are stored in form_submission_answers per
+ * submission; the two container keys below describe those answer groups.
+ */
+function syncCentralFormDefinitionSchemas(database: Database.Database): void {
+  const common = [
+    "name", "phone", "whatsapp", "email", "city", "state", "pincode", "language",
+    "preferredDate", "preferredTime", "contactPreference", "whatsappConsent",
+    "marketingConsent", "termsAccepted", "privacyAccepted", "message", "customerMessage",
+    "businessDetails", "pujaSpecificDetails",
+  ];
+  const extras: Record<string, string[]> = {
+    puja_enquiry: ["gotra", "budgetAmount", "samagriRequired", "specialRequirements", "serviceType", "pujaType"],
+    pandit_booking: ["gotra", "budgetAmount", "samagriRequired", "specialRequirements", "bookingMode", "selectedServiceNames", "requestedPujaName", "requestedSevaName", "serviceType", "pujaType"],
+    yatra_enquiry: ["travellersCount", "budgetAmount", "specialRequirements", "serviceType"],
+    temple_enquiry: ["preferredDate", "preferredTime", "serviceType"],
+    ashram_enquiry: ["preferredDate", "preferredTime", "specialRequirements", "serviceType"],
+    event_enquiry: ["preferredDate", "serviceType"],
+    course_enquiry: ["preferredDate", "serviceType"],
+    contact: ["travellersCount", "gotra", "budgetAmount", "samagriRequired", "specialRequirements", "bookingMode", "selectedServiceNames", "requestedPujaName", "requestedSevaName", "serviceType", "pujaType"],
+  };
+  const update = database.prepare(`
+    UPDATE form_definitions
+    SET fields_json = ?, version = CASE WHEN version < 2 THEN 2 ELSE version END,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE form_key = ? AND capture_mode = 'standard_form'
+  `);
+  for (const [formKey, extraFields] of Object.entries(extras)) {
+    const fields = [...new Set([...common, ...extraFields])];
+    update.run(JSON.stringify(fields), formKey);
+  }
+}
+
+
+
+/** Populate queryable answer rows from legacy payload_json during a v4->v5 rebuild. */
+function backfillCentralFormAnswers(database: Database.Database): void {
+  database.exec(`
+    INSERT OR IGNORE INTO form_submission_answers
+      (form_submission_id, field_key, field_label, field_group, field_type, value_json)
+    SELECT fs.id, answer.key,
+      CASE answer.key
+        WHEN 'name' THEN 'Full name' WHEN 'phone' THEN 'Mobile number'
+        WHEN 'whatsapp' THEN 'WhatsApp number' WHEN 'email' THEN 'Email address'
+        WHEN 'country' THEN 'Country' WHEN 'state' THEN 'State' WHEN 'district' THEN 'District'
+        WHEN 'city' THEN 'City' WHEN 'pincode' THEN 'PIN code'
+        WHEN 'preferredDate' THEN 'Preferred date' WHEN 'preferredTime' THEN 'Preferred time'
+        WHEN 'travellersCount' THEN 'Number of travellers' WHEN 'language' THEN 'Preferred language'
+        WHEN 'bookingMode' THEN 'Booking mode' WHEN 'gotra' THEN 'Gotra / family tradition'
+        WHEN 'budgetAmount' THEN 'Indicative budget' WHEN 'samagriRequired' THEN 'Samagri preference'
+        WHEN 'specialRequirements' THEN 'Special requirements' WHEN 'contactPreference' THEN 'Contact preference'
+        WHEN 'whatsappConsent' THEN 'WhatsApp contact consent' WHEN 'marketingConsent' THEN 'Marketing consent'
+        WHEN 'termsAccepted' THEN 'Terms accepted' WHEN 'privacyAccepted' THEN 'Privacy policy accepted'
+        WHEN 'serviceType' THEN 'Service type' WHEN 'pujaType' THEN 'Puja / ritual type'
+        WHEN 'selectedServiceNames' THEN 'Selected pujas / services' WHEN 'requestedPujaName' THEN 'Selected puja'
+        WHEN 'requestedSevaName' THEN 'Selected seva' WHEN 'customerMessage' THEN 'Customer message' WHEN 'message' THEN 'Enquiry context and combined details'
+        WHEN 'businessType' THEN 'Business / enquiry type' ELSE answer.key END,
+      CASE
+        WHEN answer.key IN ('name','phone','whatsapp','email') THEN 'contact'
+        WHEN answer.key IN ('country','state','district','city','pincode') THEN 'location'
+        WHEN answer.key IN ('preferredDate','preferredTime','travellersCount','language','bookingMode','gotra','budgetAmount','samagriRequired','specialRequirements') THEN 'planning'
+        WHEN answer.key IN ('whatsappConsent','marketingConsent','termsAccepted','privacyAccepted') THEN 'consent'
+        WHEN answer.key='contactPreference' THEN 'preferences'
+        WHEN answer.key IN ('serviceType','pujaType','selectedServiceNames','requestedPujaName','requestedSevaName','businessType') THEN 'service'
+        WHEN answer.key IN ('message','customerMessage') THEN 'message' ELSE 'form' END,
+      CASE
+        WHEN answer.key IN ('phone','whatsapp') THEN 'tel' WHEN answer.key='email' THEN 'email'
+        WHEN answer.key='preferredDate' THEN 'date' WHEN answer.key IN ('travellersCount','budgetAmount') THEN 'number'
+        WHEN answer.key IN ('whatsappConsent','marketingConsent','termsAccepted','privacyAccepted') THEN 'checkbox'
+        WHEN answer.key='selectedServiceNames' THEN 'array' WHEN answer.key IN ('language','bookingMode','samagriRequired','contactPreference') THEN 'select'
+        WHEN answer.key IN ('specialRequirements','message','customerMessage') THEN 'textarea' ELSE 'text' END,
+      CASE answer.type WHEN 'text' THEN json_quote(answer.value) WHEN 'true' THEN 'true' WHEN 'false' THEN 'false'
+        WHEN 'array' THEN answer.value WHEN 'object' THEN answer.value ELSE CAST(answer.value AS TEXT) END
+    FROM form_submissions AS fs
+    JOIN json_each(CASE WHEN json_valid(fs.payload_json) THEN fs.payload_json ELSE '{}' END) AS answer
+    WHERE answer.key IN ('name','phone','whatsapp','email','country','state','district','city','pincode','preferredDate','preferredTime','travellersCount','language','bookingMode','gotra','budgetAmount','samagriRequired','specialRequirements','contactPreference','whatsappConsent','marketingConsent','termsAccepted','privacyAccepted','serviceType','pujaType','selectedServiceNames','requestedPujaName','requestedSevaName','message','customerMessage','businessType')
+      AND answer.type NOT IN ('null','object') AND (answer.type <> 'text' OR trim(answer.value) <> '');
+
+    INSERT OR IGNORE INTO form_submission_answers
+      (form_submission_id, field_key, field_label, field_group, field_type, value_json)
+    SELECT fs.id, 'businessDetails.' || answer.key,
+      COALESCE(json_extract(fs.payload_json, '$.businessAnswerSchema.' || answer.key || '.label'), answer.key), 'business',
+      CASE
+        WHEN json_extract(fs.payload_json, '$.businessAnswerSchema.' || answer.key || '.type')='number' AND answer.type='text' THEN CASE WHEN json_valid(answer.value)=1 THEN CASE WHEN json_type(answer.value) IN ('integer','real') THEN 'number' ELSE 'text' END ELSE 'text' END
+        WHEN json_extract(fs.payload_json, '$.businessAnswerSchema.' || answer.key || '.type') IN ('text','textarea','select','date','email','tel','checkbox','array','object') THEN json_extract(fs.payload_json, '$.businessAnswerSchema.' || answer.key || '.type')
+        WHEN answer.type IN ('integer','real') THEN 'number' WHEN answer.type IN ('true','false') THEN 'checkbox' WHEN answer.type='array' THEN 'array' WHEN answer.type='object' THEN 'object' ELSE 'text' END,
+      CASE
+        WHEN json_extract(fs.payload_json, '$.businessAnswerSchema.' || answer.key || '.type')='number' AND answer.type='text' THEN CASE WHEN json_valid(answer.value)=1 THEN CASE WHEN json_type(answer.value) IN ('integer','real') THEN CAST(answer.value AS TEXT) ELSE json_quote(answer.value) END ELSE json_quote(answer.value) END
+        WHEN answer.type='text' THEN json_quote(answer.value) WHEN answer.type='true' THEN 'true' WHEN answer.type='false' THEN 'false' WHEN answer.type='array' THEN answer.value WHEN answer.type='object' THEN answer.value ELSE CAST(answer.value AS TEXT) END
+    FROM form_submissions AS fs
+    JOIN json_each(CASE WHEN json_valid(fs.payload_json) THEN fs.payload_json ELSE '{}' END, '$.businessDetails') AS answer
+    WHERE answer.type NOT IN ('null','object') AND (answer.type <> 'text' OR trim(answer.value) <> '');
+
+    INSERT OR IGNORE INTO form_submission_answers
+      (form_submission_id, field_key, field_label, field_group, field_type, value_json)
+    SELECT fs.id, 'pujaSpecificDetails.' || answer.key,
+      COALESCE(json_extract(fs.payload_json, '$.pujaAnswerSchema.' || answer.key || '.label'), answer.key), 'puja',
+      CASE
+        WHEN json_extract(fs.payload_json, '$.pujaAnswerSchema.' || answer.key || '.type')='number' AND answer.type='text' THEN CASE WHEN json_valid(answer.value)=1 THEN CASE WHEN json_type(answer.value) IN ('integer','real') THEN 'number' ELSE 'text' END ELSE 'text' END
+        WHEN json_extract(fs.payload_json, '$.pujaAnswerSchema.' || answer.key || '.type') IN ('text','textarea','select','date','email','tel','checkbox','array','object') THEN json_extract(fs.payload_json, '$.pujaAnswerSchema.' || answer.key || '.type')
+        WHEN answer.type IN ('integer','real') THEN 'number' WHEN answer.type IN ('true','false') THEN 'checkbox' WHEN answer.type='array' THEN 'array' WHEN answer.type='object' THEN 'object' ELSE 'text' END,
+      CASE
+        WHEN json_extract(fs.payload_json, '$.pujaAnswerSchema.' || answer.key || '.type')='number' AND answer.type='text' THEN CASE WHEN json_valid(answer.value)=1 THEN CASE WHEN json_type(answer.value) IN ('integer','real') THEN CAST(answer.value AS TEXT) ELSE json_quote(answer.value) END ELSE json_quote(answer.value) END
+        WHEN answer.type='text' THEN json_quote(answer.value) WHEN answer.type='true' THEN 'true' WHEN answer.type='false' THEN 'false' WHEN answer.type='array' THEN answer.value WHEN answer.type='object' THEN answer.value ELSE CAST(answer.value AS TEXT) END
+    FROM form_submissions AS fs
+    JOIN json_each(CASE WHEN json_valid(fs.payload_json) THEN fs.payload_json ELSE '{}' END, '$.pujaSpecificDetails') AS answer
+    WHERE answer.type NOT IN ('null','object') AND (answer.type <> 'text' OR trim(answer.value) <> '');
+  `);
 }
 
 function readSchema(): string {
@@ -3684,6 +3796,8 @@ function runMigration(): void {
 
     // Re-execute the final schema to restore all INSERT OR IGNORE seeds/triggers/indexes.
     target.exec(readMigrationSchema());
+    syncCentralFormDefinitionSchemas(target);
+    backfillCentralFormAnswers(target);
     ensureCanonicalRolePermissionGrants(target);
 
     // Final business identities.
@@ -3748,7 +3862,7 @@ function runMigration(): void {
 
     recordMigration(
       target,
-      "Final rebuild of DivyaDhara SQLite database from schema.sql with canonical six-role RBAC including Ashram Manager, six active subscription plans, anonymous analytics preservation, location/SEO backfill, Firebase/lead-capture foundations, and legacy compatibility.",
+      "Final v5 rebuild of DivyaDhara SQLite database with canonical roles/plans, form-answer storage, synced standard-form metadata, anonymous analytics, location/SEO backfill, Firebase/lead-capture foundations, and legacy compatibility.",
     );
 
     verifyDatabase(target);

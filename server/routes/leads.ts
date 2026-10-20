@@ -1002,7 +1002,7 @@ function ddInsertStructured(
   location: DDLocationContext,
   entityId: number | null,
 ): number | null {
-  const details = ddJson(body, 50000);
+  const details = ddJson(ddLeadPayload(body), 50000);
   const commonMessage = ddMessage(body);
   const country = location.country || "India";
 
@@ -1441,13 +1441,178 @@ function ddLeadScope(user: AuthenticatedUser): { sql: string; params: unknown[] 
 
 function ddLeadPayload(body: Record<string, unknown>): Record<string, unknown> {
   const clean = { ...body };
-  for (const secretKey of ["password", "passwordConfirmation", "token", "resetToken"]) {
+  for (const secretKey of [
+    "password",
+    "passwordConfirmation",
+    "token",
+    "resetToken",
+    "recaptchaToken",
+    "g-recaptcha-response",
+  ]) {
     if (secretKey in clean) clean[secretKey] = "[redacted]";
   }
+  // Labels/types are stored in form_submission_answers; they need not bloat payload_json.
+  delete clean.businessAnswerSchema;
+  delete clean.pujaAnswerSchema;
   return clean;
 }
 
-const ddSubmitLead = (req: Request, res: Response): void => {
+
+type DDFormAnswer = {
+  fieldKey: string;
+  fieldLabel: string;
+  fieldGroup: string;
+  fieldType: "text" | "textarea" | "select" | "date" | "number" | "email" | "tel" | "checkbox" | "array" | "object";
+  value: unknown;
+};
+
+const DD_FORM_ANSWER_FIELDS: Array<{ key: string; label: string; group: string; type: DDFormAnswer["fieldType"] }> = [
+  { key: "name", label: "Full name", group: "contact", type: "text" },
+  { key: "phone", label: "Mobile number", group: "contact", type: "tel" },
+  { key: "whatsapp", label: "WhatsApp number", group: "contact", type: "tel" },
+  { key: "email", label: "Email address", group: "contact", type: "email" },
+  { key: "country", label: "Country", group: "location", type: "text" },
+  { key: "state", label: "State", group: "location", type: "text" },
+  { key: "district", label: "District", group: "location", type: "text" },
+  { key: "city", label: "City", group: "location", type: "text" },
+  { key: "pincode", label: "PIN code", group: "location", type: "text" },
+  { key: "preferredDate", label: "Preferred date", group: "planning", type: "date" },
+  { key: "preferredTime", label: "Preferred time", group: "planning", type: "text" },
+  { key: "travellersCount", label: "Number of travellers", group: "planning", type: "number" },
+  { key: "language", label: "Preferred language", group: "planning", type: "select" },
+  { key: "bookingMode", label: "Booking mode", group: "planning", type: "select" },
+  { key: "gotra", label: "Gotra / family tradition", group: "planning", type: "text" },
+  { key: "budgetAmount", label: "Indicative budget", group: "planning", type: "number" },
+  { key: "samagriRequired", label: "Samagri preference", group: "planning", type: "select" },
+  { key: "specialRequirements", label: "Special requirements", group: "planning", type: "textarea" },
+  { key: "contactPreference", label: "Contact preference", group: "preferences", type: "select" },
+  { key: "whatsappConsent", label: "WhatsApp contact consent", group: "consent", type: "checkbox" },
+  { key: "marketingConsent", label: "Marketing consent", group: "consent", type: "checkbox" },
+  { key: "termsAccepted", label: "Terms accepted", group: "consent", type: "checkbox" },
+  { key: "privacyAccepted", label: "Privacy policy accepted", group: "consent", type: "checkbox" },
+  { key: "serviceType", label: "Service type", group: "service", type: "text" },
+  { key: "pujaType", label: "Puja / ritual type", group: "service", type: "text" },
+  { key: "selectedServiceNames", label: "Selected pujas / services", group: "service", type: "array" },
+  { key: "requestedPujaName", label: "Selected puja", group: "service", type: "text" },
+  { key: "requestedSevaName", label: "Selected seva", group: "service", type: "text" },
+  { key: "customerMessage", label: "Customer message", group: "message", type: "textarea" },
+  { key: "message", label: "Enquiry context and combined details", group: "message", type: "textarea" },
+];
+
+function ddHumanizeFieldKey(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (match) => match.toUpperCase()) || "Form answer";
+}
+
+function ddCollectFormAnswers(body: Record<string, unknown>): DDFormAnswer[] {
+  const answers: DDFormAnswer[] = [];
+  const seen = new Set<string>();
+  const add = (answer: DDFormAnswer) => {
+    if (seen.has(answer.fieldKey)) return;
+    if (answer.value === undefined || answer.value === null) return;
+    if (typeof answer.value === "string" && !answer.value.trim()) return;
+    seen.add(answer.fieldKey);
+    answers.push(answer);
+  };
+  for (const field of DD_FORM_ANSWER_FIELDS) {
+    add({ fieldKey: field.key, fieldLabel: field.label, fieldGroup: field.group, fieldType: field.type, value: body[field.key] });
+  }
+  add({ fieldKey: "businessType", fieldLabel: "Business / enquiry type", fieldGroup: "service", fieldType: "text", value: body.businessType });
+
+  const addDynamicGroup = (
+    bodyKey: "businessDetails" | "pujaSpecificDetails",
+    schemaKey: "businessAnswerSchema" | "pujaAnswerSchema",
+    group: "business" | "puja",
+  ) => {
+    const rawValues = body[bodyKey];
+    if (!rawValues || typeof rawValues !== "object" || Array.isArray(rawValues)) return;
+    const values = rawValues as Record<string, unknown>;
+    const rawSchema = body[schemaKey];
+    const schema = rawSchema && typeof rawSchema === "object" && !Array.isArray(rawSchema)
+      ? rawSchema as Record<string, unknown>
+      : {};
+    for (const [key, value] of Object.entries(values)) {
+      if (!/^[A-Za-z][A-Za-z0-9_-]{0,79}$/.test(key)) continue;
+      if (/^(password|passwordConfirmation|token|resetToken|recaptchaToken|g-recaptcha-response)$/i.test(key)) continue;
+      const metaValue = schema[key];
+      const meta = metaValue && typeof metaValue === "object" && !Array.isArray(metaValue)
+        ? metaValue as Record<string, unknown>
+        : {};
+      const label = normalizeText(meta.label, 200) || ddHumanizeFieldKey(key);
+      const allowedTypes = new Set<DDFormAnswer["fieldType"]>(["text", "textarea", "select", "date", "number", "email", "tel", "checkbox", "array", "object"]);
+      const declaredType = normalizeText(meta.type, 30).toLowerCase() as DDFormAnswer["fieldType"];
+      let fieldType: DDFormAnswer["fieldType"] = allowedTypes.has(declaredType) ? declaredType :
+        typeof value === "boolean" ? "checkbox" : typeof value === "number" ? "number" : Array.isArray(value) ? "array" : typeof value === "object" ? "object" : "text";
+      let answerValue = value;
+      if (fieldType === "number") {
+        const numericValue = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
+        if (Number.isFinite(numericValue)) answerValue = numericValue;
+        else fieldType = "text";
+      }
+      add({ fieldKey: `${bodyKey}.${key}`, fieldLabel: label, fieldGroup: group, fieldType, value: answerValue });
+    }
+  };
+  addDynamicGroup("businessDetails", "businessAnswerSchema", "business");
+  addDynamicGroup("pujaSpecificDetails", "pujaAnswerSchema", "puja");
+  return answers;
+}
+
+type DDRecaptchaResult = {
+  ok: boolean;
+  reason?: "not_configured" | "unavailable" | "rejected";
+};
+
+/** Verify a v2 checkbox token on Google's server; never trust the browser alone. */
+async function ddVerifyRecaptcha(token: string, req: Request): Promise<DDRecaptchaResult> {
+  const secret = process.env.RECAPTCHA_SECRET_KEY?.trim();
+  if (!secret) return { ok: false, reason: "not_configured" };
+
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), 7000);
+  try {
+    const body = new URLSearchParams({ secret, response: token });
+    const remoteIp = getClientIp(req);
+    if (remoteIp) body.set("remoteip", remoteIp);
+
+    const response = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+      signal: controller.signal,
+    });
+    if (!response.ok) return { ok: false, reason: "unavailable" };
+
+    const verification = await response.json() as {
+      success?: boolean;
+      hostname?: string;
+      "error-codes"?: string[];
+    };
+    if (verification.success !== true) return { ok: false, reason: "rejected" };
+
+    const allowedHostnames = (process.env.RECAPTCHA_ALLOWED_HOSTNAMES || "")
+      .split(",")
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean);
+    const verifiedHostname = (verification.hostname || "").trim().toLowerCase();
+    if (allowedHostnames.length > 0 && (!verifiedHostname || !allowedHostnames.includes(verifiedHostname))) {
+      console.warn("reCAPTCHA hostname rejected", { hostname: verifiedHostname });
+      return { ok: false, reason: "rejected" };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    console.error("Google reCAPTCHA verification request failed:", error);
+    return { ok: false, reason: "unavailable" };
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
+const ddSubmitLead = async (req: Request, res: Response): Promise<void> => {
   if (!ddRateAllowed(req)) {
     res.setHeader("Retry-After", String(DD_LEAD_WINDOW_MINUTES * 60));
     res.status(429).json({ success: false, error: "Too many submissions. Please try again later." });
@@ -1470,6 +1635,47 @@ const ddSubmitLead = (req: Request, res: Response): void => {
       res.status(400).json({ success: false, error: "The requested form is not configured or active." });
       return;
     }
+
+    // Standard forms use Google reCAPTCHA v2. Detail-gate forms retain their
+    // existing verified-phone requirement and do not get silently redefined.
+    if (form.captureMode === "standard_form") {
+      const recaptchaToken = normalizeText(body.recaptchaToken ?? body["g-recaptcha-response"], 4096);
+      if (!recaptchaToken) {
+        res.status(400).json({
+          success: false,
+          error: "Please complete the reCAPTCHA verification and try again.",
+          code: "CAPTCHA_REQUIRED",
+        });
+        return;
+      }
+
+      const captcha = await ddVerifyRecaptcha(recaptchaToken, req);
+      if (!captcha.ok) {
+        if (captcha.reason === "not_configured") {
+          res.status(503).json({
+            success: false,
+            error: "CAPTCHA verification is not configured on the server.",
+            code: "CAPTCHA_NOT_CONFIGURED",
+          });
+          return;
+        }
+        if (captcha.reason === "unavailable") {
+          res.status(503).json({
+            success: false,
+            error: "CAPTCHA verification is temporarily unavailable. Please try again.",
+            code: "CAPTCHA_VERIFY_UNAVAILABLE",
+          });
+          return;
+        }
+        res.status(403).json({
+          success: false,
+          error: "CAPTCHA verification failed. Please complete it again.",
+          code: "CAPTCHA_INVALID",
+        });
+        return;
+      }
+    }
+
     const contact = ddContact(body);
     const location = ddLocation(body);
     const locationError = ddValidateLocationContext(location);
@@ -1638,6 +1844,24 @@ const ddSubmitLead = (req: Request, res: Response): void => {
       );
 
       submissionId = Number(submissionResult.lastInsertRowid);
+
+      // Persist each actual form answer in a queryable child table. The full payload
+      // is still retained above; CAPTCHA tokens are redacted by ddLeadPayload.
+      const insertAnswer = db.prepare(`
+        INSERT INTO form_submission_answers (
+          form_submission_id, field_key, field_label, field_group, field_type, value_json
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      for (const answer of ddCollectFormAnswers(body)) {
+        insertAnswer.run(
+          submissionId,
+          answer.fieldKey,
+          answer.fieldLabel,
+          answer.fieldGroup,
+          answer.fieldType,
+          ddJson(answer.value, 12000),
+        );
+      }
 
       if (spamScore >= 80) {
         resultState.status = "spam";
@@ -2255,7 +2479,20 @@ router.get("/submissions/:submissionId", requireAuth, (req: Request, res: Respon
     if (!submission) { res.status(404).json({ success: false, error: "Form submission not found." }); return; }
     const payload = typeof submission.payload_json === "string" ? (() => { try { return JSON.parse(submission.payload_json || "{}"); } catch { return {}; } })() : {};
     const normalized = typeof submission.normalized_json === "string" ? (() => { try { return JSON.parse(submission.normalized_json || "{}"); } catch { return {}; } })() : {};
-    res.json({ success: true, submission: { ...submission, payload, normalized } });
+    const answerRows = db.prepare(`
+      SELECT field_key, field_label, field_group, field_type, value_json
+      FROM form_submission_answers
+      WHERE form_submission_id = ?
+      ORDER BY id ASC
+    `).all(submissionId) as Array<{ field_key: string; field_label: string; field_group: string; field_type: string; value_json: string }>;
+    const answers = answerRows.map((answer) => ({
+      fieldKey: answer.field_key,
+      fieldLabel: answer.field_label,
+      fieldGroup: answer.field_group,
+      fieldType: answer.field_type,
+      value: (() => { try { return JSON.parse(answer.value_json); } catch { return answer.value_json; } })(),
+    }));
+    res.json({ success: true, submission: { ...submission, payload, normalized, answers } });
   } catch (error) {
     console.error("Form submission detail error:", error);
     res.status(500).json({ success: false, error: "Unable to load form submission." });

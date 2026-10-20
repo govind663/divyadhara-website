@@ -4183,6 +4183,28 @@ CREATE TABLE IF NOT EXISTS form_submissions (
 
 
 -- =========================================================
+-- 64A. NORMALIZED FORM SUBMISSION ANSWERS
+-- =========================================================
+-- Stores each visible/common/dynamic form answer as a separate row while
+-- preserving the original full payload in form_submissions.payload_json.
+-- Dynamic business and puja questions use namespaced field_key values.
+
+CREATE TABLE IF NOT EXISTS form_submission_answers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    form_submission_id INTEGER NOT NULL,
+    field_key TEXT NOT NULL CHECK (length(trim(field_key)) > 0),
+    field_label TEXT NOT NULL,
+    field_group TEXT NOT NULL DEFAULT 'form',
+    field_type TEXT NOT NULL CHECK (field_type IN ('text', 'textarea', 'select', 'date', 'number', 'email', 'tel', 'checkbox', 'array', 'object')),
+    value_json TEXT NOT NULL CHECK (json_valid(value_json)),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (form_submission_id, field_key),
+    FOREIGN KEY (form_submission_id) REFERENCES form_submissions(id) ON DELETE CASCADE
+);
+
+
+-- =========================================================
 -- 65. PUJA SERVICE REQUESTS
 -- =========================================================
 -- Exact structured form data for services.ts / Puja Services.
@@ -6094,6 +6116,9 @@ CREATE INDEX IF NOT EXISTS idx_form_submissions_visitor ON form_submissions(visi
 CREATE INDEX IF NOT EXISTS idx_form_submissions_entity ON form_submissions(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_form_submissions_location ON form_submissions(country, state, district, city);
 CREATE INDEX IF NOT EXISTS idx_form_submissions_status ON form_submissions(status);
+CREATE INDEX IF NOT EXISTS idx_form_submission_answers_submission ON form_submission_answers(form_submission_id, id);
+CREATE INDEX IF NOT EXISTS idx_form_submission_answers_key ON form_submission_answers(field_key);
+CREATE INDEX IF NOT EXISTS idx_form_submission_answers_group ON form_submission_answers(field_group);
 
 CREATE INDEX IF NOT EXISTS idx_puja_requests_service ON puja_service_requests(puja_service_id);
 CREATE INDEX IF NOT EXISTS idx_puja_requests_date ON puja_service_requests(requested_date);
@@ -6656,30 +6681,14 @@ ON CONFLICT(code) DO UPDATE SET
 INSERT OR IGNORE INTO form_definitions
 (form_key, name, module, entity_type, version, fields_json, creates_lead, creates_booking, success_message)
 VALUES
-('puja_enquiry', 'Puja Service Enquiry', 'puja', 'puja_service', 1,
- '["name","phone","email","city","district","state","puja_service_id","requested_date","preferred_time","service_mode","gotra","family_names","devotee_count","samagri_required","message"]',
- 1, 0, 'Your puja enquiry has been received. Our team will contact you shortly.'),
-('pandit_booking', 'Pandit Booking Enquiry', 'pandit', 'pandit', 1,
- '["name","phone","email","city","district","state","pandit_id","pandit_service_id","puja_service_id","requested_date","preferred_time","booking_mode","gotra","guest_count","message"]',
- 1, 1, 'Your Pandit booking request has been received.'),
-('yatra_enquiry', 'Yatra Package Enquiry', 'travel', 'yatra_package', 1,
- '["name","phone","email","departure_city","travel_start_date","travel_end_date","adults","children","seniors","rooms_required","preferred_transport","meal_preference","stay_preference","budget_amount","special_requirements","message"]',
- 1, 0, 'Your Yatra enquiry has been received. Our travel team will contact you.'),
-('temple_enquiry', 'Temple Enquiry', 'temple', 'temple', 1,
- '["name","phone","email","preferred_visit_date","preferred_time","devotees_count","live_aarti_request","puja_request","special_assistance","message"]',
- 1, 0, 'Your temple enquiry has been received.'),
-('ashram_enquiry', 'Ashram Enquiry', 'ashram', 'ashram', 1,
- '["name","phone","email","visit_start_date","visit_end_date","adults","children","stay_required","course_or_program","room_preference","food_preference","message"]',
- 1, 0, 'Your ashram enquiry has been received.'),
-('event_enquiry', 'Event Enquiry', 'event', 'event', 1,
- '["name","phone","email","attending_date","attendee_count","pass_type","message"]',
- 1, 0, 'Your event enquiry has been received.'),
-('course_enquiry', 'Course Enquiry', 'course', 'course', 1,
- '["name","phone","email","preferred_start_date","batch_preference","learner_count","mode","message"]',
- 1, 0, 'Your course enquiry has been received.'),
-('contact', 'General Contact Form', 'contact', NULL, 1,
- '["name","phone","email","subject","message"]',
- 1, 0, 'Thank you. Your message has been received.');
+('puja_enquiry', 'Puja Service Enquiry', 'puja', 'puja_service', 2, '["name","phone","whatsapp","email","city","state","pincode","language","preferredDate","preferredTime","contactPreference","whatsappConsent","marketingConsent","termsAccepted","privacyAccepted","message","customerMessage","businessDetails","pujaSpecificDetails","gotra","budgetAmount","samagriRequired","specialRequirements","serviceType","pujaType"]', 1, 0, 'Your puja enquiry has been received. Our team will contact you shortly.'),
+('pandit_booking', 'Pandit Booking Enquiry', 'pandit', 'pandit', 2, '["name","phone","whatsapp","email","city","state","pincode","language","preferredDate","preferredTime","contactPreference","whatsappConsent","marketingConsent","termsAccepted","privacyAccepted","message","customerMessage","businessDetails","pujaSpecificDetails","gotra","budgetAmount","samagriRequired","specialRequirements","bookingMode","selectedServiceNames","requestedPujaName","requestedSevaName","serviceType","pujaType"]', 1, 0, 'Your Pandit booking request has been received.'),
+('yatra_enquiry', 'Yatra Package Enquiry', 'travel', 'yatra_package', 2, '["name","phone","whatsapp","email","city","state","pincode","language","preferredDate","preferredTime","contactPreference","whatsappConsent","marketingConsent","termsAccepted","privacyAccepted","message","customerMessage","businessDetails","pujaSpecificDetails","travellersCount","budgetAmount","specialRequirements","serviceType"]', 1, 0, 'Your Yatra enquiry has been received. Our travel team will contact you.'),
+('temple_enquiry', 'Temple Enquiry', 'temple', 'temple', 2, '["name","phone","whatsapp","email","city","state","pincode","language","preferredDate","preferredTime","contactPreference","whatsappConsent","marketingConsent","termsAccepted","privacyAccepted","message","customerMessage","businessDetails","pujaSpecificDetails","serviceType"]', 1, 0, 'Your temple enquiry has been received.'),
+('ashram_enquiry', 'Ashram Enquiry', 'ashram', 'ashram', 2, '["name","phone","whatsapp","email","city","state","pincode","language","preferredDate","preferredTime","contactPreference","whatsappConsent","marketingConsent","termsAccepted","privacyAccepted","message","customerMessage","businessDetails","pujaSpecificDetails","specialRequirements","serviceType"]', 1, 0, 'Your ashram enquiry has been received.'),
+('event_enquiry', 'Event Enquiry', 'event', 'event', 2, '["name","phone","whatsapp","email","city","state","pincode","language","preferredDate","preferredTime","contactPreference","whatsappConsent","marketingConsent","termsAccepted","privacyAccepted","message","customerMessage","businessDetails","pujaSpecificDetails","serviceType"]', 1, 0, 'Your event enquiry has been received.'),
+('course_enquiry', 'Course Enquiry', 'course', 'course', 2, '["name","phone","whatsapp","email","city","state","pincode","language","preferredDate","preferredTime","contactPreference","whatsappConsent","marketingConsent","termsAccepted","privacyAccepted","message","customerMessage","businessDetails","pujaSpecificDetails","serviceType"]', 1, 0, 'Your course enquiry has been received.'),
+('contact', 'General Contact Form', 'contact', NULL, 2, '["name","phone","whatsapp","email","city","state","pincode","language","preferredDate","preferredTime","contactPreference","whatsappConsent","marketingConsent","termsAccepted","privacyAccepted","message","customerMessage","businessDetails","pujaSpecificDetails","travellersCount","gotra","budgetAmount","samagriRequired","specialRequirements","bookingMode","selectedServiceNames","requestedPujaName","requestedSevaName","serviceType","pujaType"]', 1, 0, 'Thank you. Your message has been received.');
 
 
 INSERT OR IGNORE INTO form_definitions

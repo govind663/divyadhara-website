@@ -66,8 +66,8 @@ const DEFAULT_DATABASE_FILE = resolve(
 
 const SCHEMA_FILE = resolve(__dirname, "schema.sql");
 
-const DATABASE_SCHEMA_VERSION = 4;
-const DATABASE_MIGRATION_KEY = "2026-10-03-phase2-role-alignment-v4";
+const DATABASE_SCHEMA_VERSION = 5;
+const DATABASE_MIGRATION_KEY = "2026-10-20-form-answer-storage-v5";
 
 const REQUIRED_ROLE_CODES = [
   "visitor",
@@ -2128,6 +2128,25 @@ function verifyPhase1Architecture(database: Database.Database): void {
     throw new Error(
       `Phase 1 database architecture is incomplete. form_submissions is missing: ${missingSubmissionColumns.join(", ")}. Run: npx tsx server/db/migrate.ts`,
     );
+  }
+
+  const answerColumns = getTableColumns(database, "form_submission_answers");
+  const requiredAnswerColumns = ["form_submission_id", "field_key", "field_label", "field_group", "field_type", "value_json"];
+  const missingAnswerColumns = requiredAnswerColumns.filter((column) => !answerColumns.has(column));
+  if (missingAnswerColumns.length > 0) {
+    throw new Error(
+      `Form answer storage is incomplete. form_submission_answers is missing: ${missingAnswerColumns.join(", ")}. Run the form-answer migration or npx tsx server/db/migrate.ts`,
+    );
+  }
+  const standardFormVersions = database.prepare(`
+    SELECT form_key, version FROM form_definitions
+    WHERE form_key IN ('puja_enquiry','pandit_booking','yatra_enquiry','temple_enquiry','ashram_enquiry','event_enquiry','course_enquiry','contact')
+  `).all() as Array<{ form_key: string; version: number }>;
+  const formVersionMap = new Map(standardFormVersions.map((row) => [row.form_key, Number(row.version)]));
+  for (const formKey of ["puja_enquiry","pandit_booking","yatra_enquiry","temple_enquiry","ashram_enquiry","event_enquiry","course_enquiry","contact"]) {
+    if ((formVersionMap.get(formKey) ?? 0) < 2) {
+      throw new Error(`Central form metadata is not synchronized for ${formKey}. Run the form-answer migration or npx tsx server/db/migrate.ts`);
+    }
   }
 
   const canonicalPriceRows = database

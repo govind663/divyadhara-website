@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { Link } from "react-router-dom";
+import ReCAPTCHA from "react-google-recaptcha";
 import {
   MessageCircle,
   CheckCircle2,
@@ -735,6 +736,9 @@ export function EnquiryForm({
   defaultTravellers = "2",
 }: EnquiryFormProps) {
   const instanceId = useId();
+  const recaptchaSiteKey = (import.meta.env.VITE_RECAPTCHA_SITE_KEY as string | undefined)?.trim() ?? "";
+  const recaptchaRef = useRef<ReCAPTCHA | null>(null);
+  const [recaptchaToken, setRecaptchaToken] = useState<string | null>(null);
   const resolvedFormKey = formKey || getDefaultFormKey(leadType);
   const resolvedBusinessType = inferBusinessType({
     businessType,
@@ -1004,6 +1008,8 @@ export function EnquiryForm({
     setStatus("idle");
     setError(null);
     setErrorAnnouncement(false);
+    setRecaptchaToken(null);
+    recaptchaRef.current?.reset();
     setReceipt({
       leadNumber: null,
       duplicate: false,
@@ -1187,11 +1193,24 @@ export function EnquiryForm({
       return;
     }
 
+    if (!recaptchaSiteKey) {
+      setError("CAPTCHA is not configured. Please contact the website administrator.");
+      setErrorAnnouncement(true);
+      return;
+    }
+
+    if (!recaptchaToken) {
+      setError("Please complete the I'm not a robot CAPTCHA verification.");
+      setErrorAnnouncement(true);
+      return;
+    }
+
     submissionLockRef.current = true;
     setStatus("submitting");
 
     try {
       const payload: Record<string, unknown> = {
+        recaptchaToken,
         leadType,
         formKey: resolvedFormKey,
         entityId:
@@ -1234,6 +1253,9 @@ export function EnquiryForm({
         requestedPanditProfileUrl: panditProfile?.profileUrl,
         businessType: resolvedBusinessType,
         businessDetails: f.businessAnswers,
+        businessAnswerSchema: Object.fromEntries(
+          businessQuestions.map(({ key, label, type }) => [key, { label, type }]),
+        ),
         selectedServiceNames: panditProfile ? selectedServiceNames : undefined,
         requestedPujaName: panditProfile ? (selectedServiceNames.find((serviceName) => panditPujaOptions.includes(serviceName)) || undefined) : activePuja || undefined,
         requestedSevaName: panditProfile ? (selectedServiceNames.find((serviceName) => panditSevaOptions.includes(serviceName)) || undefined) : selectedSeva || undefined,
@@ -1241,6 +1263,11 @@ export function EnquiryForm({
         requestedPujaNames: panditProfile ? selectedServiceNames.filter((serviceName) => panditPujaOptions.includes(serviceName)) : undefined,
         requestedSevaNames: panditProfile ? selectedServiceNames.filter((serviceName) => panditSevaOptions.includes(serviceName)) : undefined,
         pujaSpecificDetails: activePuja ? f.pujaDetails : undefined,
+        pujaAnswerSchema: activePuja
+          ? Object.fromEntries(
+              pujaQuestions.map(({ key, label, type }) => [key, { label, type }]),
+            )
+          : undefined,
 
         contactPreference:
           f.contactPreference,
@@ -1259,6 +1286,7 @@ export function EnquiryForm({
         pujaType:
           activePuja || pujaType || undefined,
 
+        customerMessage: message || undefined,
         message: [
           context,
           `Business type: ${resolvedBusinessType}`,
@@ -1356,6 +1384,10 @@ export function EnquiryForm({
         getErrorText(submitError),
       );
       setErrorAnnouncement(true);
+    } finally {
+      // Google reCAPTCHA tokens are single-use; ask the visitor to verify again.
+      setRecaptchaToken(null);
+      recaptchaRef.current?.reset();
     }
   };
 
@@ -2085,6 +2117,29 @@ export function EnquiryForm({
             I confirm that I have read and accept the privacy policy.
           </span>
         </label>
+      </div>
+
+      <div className="mt-4" aria-label="reCAPTCHA verification">
+        {recaptchaSiteKey ? (
+          <ReCAPTCHA
+            ref={recaptchaRef}
+            sitekey={recaptchaSiteKey}
+            onChange={(token: string | null) => {
+              setRecaptchaToken(token);
+              if (error) setError(null);
+            }}
+            onExpired={() => setRecaptchaToken(null)}
+            onErrored={() => {
+              setRecaptchaToken(null);
+              setError("Google reCAPTCHA could not load. Please check your connection and try again.");
+              setErrorAnnouncement(true);
+            }}
+          />
+        ) : (
+          <p role="alert" className="text-sm text-red-700">
+            CAPTCHA configuration is missing. Please contact the website administrator.
+          </p>
+        )}
       </div>
 
       {error && (
