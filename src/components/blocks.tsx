@@ -2165,7 +2165,7 @@ export function EnquiryForm({
         <button
           type="submit"
           disabled={status === "submitting"}
-          className="hidden btn-saffron flex w-full flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2"
+          className="btn-saffron flex w-full flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2"
         >
           {status === "submitting" ? (
             <>
