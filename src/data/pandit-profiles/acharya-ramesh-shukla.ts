@@ -8,16 +8,28 @@ const acharyaRameshShukla: Pandit = {
 
   title: "Hindu Pandit Ji",
 
-  // The source row says the photo was provided by the Pandit. Confirm the
-  // exact filename exists in public/pandits_profile_img/ before publishing.
+  // Verify that this exact filename exists in public/pandits_profile_img/.
   photo: "/pandits_profile_img/Acharya_Ramesh_Shukla.jpg",
 
-  // Years of experience were not supplied; replace this placeholder with a verified value.
+  // The source row did not establish years of experience; verify before publishing.
   experience: 15,
 
+  // Primary/base location retained for existing website functionality.
   location: "Navi Mumbai, Maharashtra, India",
 
-  // Confirm the languages spoken before publishing the profile.
+  // Service coverage areas are shown on listings and on the profile map.
+  // Coordinates are an approximate city-centre marker, not an exact address or boundary.
+  serviceAreas: [
+    {
+      id: "navi-mumbai",
+      name: "Navi Mumbai",
+      address: "Navi Mumbai, Maharashtra, India",
+      lat: 19.0308,
+      lng: 73.0199,
+    },
+  ],
+
+  // Confirm languages spoken before publishing the profile.
   languages: ["Hindi", "Marathi", "Sanskrit"],
 
   // Keep blank until a verified YouTube video ID is provided.
@@ -42,10 +54,11 @@ const acharyaRameshShukla: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  associatedWith: "To be confirmed",
+  // Leave blank until a verified temple, organisation or sampradaya association is provided.
+  associatedWith: "",
 
   about:
-    "Acharya Ramesh Shukla is listed on Divya Dhara as a Hindu Pandit based in Navi Mumbai, Maharashtra. His listed service areas include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Devotees can enquire by sharing their preferred ceremony, date, location and specific requirements. Years of experience, languages, ritual procedures, samagri requirements, service duration, pricing and availability should be confirmed before a booking is finalized. Additional ceremonies should be added only after they are confirmed with the Pandit.",
+    "Looking for a Hindu Pandit in Navi Mumbai, Maharashtra, for a traditional puja or family ceremony? On DivyaDhara, devotees can enquire with Acharya Ramesh Shukla about the listed rituals: Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. Share the occasion, preferred date or muhurat, venue, locality or PIN code, language preference and any family or sampradaya requirements so the enquiry can be reviewed with the requested ceremony in mind.\n\nNavi Mumbai, Maharashtra, is the currently listed service area for this profile. The map marker represents an approximate city-level reference; it is not an exact address or a verified service boundary. If the ceremony is planned in a particular locality, provide the full venue details and confirm travel feasibility and coverage before booking. Do not assume service in another city or locality until it has been confirmed directly.\n\nBefore finalising arrangements, confirm the prescribed vidhi or paath, puja samagri list and who will arrange the materials, expected duration, dakshina, travel charges, language and date availability. The profile lists 15 years of experience and Hindi, Marathi and Sanskrit; please verify these details with the Pandit before relying on them for your ceremony. Service duration and final charges are currently not specified, and sending an enquiry does not itself confirm availability or complete a booking.",
 
   services: [
     {
@@ -74,7 +87,7 @@ const acharyaRameshShukla: Pandit = {
     },
   ],
 
-  availability: "To be confirmed",
+  availability: "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, 9:00 AM to 6:00 PM (IST)",
 
   // Keep false until contact authorization is verified through the existing flow.
   authorizedContact: false,

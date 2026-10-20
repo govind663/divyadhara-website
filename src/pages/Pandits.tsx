@@ -8,7 +8,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { PANDITS } from "../data/content";
-import { useSEO } from "../lib/seo";
+import { absoluteUrl, useSEO } from "../lib/seo";
 import { Breadcrumbs, Empty } from "../components/ui";
 import { PanditCard } from "../components/cards";
 import { PageHero } from "../components/blocks";
@@ -32,6 +32,37 @@ type PanditGeoFields = {
   districtLgdCode?: string;
   cityId?: string;
 };
+
+type PanditServiceAreaFields = {
+  serviceAreas?: Array<{
+    id: string;
+    name: string;
+    address: string;
+    lat: number;
+    lng: number;
+  }>;
+};
+
+/**
+ * Return only explicitly configured service areas.
+ * Do not silently treat a Pandit's base location as confirmed coverage.
+ */
+function getPanditServiceAreas(pandit: (typeof PANDITS)[number]) {
+  const profile = pandit as (typeof pandit) & PanditServiceAreaFields;
+  if (!Array.isArray(profile.serviceAreas)) return [];
+
+  return profile.serviceAreas.filter(
+    (area) => Boolean(area && area.id && area.name?.trim() && area.address?.trim()),
+  );
+}
+
+/** Split confirmed area names/addresses so the India location filters can match them. */
+function getPanditServiceAreaParts(pandit: (typeof PANDITS)[number]): string[] {
+  return getPanditServiceAreas(pandit)
+    .flatMap((area) => [area.name, ...area.address.split(",")])
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
 
 /** Normalize text consistently for search and location comparisons. */
 function normalizeLocationName(value: unknown): string {
@@ -167,6 +198,7 @@ export default function Pandits() {
   const [selectedState, setSelectedState] = useState("");
   const [selectedDistrict, setSelectedDistrict] = useState("");
   const [selectedCity, setSelectedCity] = useState("");
+  const [selectedServiceArea, setSelectedServiceArea] = useState("");
   const [lang, setLang] = useState("");
   const [spec, setSpec] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -214,11 +246,20 @@ export default function Pandits() {
     [],
   );
 
+  // Only profile areas explicitly configured and confirmed by the Pandit
+  // appear in this filter; the base location is not assumed to be coverage.
+  const serviceAreaOptions = useMemo(
+    () => uniqueSorted(PANDITS.flatMap((pandit) => getPanditServiceAreas(pandit).map((area) => area.name))),
+    [],
+  );
+
   const list = useMemo(
     () =>
       PANDITS.filter((pandit) => {
         const geo = getPanditGeo(pandit);
         const matchedCity = getCityForPandit(geo);
+        const serviceAreas = getPanditServiceAreas(pandit);
+        const serviceAreaParts = getPanditServiceAreaParts(pandit);
         const searchable = normalizeLocationName(
           [
             pandit.name,
@@ -227,6 +268,8 @@ export default function Pandits() {
             geo.district,
             geo.city,
             ...geo.locationParts,
+            ...serviceAreaParts,
+            ...serviceAreas.map((area) => area.address),
             matchedCity?.name,
             matchedCity?.areaNameOfficial,
             ...pandit.specializations,
@@ -244,7 +287,13 @@ export default function Pandits() {
           normalizeLocationName(selectedCityRecord?.name),
           normalizeLocationName(selectedCityRecord?.areaNameOfficial),
         ].filter(Boolean);
-        const locationPartNames = geo.locationParts.map(normalizeLocationName);
+        // Search and geographic filters can match either the legacy base
+        // location or a profile's explicitly listed service-area address.
+        const locationPartNames = [...geo.locationParts, ...serviceAreaParts].map(normalizeLocationName);
+        const selectedServiceAreaName = normalizeLocationName(selectedServiceArea);
+        const serviceAreaMatches =
+          !selectedServiceArea ||
+          serviceAreas.some((area) => normalizeLocationName(area.name) === selectedServiceAreaName);
 
         // Match by explicit LGD code, normalized profile field, or any exact
         // component of a legacy comma-separated location.
@@ -274,6 +323,7 @@ export default function Pandits() {
           stateMatches &&
           districtMatches &&
           cityMatches &&
+          serviceAreaMatches &&
           (!lang || pandit.languages.includes(lang)) &&
           (!spec || pandit.specializations.includes(spec))
         );
@@ -283,6 +333,7 @@ export default function Pandits() {
       selectedState,
       selectedDistrict,
       selectedCity,
+      selectedServiceArea,
       lang,
       spec,
       selectedStateRecord,
@@ -300,7 +351,7 @@ export default function Pandits() {
   }, [list, safeCurrentPage]);
 
   const hasFilters = Boolean(
-    q || selectedState || selectedDistrict || selectedCity || lang || spec,
+    q || selectedState || selectedDistrict || selectedCity || selectedServiceArea || lang || spec,
   );
 
   const resetFilters = () => {
@@ -308,43 +359,71 @@ export default function Pandits() {
     setSelectedState("");
     setSelectedDistrict("");
     setSelectedCity("");
+    setSelectedServiceArea("");
     setLang("");
     setSpec("");
     setCurrentPage(1);
   };
 
-  const siteOrigin =
-    typeof window !== "undefined" ? window.location.origin : "";
+  const goToPage = (requestedPage: number) => {
+    const nextPage = Math.min(Math.max(1, requestedPage), pageCount);
+    setCurrentPage(nextPage);
+    // Pagination is at the bottom of the listing; bring the updated results
+    // into view so visitors can immediately see that the interaction worked.
+    document.getElementById("pandit-results-heading")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
 
-  const panditItems = PANDITS.map((pandit, index) => {
-    const profileUrl = siteOrigin
-      ? `${siteOrigin}/pandits/${pandit.slug}`
-      : `/pandits/${pandit.slug}`;
+  // Use configured site URLs rather than `window.location.origin`; this keeps
+  // JSON-LD production URLs correct while the app is running on localhost.
+  const directoryUrl = absoluteUrl("/pandits");
+  const siteRootUrl = absoluteUrl("/");
+
+  // The directory initially renders the first PAGE_SIZE profiles. Keep the
+  // ItemList aligned to those visible entries instead of marking every profile
+  // on the client as if it were displayed on the first page.
+  const panditItems = PANDITS.slice(0, PAGE_SIZE).map((pandit, index) => {
+    const serviceAreas = getPanditServiceAreas(pandit);
+    const profileUrl = absoluteUrl(`/pandits/${pandit.slug}`);
+    const knowsAbout = [
+      ...new Set([
+        ...pandit.specializations,
+        ...pandit.pujaTypes,
+      ].map((value) => value.trim()).filter(Boolean)),
+    ];
+    const person: Record<string, unknown> = {
+      "@type": "Person",
+      name: pandit.name,
+      url: profileUrl,
+      jobTitle: pandit.title,
+      knowsLanguage: pandit.languages.filter(Boolean),
+      knowsAbout,
+    };
+
+    if (pandit.photo) person.image = absoluteUrl(pandit.photo);
+    if (pandit.about?.trim()) person.description = pandit.about.trim();
+    if (serviceAreas.length > 0) {
+      person.areaServed = serviceAreas.map((area) => ({
+        "@type": "Place",
+        name: area.name.trim(),
+        address: area.address.trim(),
+      }));
+    }
 
     return {
       "@type": "ListItem",
       position: index + 1,
       url: profileUrl,
-      item: {
-        "@type": "Person",
-        name: pandit.name,
-        url: profileUrl,
-        image: pandit.photo,
-        description: pandit.about,
-        jobTitle: pandit.title,
-        knowsLanguage: pandit.languages,
-        areaServed: pandit.location,
-        knowsAbout: [
-          ...new Set([...pandit.specializations, ...pandit.pujaTypes]),
-        ],
-      },
+      item: person,
     };
   });
 
   useSEO({
     title: "Pandit Directory for Puja & Rituals | DivyaDhara",
     description:
-      "Browse DivyaDhara Pandit profiles for Rudrabhishek, Havan, Vivah, Puja and traditional rituals. Filter by state, district, city, language and specialization, then enquire about service details and availability.",
+      "Browse DivyaDhara Pandit profiles for puja, havan, vivah and traditional rituals. Search confirmed service areas and filter by state, district, city, language and specialization before sending a booking enquiry.",
     path: "/pandits",
     image: "/images/pandit-portrait.jpeg",
     schema: {
@@ -352,17 +431,13 @@ export default function Pandits() {
       "@graph": [
         {
           "@type": "CollectionPage",
-          "@id": siteOrigin
-            ? `${siteOrigin}/pandits#webpage`
-            : "/pandits#webpage",
+          "@id": `${directoryUrl}#webpage`,
           name: "Pandit Directory for Puja and Rituals",
-          url: siteOrigin ? `${siteOrigin}/pandits` : "/pandits",
+          url: directoryUrl,
           description:
             "Directory of published Pandit profiles for puja, havan, vivah and traditional spiritual services.",
           breadcrumb: {
-            "@id": siteOrigin
-              ? `${siteOrigin}/pandits#breadcrumb`
-              : "/pandits#breadcrumb",
+            "@id": `${directoryUrl}#breadcrumb`,
           },
           mainEntity: {
             "@type": "ItemList",
@@ -371,21 +446,19 @@ export default function Pandits() {
         },
         {
           "@type": "BreadcrumbList",
-          "@id": siteOrigin
-            ? `${siteOrigin}/pandits#breadcrumb`
-            : "/pandits#breadcrumb",
+          "@id": `${directoryUrl}#breadcrumb`,
           itemListElement: [
             {
               "@type": "ListItem",
               position: 1,
               name: "Home",
-              item: siteOrigin ? `${siteOrigin}/` : "/",
+              item: siteRootUrl,
             },
             {
               "@type": "ListItem",
               position: 2,
               name: "Pandits",
-              item: siteOrigin ? `${siteOrigin}/pandits` : "/pandits",
+              item: directoryUrl,
             },
           ],
         },
@@ -398,7 +471,7 @@ export default function Pandits() {
       <PageHero
         eyebrow="Acharyas · Published Listings"
         title="Find a Pandit for Your Puja"
-        sub="Browse published Pandit profiles by location, language and specialization. Confirm service details and availability before finalizing a booking."
+        sub="Discover Pandits by confirmed service area, language and specialization. Check profile details and confirm availability before booking."
         image="/images/pandit-portrait.jpeg"
       />
 
@@ -423,14 +496,15 @@ export default function Pandits() {
               id="pandit-directory-heading"
               className="mt-2 font-display text-2xl font-semibold tracking-tight text-[#2a1a10] sm:text-3xl"
             >
-              Find a Pandit by State, District, City or Language
+              Find a Pandit by Service Area, State, District, City or Language
             </h2>
 
             <p className="mt-3 max-w-3xl text-sm leading-6 text-stone-600 sm:text-base">
-              Explore the currently published Pandit profiles for puja,
-              havan, vivah and other traditional services. Filter by
-              location, language and specialization, then open a profile
-              to review the available information and send a booking enquiry.
+              Explore published Pandit profiles for puja, havan, vivah and
+              other traditional services. Search by name, puja or confirmed
+              service area, then narrow results by state, district, city,
+              language and specialization. Coverage not listed on a profile
+              should be confirmed during the booking enquiry.
             </p>
           </div>
 
@@ -461,9 +535,9 @@ export default function Pandits() {
                     setQ(event.target.value);
                     setCurrentPage(1);
                   }}
-                  placeholder="Search Pandit, city or puja…"
+                  placeholder="Search Pandit, service area, city or puja…"
                   className="w-full bg-transparent text-sm outline-none"
-                  aria-label="Search pandits by name, location or puja"
+                  aria-label="Search pandits by name, service area, location or puja"
                   autoComplete="off"
                   spellCheck={false}
                 />
@@ -549,6 +623,26 @@ export default function Pandits() {
               </label>
 
               <label className="block">
+                <span className="sr-only">Filter by service area</span>
+                <select
+                  value={selectedServiceArea}
+                  onChange={(event) => {
+                    setSelectedServiceArea(event.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="min-h-11 w-full rounded-xl border border-orange-900/15 bg-[#fffaf5] px-3.5 py-2.5 text-sm font-semibold outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/10"
+                  aria-label="Filter pandits by confirmed service area"
+                >
+                  <option value="">All Service Areas</option>
+                  {serviceAreaOptions.map((areaName) => (
+                    <option key={areaName} value={areaName}>
+                      {areaName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
                 <span className="sr-only">Filter by language</span>
                 <select
                   value={lang}
@@ -617,7 +711,7 @@ export default function Pandits() {
               </p>
               <h2
                 id="pandit-results-heading"
-                className="mt-1 font-display text-xl font-semibold text-[#2a1a10] sm:text-2xl"
+                className="mt-1 scroll-mt-24 font-display text-xl font-semibold text-[#2a1a10] sm:text-2xl"
               >
                 Published Acharya Profiles
               </h2>
@@ -645,12 +739,12 @@ export default function Pandits() {
             <div className="mt-6">
               <Empty
                 title="No pandits match your filters"
-                sub="Try another state, district, city, language or specialization. You can also reset all filters and search again."
+                sub="Try another service area, state, district, city, language or specialization. You can also reset all filters and search again."
               />
             </div>
           ) : (
             <>
-              <div className="mt-6 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              <div className="mt-6 grid items-start gap-5 md:grid-cols-2 lg:grid-cols-3">
                 {paginatedList.map((pandit, index) => (
                   <PanditCard
                     key={pandit.slug}
@@ -667,9 +761,7 @@ export default function Pandits() {
                 >
                   <button
                     type="button"
-                    onClick={() =>
-                      setCurrentPage((page) => Math.max(1, page - 1))
-                    }
+                    onClick={() => goToPage(safeCurrentPage - 1)}
                     disabled={safeCurrentPage === 1}
                     className="inline-flex min-h-10 items-center gap-1 rounded-xl border border-orange-900/15 bg-white px-3 py-2 text-sm font-semibold text-stone-700 transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label="Go to previous page"
@@ -683,7 +775,7 @@ export default function Pandits() {
                       <button
                         key={page}
                         type="button"
-                        onClick={() => setCurrentPage(page)}
+                        onClick={() => goToPage(page)}
                         aria-label={`Go to page ${page}`}
                         aria-current={
                           safeCurrentPage === page ? "page" : undefined
@@ -701,11 +793,7 @@ export default function Pandits() {
 
                   <button
                     type="button"
-                    onClick={() =>
-                      setCurrentPage((page) =>
-                        Math.min(pageCount, page + 1),
-                      )
-                    }
+                    onClick={() => goToPage(safeCurrentPage + 1)}
                     disabled={safeCurrentPage === pageCount}
                     className="inline-flex min-h-10 items-center gap-1 rounded-xl border border-orange-900/15 bg-white px-3 py-2 text-sm font-semibold text-stone-700 transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label="Go to next page"
@@ -757,9 +845,10 @@ export default function Pandits() {
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-600">
             Compare the published specialization, puja types, languages,
-            experience and location shown on each profile. Open the individual
-            Pandit page for the complete profile and use the booking enquiry
-            to share your city, preferred date and ritual requirements.
+            experience and confirmed service areas shown on each profile.
+            Open the individual Pandit page for the complete profile and use
+            the booking enquiry to share your city, preferred date and ritual
+            requirements.
           </p>
         </section>
       </main>

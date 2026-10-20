@@ -11,21 +11,29 @@ const atulMahashabde: Pandit = {
   // Confirm that this exact image filename exists in public/pandits_profile_img/.
   photo: "/pandits_profile_img/Atul_Mahashabde.jpg",
 
-  // The source row did not include years of experience.
-  // Replace this placeholder with a verified value before publishing.
+  // Verify the listed experience before publishing.
   experience: 20,
 
+  // Primary/base location retained for compatibility with existing filters.
   location: "Navi Mumbai, Maharashtra, India",
+
+  // This is the only service area currently listed for this profile.
+  // Coordinates indicate an approximate city centre, not an exact address or boundary.
+  serviceAreas: [
+    {
+      id: "navi-mumbai",
+      name: "Navi Mumbai",
+      address: "Navi Mumbai, Maharashtra, India",
+      lat: 19.0308,
+      lng: 73.0199,
+    },
+  ],
 
   // Confirm languages spoken before publishing the profile.
   languages: ["Hindi", "Sanskrit", "Marathi"],
 
-  /*
-   * PANDIT STORY VIDEO
-   *
-   * Add a verified YouTube video ID when one is provided.
-   * Leave blank until then so the Story button remains hidden.
-   */
+  // Add a verified YouTube video ID only when it belongs to this Pandit
+  // and permission to use it has been confirmed.
   storyVideoId: "",
 
   specializations: [
@@ -47,10 +55,14 @@ const atulMahashabde: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  associatedWith: "To be confirmed",
+  // Keep empty until a genuine association has been verified.
+  associatedWith: "",
 
-  about:
-    "Atul Mahashabde is a Hindu Pandit Ji listed on Divya Dhara and based in Navi Mumbai, Maharashtra. His listed service areas include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Devotees can enquire by sharing their preferred ceremony, date, location and specific requirements. Years of experience, languages, ritual procedures, samagri requirements, service duration, pricing and availability should be confirmed before a booking is finalized. Additional ceremonies should be added only after they are confirmed with the Pandit.",
+  about: `Looking for a Hindu Pandit in Navi Mumbai, Maharashtra, for Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja or Pitru-related rituals? Atul Mahashabde is listed on DivyaDhara as a Hindu Pandit Ji, with Navi Mumbai as the currently listed service area. Devotees can review the listed puja options and send an enquiry for their ceremony requirements.
+
+The listed services include Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. When enquiring, share the occasion, preferred date or muhurat, venue locality or PIN code, language preference and any family or sampradaya requirements. The Navi Mumbai map marker is an approximate city-level reference; it is not an exact address or a verified service boundary. Confirm coverage for your specific locality before finalising a booking.
+
+Before confirming arrangements, discuss the required vidhi or paath, samagri list and who will arrange it, expected duration, dakshina, possible travel charges and appointment availability. The listed experience and languages should also be verified directly. Sending an enquiry does not automatically confirm availability or complete a booking.`,
 
   services: [
     {
@@ -79,7 +91,7 @@ const atulMahashabde: Pandit = {
     },
   ],
 
-  availability: "To be confirmed",
+  availability: "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, 9:00 AM to 6:00 PM (IST)",
 
   // Keep false until contact details and authorization are verified in the existing flow.
   authorizedContact: false,

@@ -8,24 +8,32 @@ const santoshDeshpande: Pandit = {
 
   title: "Experienced Hindu Pandit Ji",
 
+  // Confirm that this exact filename exists in public/pandits_profile_img/.
   photo: "/pandits_profile_img/Santosh Deshpande.jpeg",
 
+  // Experience is listed in the supplied profile; verify before publishing.
   experience: 22,
 
+  // Primary/base location retained for existing profile and location logic.
   location: "Mumbai, Maharashtra, India",
 
+  // Approximate city-centre marker for map orientation, not an exact address
+  // or a boundary for the full service area. Confirm the actual localities served.
+  serviceAreas: [
+    {
+      id: "mumbai-maharashtra",
+      name: "Mumbai",
+      address: "Mumbai, Maharashtra, India",
+      lat: 19.0760,
+      lng: 72.8777,
+    },
+  ],
+
+  // Confirm languages spoken before publishing the profile.
   languages: ["Hindi", "Sanskrit", "Marathi"],
 
-  /*
-   * PANDIT STORY VIDEO
-   *
-   * Actual YouTube video ID milne par yahan set karein.
-   *
-   * Example:
-   * storyVideoId: "AbCd1234567",
-   *
-   * Abhi ID blank hai, isliye Story button hidden rehna chahiye.
-   */
+  // Add a verified YouTube video ID when one is provided and approved for use.
+  // Keep blank until then so the Story button remains hidden.
   storyVideoId: "",
 
   specializations: [
@@ -37,8 +45,7 @@ const santoshDeshpande: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  // Currently listed services for this Pandit.
-  // Confirm expertise before adding additional ceremonies.
+  // Keep the listed ceremony names; confirm suitability with the Pandit before booking.
   pujaTypes: [
     "Satyanarayan Katha and Puja",
     "Rudrabhishek",
@@ -48,10 +55,11 @@ const santoshDeshpande: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  associatedWith: "To be confirmed",
+  // Empty until a specific association is verified.
+  associatedWith: "",
 
   about:
-    "Santosh Deshpande is a Hindu priest with 22 years of listed experience in traditional Hindu puja and Vedic rituals. His currently listed areas of service include Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. Devotees can enquire by sharing their preferred ceremony, date, city or PIN code, language and specific requirements. Detailed biography, service availability, ritual procedures, samagri requirements, duration and pricing should be confirmed before a booking is finalized.",
+    "Santosh Deshpande is listed on DivyaDhara as an Experienced Hindu Pandit Ji based in Mumbai, Maharashtra. The profile currently lists Mumbai as the service area, with an approximate city-centre map marker for orientation; it does not represent an exact address or guaranteed boundary for every locality.\n\nThe listed ceremonies include Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. Devotees can enquire by sharing the ceremony they need, their preferred date or muhurat, venue locality or PIN code, language preference and any family-tradition requirements.\n\nBefore confirming a booking, ask about the applicable vidhi or paath, samagri list and who will arrange it, expected duration, dakshina, travel charges and appointment availability. Exact coverage within Mumbai, spoken languages and the listed experience should be verified directly. Sending an enquiry does not itself confirm availability or complete a booking.",
 
   services: [
     {
@@ -80,15 +88,14 @@ const santoshDeshpande: Pandit = {
     },
   ],
 
-  availability: "To be confirmed",
+  availability: "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, 9:00 AM to 6:00 PM (IST)",
 
   // Keep false until contact details and authorization are verified.
   authorizedContact: false,
 };
 
-// Shared website-wide puja catalogue.
-// This does not imply that Santosh Deshpande performs
-// every ceremony listed in the catalogue.
+// Shared website-wide puja catalogue. This does not imply that Santosh Deshpande
+// performs every ceremony listed in the catalogue.
 export { PUJA_CATEGORIES };
 
 export default santoshDeshpande;

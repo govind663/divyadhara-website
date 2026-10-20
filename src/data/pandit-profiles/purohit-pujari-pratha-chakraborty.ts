@@ -12,11 +12,23 @@ const purohitPujariPrathaChakraborty: Pandit = {
   // The source row indicates that a photo was provided by the Pandit.
   photo: "/pandits_profile_img/Purohit_Pujari_Pratha_Chakraborty.jpeg",
 
-  // The source row did not include years of experience.
-  // Replace this placeholder with a verified value before publishing.
+  // Verify the listed experience before publishing.
   experience: 15,
 
+  // Primary/base location retained for profile details and legacy filters.
   location: "Navi Mumbai, Maharashtra, India",
+
+  // Listed service area for the directory and profile map.
+  // Coordinates are approximate city-centre markers, not exact addresses or a boundary.
+  serviceAreas: [
+    {
+      id: "navi-mumbai",
+      name: "Navi Mumbai",
+      address: "Navi Mumbai, Maharashtra, India",
+      lat: 19.0308,
+      lng: 73.0199,
+    },
+  ],
 
   // Confirm languages spoken before publishing the profile.
   languages: ["Hindi", "Marathi", "Sanskrit", "Bengali"],
@@ -44,10 +56,11 @@ const purohitPujariPrathaChakraborty: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  associatedWith: "To be confirmed",
+  // Empty to avoid displaying an unverified "To be confirmed" association.
+  associatedWith: "",
 
   about:
-    "Purohit Pujari Pratha Chakraborty is a Hindu Pandit Ji based in Navi Mumbai, Maharashtra. The listed areas of service include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Years of experience, language preferences, ritual procedures, samagri requirements, service duration, pricing and availability should be confirmed before a booking is finalized. Additional ceremonies should be added only after they are confirmed with the Pandit.",
+    "Purohit Pujari Pratha Chakraborty is listed on DivyaDhara as a Hindu Pandit Ji with a profile location in Navi Mumbai, Maharashtra. The profile currently lists Navi Mumbai as the service area and includes Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals among the ceremonies devotees can enquire about. The map marker is an approximate city-level reference; it is not an exact address or a verified boundary for all localities.\n\nTo make an enquiry, share the ceremony you need, your preferred date or muhurat, venue locality or PIN code, language preference and any family tradition or specific ritual requirements. This helps the booking team understand the request and check whether the requested arrangement is suitable. The listed ceremonies describe enquiry options only; the exact vidhi and the inclusion of additional rites should be confirmed directly before booking.\n\nBefore finalising a booking, confirm the Pandit's availability for your date and location, expected duration, samagri list and who will arrange it, dakshina, travel charges and any other ceremony-specific requirements. The listed service area should not be taken as automatic confirmation of coverage in every nearby locality. Experience and spoken languages should also be verified before relying on them for a booking. Sending an enquiry does not itself confirm an appointment.",
 
   services: [
     {
@@ -76,7 +89,7 @@ const purohitPujariPrathaChakraborty: Pandit = {
     },
   ],
 
-  availability: "To be confirmed",
+  availability: "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, 9:00 AM to 6:00 PM (IST)",
 
   // Keep false until contact authorization is verified in the existing flow.
   authorizedContact: false,

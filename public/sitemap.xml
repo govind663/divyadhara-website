@@ -7,7 +7,7 @@
   </url>
   <url>
     <loc>https://divya-dhara.in/about</loc>
-    <changefreq>monthly</changefreq>
+    <changefreq>weekly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
@@ -41,6 +41,11 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://divya-dhara.in/ashram-manager/dashboard</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
     <loc>https://divya-dhara.in/ashrams</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
@@ -72,7 +77,7 @@
   </url>
   <url>
     <loc>https://divya-dhara.in/contact</loc>
-    <changefreq>monthly</changefreq>
+    <changefreq>weekly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
@@ -116,32 +121,42 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://divya-dhara.in/events/bhagavat-katha-ujjain</loc>
+    <loc>https://divya-dhara.in/events/braj-holi-festival-bharatpur-2027</loc>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://divya-dhara.in/events/ganga-aarti-dev-deepawali</loc>
+    <loc>https://divya-dhara.in/events/buddha-purnima-bodh-gaya-2027</loc>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://divya-dhara.in/events/intl-yoga-festival-rishikesh</loc>
+    <loc>https://divya-dhara.in/events/dev-deepawali-varanasi-2026</loc>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://divya-dhara.in/events/maha-shivratri-kashi-2027</loc>
+    <loc>https://divya-dhara.in/events/dhulandi-festival-jaipur-2027</loc>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://divya-dhara.in/events/meenakshi-thirukalyanam</loc>
+    <loc>https://divya-dhara.in/events/international-yoga-festival-rishikesh-2027</loc>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://divya-dhara.in/events/ratha-yatra-puri</loc>
+    <loc>https://divya-dhara.in/events/jagannath-ratha-yatra-puri-2027</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/events/maha-shivaratri-2027</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/events/rama-navami-ayodhya-2027</loc>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
@@ -201,7 +216,52 @@
     <priority>0.9</priority>
   </url>
   <url>
+    <loc>https://divya-dhara.in/pandits/acharya-gorakhnath</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/pandits/acharya-ramesh-shukla</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/pandits/aniket-kisan-jaggam-guruji</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/pandits/anup-shayamsundar-joshi</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://divya-dhara.in/pandits/ashish-kumar-dubey</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/pandits/atul-mahashabde</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/pandits/badri-prasad-guruji</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/pandits/dattatray-maruti-dixit</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/pandits/devendra-goswami-guruji</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/pandits/dilip-joshi</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
@@ -211,7 +271,17 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://divya-dhara.in/pandits/jaggam-guruji</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://divya-dhara.in/pandits/nishant-joshi</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/pandits/prashant-mukund-oak-guruji</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
@@ -221,12 +291,22 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://divya-dhara.in/pandits/purohit-pujari-pratha-chakraborty</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/pandits/rakesh-mishra-shastri-ji</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://divya-dhara.in/pandits/rohit-shukla</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://divya-dhara.in/pandits/santosh-ananda-pujari-guruji</loc>
+    <loc>https://divya-dhara.in/pandits/saiprasad-kulkarni-guruji</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
@@ -241,7 +321,17 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://divya-dhara.in/pandits/sudhakar-kulkarni-guruji</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://divya-dhara.in/pandits/sushil-tripathi</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/pandits/yogendra-guruji</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
@@ -987,8 +1077,13 @@
   </url>
   <url>
     <loc>https://divya-dhara.in/subscriptions</loc>
-    <changefreq>monthly</changefreq>
+    <changefreq>weekly</changefreq>
     <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/temple-manager/dashboard</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
   </url>
   <url>
     <loc>https://divya-dhara.in/temples</loc>
@@ -1329,5 +1424,10 @@
     <loc>https://divya-dhara.in/videos</loc>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://divya-dhara.in/yatra</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.5</priority>
   </url>
 </urlset>

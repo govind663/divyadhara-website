@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 import {
   useEffect,
   useId,
@@ -574,8 +575,24 @@ type LeadSubmitResponse = {
   } | null;
 };
 
+/** Return a YYYY-MM-DD date in the visitor's local timezone (not UTC). */
+function getLocalDateString(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isValidMobileNumber(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || !/^\+?[\d\s()\-]+$/.test(trimmed)) return false;
+  const digits = trimmed.replace(/\D/g, "");
+  return digits.length >= 7 && digits.length <= 15;
+}
+
 function normalizeMobile(value: string): string {
-  return value.trim().replace(/[^\d+()\-\s]/g, "");
+  // Validation is performed before this helper; preserve a typed country code.
+  return value.trim().replace(/\s+/g, " ");
 }
 
 function getTravellerCount(value: string): number | null {
@@ -736,15 +753,22 @@ export function EnquiryForm({
   const [localSelectedServices, setLocalSelectedServices] = useState<string[]>(() =>
     Array.from(new Set([selectedPuja, selectedSeva, pujaType].filter((value): value is string => Boolean(value?.trim())))),
   );
-  const selectedServiceNames = selectedServices ?? localSelectedServices;
-  const panditPujaOptions = Array.from(new Set((panditProfile?.pujaTypes ?? []).filter((value) => Boolean(value?.trim()))));
-  const panditSevaOptions = Array.from(new Set((panditProfile?.services ?? []).filter((value) => Boolean(value?.trim()) && !panditPujaOptions.includes(value))));
+  const panditPujaOptions = Array.from(new Set((panditProfile?.pujaTypes ?? []).map((value) => value.trim()).filter(Boolean)));
+  const panditSevaOptions = Array.from(new Set((panditProfile?.services ?? []).map((value) => value.trim()).filter((value) => Boolean(value) && !panditPujaOptions.includes(value))));
   const allPanditServiceOptions = [...panditPujaOptions, ...panditSevaOptions];
+  const rawSelectedServiceNames = selectedServices ?? localSelectedServices;
+  const selectedServiceNames = Array.from(new Set(
+    panditProfile
+      ? rawSelectedServiceNames.map((serviceName) => serviceName.trim()).filter((serviceName) => allPanditServiceOptions.includes(serviceName))
+      : rawSelectedServiceNames.map((serviceName) => serviceName.trim()).filter(Boolean),
+  ));
   const activePuja = panditProfile
     ? selectedServiceNames.find((serviceName) => panditPujaOptions.includes(serviceName)) || ""
     : selectedPuja || pujaType || (resolvedBusinessType === "puja" ? serviceType || getPujaNameFromContext(context) : "");
   const pujaQuestions = getPujaQuestions(activePuja);
   const previousPujaRef = useRef(activePuja);
+  // Prevent duplicate API submissions before React has time to disable the button.
+  const submissionLockRef = useRef(false);
 
   const updateSelectedServices = (nextServices: string[]) => {
     const uniqueServices = Array.from(new Set(nextServices));
@@ -816,7 +840,7 @@ export function EnquiryForm({
     message: getDefaultSuccessMessage(resolvedBusinessType),
   });
 
-  const [setErrorAnnouncement, setSetErrorAnnouncement] =
+  const [errorAnnouncement, setErrorAnnouncement] =
     useState(false);
 
   const input =
@@ -949,6 +973,7 @@ export function EnquiryForm({
   };
 
   const resetForm = () => {
+    submissionLockRef.current = false;
     setF({
       name: "",
       mobile: "",
@@ -978,6 +1003,7 @@ export function EnquiryForm({
 
     setStatus("idle");
     setError(null);
+    setErrorAnnouncement(false);
     setReceipt({
       leadNumber: null,
       duplicate: false,
@@ -990,12 +1016,12 @@ export function EnquiryForm({
   ) => {
     event.preventDefault();
 
-    if (status === "submitting") {
+    if (status === "submitting" || submissionLockRef.current) {
       return;
     }
 
     setError(null);
-    setSetErrorAnnouncement(false);
+    setErrorAnnouncement(false);
 
     const name = f.name.trim();
     const mobile = normalizeMobile(f.mobile);
@@ -1004,32 +1030,72 @@ export function EnquiryForm({
 
     if (name.length < 2) {
       setError("Please enter your full name.");
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
       return;
     }
 
-    if (!mobile || !/[0-9]/.test(mobile)) {
-      setError("Please enter a valid mobile number.");
-      setSetErrorAnnouncement(true);
+    if (!isValidMobileNumber(f.mobile)) {
+      setError("Please enter a valid mobile number using 7–15 digits. Include your country code for international numbers.");
+      setErrorAnnouncement(true);
       return;
     }
 
-    if (panditProfile && selectedServiceNames.length === 0) {
+    if (panditProfile && allPanditServiceOptions.length > 0 && selectedServiceNames.length === 0) {
       setError("Please select at least one puja or service offered by this Pandit.");
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
+      return;
+    }
+
+    if (
+      panditProfile &&
+      allPanditServiceOptions.length === 0 &&
+      !f.specialRequirements.trim() &&
+      !message.trim()
+    ) {
+      setError("This Pandit's service list is still being updated. Please describe the puja or service you need in Special requirements or Message.");
+      setErrorAnnouncement(true);
       return;
     }
 
     if (panditProfile && !f.date) {
       setError("Please select your preferred puja date.");
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
+      return;
+    }
+
+    if (panditProfile && f.date < getLocalDateString()) {
+      setError("Please choose today or a future date for the Pandit booking enquiry.");
+      setErrorAnnouncement(true);
       return;
     }
 
     const unansweredBusinessQuestion = businessQuestions.find((question) => question.required && !(f.businessAnswers[question.key] || "").trim());
     if (unansweredBusinessQuestion) {
       setError(`Please answer: ${unansweredBusinessQuestion.label}`);
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
+      return;
+    }
+
+    const invalidBusinessNumber = businessQuestions.find((question) => {
+      if (question.type !== "number") return false;
+      const value = (f.businessAnswers[question.key] || "").trim();
+      return Boolean(value) && (!/^\d+$/.test(value) || Number(value) < 1);
+    });
+    if (invalidBusinessNumber) {
+      setError(`${invalidBusinessNumber.label} must be a whole number greater than zero.`);
+      setErrorAnnouncement(true);
+      return;
+    }
+
+    const returnDate = (f.businessAnswers.returnDate || "").trim();
+    if (returnDate && returnDate < getLocalDateString()) {
+      setError("Please choose today or a future return date.");
+      setErrorAnnouncement(true);
+      return;
+    }
+    if (returnDate && f.date && returnDate < f.date) {
+      setError("The return date cannot be earlier than the travel start date.");
+      setErrorAnnouncement(true);
       return;
     }
 
@@ -1038,31 +1104,37 @@ export function EnquiryForm({
       : undefined;
     if (unansweredPujaQuestion) {
       setError(`Please answer: ${unansweredPujaQuestion.label}`);
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
       return;
     }
 
     if (panditProfile && !f.city.trim() && !f.pincode.trim()) {
       setError("Please enter your city or PIN code so availability can be checked.");
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
       return;
     }
 
     if (panditProfile && !f.language.trim()) {
       setError("Please select your preferred language.");
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
       return;
     }
 
     if (f.pincode.trim() && !/^\d{6}$/.test(f.pincode.trim())) {
       setError("Please enter a valid 6-digit Indian PIN code, or leave it blank.");
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
       return;
     }
 
     if (f.budgetAmount.trim() && (!/^\d+(?:\.\d{1,2})?$/.test(f.budgetAmount.trim()) || Number(f.budgetAmount) < 0)) {
       setError("Please enter a valid budget amount in INR.");
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
+      return;
+    }
+
+    if (f.contactPreference === "email" && !email) {
+      setError("Please enter an email address because Email is your preferred contact method.");
+      setErrorAnnouncement(true);
       return;
     }
 
@@ -1071,19 +1143,19 @@ export function EnquiryForm({
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     ) {
       setError("Please enter a valid email address.");
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
       return;
     }
 
     if (!f.termsAccepted) {
       setError("Please accept the terms to submit your enquiry.");
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
       return;
     }
 
     if (!f.privacyAccepted) {
       setError("Please confirm that you accept the privacy policy.");
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
       return;
     }
 
@@ -1094,22 +1166,28 @@ export function EnquiryForm({
       setError(
         "Please allow WhatsApp contact when WhatsApp is selected as your preferred channel.",
       );
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
       return;
     }
+
+    const missingEntityId =
+      entityId === null ||
+      entityId === undefined ||
+      String(entityId).trim() === "";
 
     if (
       leadType !== "general" &&
       leadType !== "contact" &&
-      !entityId
+      missingEntityId
     ) {
       setError(
         "This enquiry is linked to a specific DivyaDhara listing. Please refresh the page and try again.",
       );
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
       return;
     }
 
+    submissionLockRef.current = true;
     setStatus("submitting");
 
     try {
@@ -1117,11 +1195,13 @@ export function EnquiryForm({
         leadType,
         formKey: resolvedFormKey,
         entityId:
-          entityId === null ||
-          entityId === undefined ||
-          entityId === ""
+          missingEntityId
             ? undefined
-            : Number(entityId),
+            : typeof entityId === "number"
+              ? entityId
+              : /^\d+$/.test(String(entityId).trim())
+                ? Number(String(entityId).trim())
+                : String(entityId).trim(),
 
         name,
         phone: mobile,
@@ -1236,12 +1316,22 @@ export function EnquiryForm({
         payload,
       );
 
-      const result =
-        getLeadReceipt(response);
+      const result = getLeadReceipt(response);
 
-      const leadNumber =
-        result.lead?.lead_number ||
-        null;
+      if (result.spam === true || result.accepted === false) {
+        submissionLockRef.current = false;
+        setStatus("idle");
+        setError(
+          result.message ||
+            (result.spam === true
+              ? "We could not accept this submission. Please review the details or use WhatsApp instead."
+              : "Your enquiry was not accepted. Please review the details and try again."),
+        );
+        setErrorAnnouncement(true);
+        return;
+      }
+
+      const leadNumber = result.lead?.lead_number || null;
 
       const responseMessage =
         typeof result.message === "string" &&
@@ -1260,11 +1350,12 @@ export function EnquiryForm({
 
       setStatus("done");
     } catch (submitError) {
+      submissionLockRef.current = false;
       setStatus("idle");
       setError(
         getErrorText(submitError),
       );
-      setSetErrorAnnouncement(true);
+      setErrorAnnouncement(true);
     }
   };
 
@@ -1476,11 +1567,7 @@ export function EnquiryForm({
       </p>
 
       <div
-        className={`mt-5 grid gap-3 ${
-          compact
-            ? "sm:grid-cols-2"
-            : "sm:grid-cols-2"
-        }`}
+        className={`grid sm:grid-cols-2 ${compact ? "mt-4 gap-2" : "mt-5 gap-3"}`}
       >
         <div>
           <label
@@ -1565,7 +1652,7 @@ export function EnquiryForm({
               name="preferredDate"
               type="date"
               required={Boolean(panditProfile)}
-              min={panditProfile ? new Date().toISOString().slice(0, 10) : undefined}
+              min={panditProfile ? getLocalDateString() : undefined}
               value={f.date}
               onChange={setField("date")}
               className={input}
@@ -1690,7 +1777,7 @@ export function EnquiryForm({
         <section className="mt-5 rounded-2xl border border-orange-200 bg-orange-50/60 p-4 sm:p-5" aria-labelledby={`${instanceId}-puja-specific-title`}>
           <p className="text-[10px] font-black uppercase tracking-[0.16em] text-orange-700">Tailored to your puja</p>
           <h4 id={`${instanceId}-puja-specific-title`} className="mt-1 text-sm font-extrabold text-[#2a1a10]">A few details about {activePuja}</h4>
-          <p className="mt-1 text-xs leading-5 text-stone-600">These questions are chosen for this ritual. The Pandit/team will confirm the exact vidhi, muhurat, samagri and arrangements with you.</p>
+          <p className="mt-1 text-xs leading-5 text-stone-600">These questions apply to {activePuja}. If you selected multiple pujas/services, add any extra service-specific details in Special requirements below. The Pandit/team will confirm the exact vidhi, muhurat, samagri and arrangements with you.</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {pujaQuestions.map((question) => (
               <div key={question.key} className={question.type === "textarea" ? "sm:col-span-2" : ""}>
@@ -1832,8 +1919,8 @@ export function EnquiryForm({
                 name="budgetAmount"
                 type="number"
                 min="0"
-                step="1"
-                inputMode="numeric"
+                step="0.01"
+                inputMode="decimal"
                 value={f.budgetAmount}
                 onChange={setField("budgetAmount")}
                 placeholder="e.g., 5000"
@@ -1953,8 +2040,7 @@ export function EnquiryForm({
             disabled={status === "submitting"}
           />
           <span>
-            I agree that DivyaDhara may contact me on WhatsApp regarding
-            this enquiry.
+            I consent to being contacted on WhatsApp about this enquiry. If I select WhatsApp as my preferred contact method, this consent is required.
           </span>
         </label>
 
@@ -2012,7 +2098,7 @@ export function EnquiryForm({
             className="mt-0.5 shrink-0"
           />
           <span>{error}</span>
-          {setErrorAnnouncement && (
+          {errorAnnouncement && (
             <span className="sr-only">
               Please correct the highlighted issue and retry.
             </span>
@@ -2024,7 +2110,7 @@ export function EnquiryForm({
         <button
           type="submit"
           disabled={status === "submitting"}
-          className="btn-saffron hidden flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          className="hidden btn-saffron flex w-full flex-1 items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2"
         >
           {status === "submitting" ? (
             <>
@@ -2032,7 +2118,7 @@ export function EnquiryForm({
                 size={15}
                 className="animate-spin"
               />
-              Sending Enquiry…
+              Submitting enquiry…
             </>
           ) : (
             <>
@@ -2054,8 +2140,7 @@ export function EnquiryForm({
       </div>
 
       <p className="mt-3 text-center text-[11px] leading-relaxed text-stone-500">
-        Your details will be added to a WhatsApp message for you to review and
-        send to DivyaDhara. The enquiry is shared only after you send the message
+        “WhatsApp Instead” opens a pre-filled message for you to review and send
         in WhatsApp. Please avoid including sensitive personal information.
       </p>
     </form>

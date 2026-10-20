@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /**
  * ============================================================================
  * DIVYADHARA — MASTER SEO ENGINE
@@ -9,8 +10,9 @@
  *   consistent across all routes.
  * - Provide reusable Schema.org builders for page-specific structured data.
  * - Avoid duplicate <meta>, <link> and <script> tags.
- * - Remain safe in browser-only React/Vite rendering and future SSR/pre-render
- *   environments.
+ * - Remain safe during browser-only React/Vite rendering and avoid accessing
+ *   `document` during SSR. This hook applies metadata client-side; SSR/prerender
+ *   deployments should also emit the required head tags into the initial HTML.
  *
  * Important:
  * - This file does NOT replace visible on-page content.
@@ -58,6 +60,17 @@ export type SEOAlternate = {
   hrefLang: string;
   href: string;
 };
+
+/**
+ * Explicit service-area representation for structured data.
+ * Existing string inputs remain supported and default to AdministrativeArea.
+ */
+export type SEOAreaServed =
+  | string
+  | {
+      name: string;
+      type?: "City" | "AdministrativeArea" | "Place";
+    };
 
 export type SEOProps = {
   /** Visible page title used for document.title and social metadata. */
@@ -183,7 +196,11 @@ export function normalizeBaseUrl(value: string): string {
 export function canonicalUrl(
   path: string = "/",
 ): string {
-  return absoluteUrl(path || "/");
+  const url = absoluteUrl(path || "/");
+
+  // Fragments identify an in-page position, not a separate canonical page.
+  const hashIndex = url.indexOf("#");
+  return hashIndex >= 0 ? url.slice(0, hashIndex) : url;
 }
 
 /* ============================================================================
@@ -212,17 +229,24 @@ export function limitSEOText(
   maxLength: number,
 ): string {
   const text = cleanSEOText(value);
+  const limit = Number.isFinite(maxLength)
+    ? Math.max(0, Math.trunc(maxLength))
+    : text.length;
 
-  if (text.length <= maxLength) {
+  if (limit === 0 || !text) {
+    return "";
+  }
+
+  if (text.length <= limit) {
     return text;
   }
 
   const cut = text
-    .slice(0, Math.max(1, maxLength - 1))
+    .slice(0, Math.max(1, limit - 1))
     .replace(/\s+\S*$/, "")
     .trim();
 
-  return cut ? `${cut}…` : text.slice(0, maxLength);
+  return cut ? `${cut}…` : text.slice(0, limit);
 }
 
 /**
@@ -288,56 +312,28 @@ export function formatRobots(
  * DOM HELPERS
  * ========================================================================== */
 
-function escapeSelectorValue(
-  value: string,
-): string {
-  const cssApi =
-    typeof globalThis.CSS !== "undefined" &&
-    typeof globalThis.CSS.escape === "function"
-      ? globalThis.CSS.escape.bind(globalThis.CSS)
-      : null;
-
-  return cssApi
-    ? cssApi(value)
-    : value.replace(
-        /["\\]/g,
-        "\\$&",
-      );
-}
-
 function getMetaByName(
   name: string,
 ): HTMLMetaElement | null {
-  if (
-    typeof document === "undefined" ||
-    !document.head
-  ) {
+  if (typeof document === "undefined" || !document.head) {
     return null;
   }
 
-  const safeName = escapeSelectorValue(name);
-
-  return document.head.querySelector<HTMLMetaElement>(
-    `meta[name="${safeName}"]`,
-  );
+  return Array.from(
+    document.head.querySelectorAll<HTMLMetaElement>("meta[name]"),
+  ).find((meta) => meta.getAttribute("name") === name) ?? null;
 }
 
 function getMetaByProperty(
   property: string,
 ): HTMLMetaElement | null {
-  if (
-    typeof document === "undefined" ||
-    !document.head
-  ) {
+  if (typeof document === "undefined" || !document.head) {
     return null;
   }
 
-  const safeProperty =
-    escapeSelectorValue(property);
-
-  return document.head.querySelector<HTMLMetaElement>(
-    `meta[property="${safeProperty}"]`,
-  );
+  return Array.from(
+    document.head.querySelectorAll<HTMLMetaElement>("meta[property]"),
+  ).find((meta) => meta.getAttribute("property") === property) ?? null;
 }
 
 function ensureMeta(
@@ -351,10 +347,14 @@ function ensureMeta(
     return null;
   }
 
-  const existing =
-    attribute === "name"
-      ? getMetaByName(value)
-      : getMetaByProperty(value);
+  const candidates = Array.from(
+    document.head.querySelectorAll<HTMLMetaElement>(
+      attribute === "name" ? "meta[name]" : "meta[property]",
+    ),
+  ).filter((meta) => meta.getAttribute(attribute) === value);
+
+  const existing = candidates.shift() ?? null;
+  candidates.forEach((duplicate) => duplicate.remove());
 
   if (existing) {
     return existing;
@@ -405,11 +405,23 @@ function setMetaProperty(
 }
 
 function removeMetaByName(name: string): void {
-  getMetaByName(name)?.remove();
+  if (typeof document === "undefined" || !document.head) return;
+
+  document.head
+    .querySelectorAll<HTMLMetaElement>("meta[name]")
+    .forEach((meta) => {
+      if (meta.getAttribute("name") === name) meta.remove();
+    });
 }
 
 function removeMetaByProperty(property: string): void {
-  getMetaByProperty(property)?.remove();
+  if (typeof document === "undefined" || !document.head) return;
+
+  document.head
+    .querySelectorAll<HTMLMetaElement>("meta[property]")
+    .forEach((meta) => {
+      if (meta.getAttribute("property") === property) meta.remove();
+    });
 }
 
 function ensureLink(
@@ -422,10 +434,12 @@ function ensureLink(
     return null;
   }
 
-  const existing =
-    document.head.querySelector<HTMLLinkElement>(
-      `link[rel="${escapeSelectorValue(rel)}"]`,
-    );
+  const candidates = Array.from(
+    document.head.querySelectorAll<HTMLLinkElement>("link[rel]"),
+  ).filter((link) => link.getAttribute("rel") === rel);
+
+  const existing = candidates.shift() ?? null;
+  candidates.forEach((duplicate) => duplicate.remove());
 
   if (existing) {
     return existing;
@@ -478,13 +492,19 @@ function upsertAlternateLinks(
   >();
 
   for (const item of alternates) {
-    const hrefLang =
-      cleanSEOText(item.hrefLang);
+    if (!item || typeof item !== "object") {
+      continue;
+    }
 
-    const href =
-      cleanSEOText(item.href);
+    const hrefLang = cleanSEOText(item.hrefLang);
+    const href = cleanSEOText(item.href);
 
     if (!hrefLang || !href) {
+      continue;
+    }
+
+    const isWebHref = /^https?:\/\//i.test(href) || href.startsWith("/");
+    if (!isWebHref) {
       continue;
     }
 
@@ -492,7 +512,7 @@ function upsertAlternateLinks(
       hrefLang.toLowerCase(),
       {
         hrefLang,
-        href: absoluteUrl(href),
+        href: canonicalUrl(href),
       },
     );
   }
@@ -545,7 +565,8 @@ function addSchemaScript(
   const validSchemas = schemas.filter(
     (item) =>
       Boolean(item) &&
-      typeof item === "object",
+      typeof item === "object" &&
+      !Array.isArray(item),
   );
 
   if (!validSchemas.length) {
@@ -620,239 +641,132 @@ export function useSEO({
     70,
   );
 
-  const normalizedDescription =
-    limitSEOText(
-      description || SEO_DEFAULT_DESCRIPTION,
-      180,
-    );
+  // Whitespace-only descriptions must not produce an empty meta description.
+  const normalizedDescription = limitSEOText(
+    cleanSEOText(description) || SEO_DEFAULT_DESCRIPTION,
+    180,
+  );
 
-  const canonical =
-    canonicalUrl(path || "/");
-
-  const absoluteImage =
-    absoluteUrl(image);
+  const canonical = canonicalUrl(path || "/");
+  const absoluteImage = absoluteUrl(
+    cleanSEOText(image) || SEO_DEFAULT_IMAGE,
+  );
+  const normalizedImageAlt =
+    cleanSEOText(imageAlt) || SEO_DEFAULT_IMAGE_ALT;
+  const normalizedLanguage = cleanSEOText(language) || "en-IN";
+  const normalizedRobots = formatRobots(robots);
+  const normalizedAuthor = cleanSEOText(author);
+  const normalizedPublishedTime = cleanSEOText(publishedTime);
+  const normalizedModifiedTime = cleanSEOText(modifiedTime);
+  const normalizedSection = cleanSEOText(section);
 
   /*
-   * JSON.stringify creates a stable dependency for route-level schema objects
-   * so a schema change is not silently ignored by the effect dependency list.
+   * Serialize reference-type inputs so inline arrays/objects do not cause
+   * unnecessary metadata DOM rewrites on every render.
    */
-  const serializedSchema = schema
+  const serializedAlternates = safeJSONStringify(alternates ?? []);
+  const serializedSchema = schema !== undefined
     ? safeJSONStringify(schema)
     : "";
 
   useEffect(() => {
-    if (
-      typeof document === "undefined"
-    ) {
+    if (typeof document === "undefined" || !document.head) {
       return;
     }
 
-    /* ---------------------------------------------------------------
-       Document basics
-    --------------------------------------------------------------- */
-    document.title =
-      normalizedTitle;
+    /* Document basics */
+    document.title = normalizedTitle;
+    document.documentElement.lang = normalizedLanguage;
 
-    document.documentElement.lang =
-      language;
+    /* Standard SEO */
+    setMetaName("description", normalizedDescription);
+    setMetaName("robots", normalizedRobots);
+    setMetaName("googlebot", normalizedRobots);
+    setMetaName("theme-color", "#fffaf5");
+    setMetaName("application-name", SEO_SITE_NAME);
 
-    /* ---------------------------------------------------------------
-       Standard SEO
-    --------------------------------------------------------------- */
-    setMetaName(
-      "description",
-      normalizedDescription,
-    );
-
-    setMetaName(
-      "robots",
-      formatRobots(robots),
-    );
-
-    setMetaName(
-      "googlebot",
-      formatRobots(robots),
-    );
-
-    setMetaName(
-      "theme-color",
-      "#fffaf5",
-    );
-
-    setMetaName(
-      "application-name",
-      SEO_SITE_NAME,
-    );
-
-    if (author && cleanSEOText(author)) {
-      setMetaName(
-        "author",
-        cleanSEOText(author),
-      );
+    if (normalizedAuthor) {
+      setMetaName("author", normalizedAuthor);
     } else {
       removeMetaByName("author");
     }
 
-    /*
-     * Keywords are intentionally not generated here. Modern search engines
-     * do not use meta keywords as a primary ranking signal, and automated
-     * keyword stuffing would reduce quality rather than improve SEO.
-     */
+    /* Canonical URL */
+    setCanonical(canonical);
 
-    /* ---------------------------------------------------------------
-       Canonical
-    --------------------------------------------------------------- */
-    setCanonical(
-      canonical,
-    );
+    /* Open Graph */
+    setMetaProperty("og:title", normalizedTitle);
+    setMetaProperty("og:description", normalizedDescription);
+    setMetaProperty("og:url", canonical);
+    setMetaProperty("og:image", absoluteImage);
+    setMetaProperty("og:image:alt", normalizedImageAlt);
+    setMetaProperty("og:type", type);
+    setMetaProperty("og:site_name", SEO_SITE_NAME);
+    setMetaProperty("og:locale", SEO_DEFAULT_LOCALE);
 
-    /* ---------------------------------------------------------------
-       Open Graph
-    --------------------------------------------------------------- */
-    setMetaProperty(
-      "og:title",
-      normalizedTitle,
-    );
-
-    setMetaProperty(
-      "og:description",
-      normalizedDescription,
-    );
-
-    setMetaProperty(
-      "og:url",
-      canonical,
-    );
-
-    setMetaProperty(
-      "og:image",
-      absoluteImage,
-    );
-
-    setMetaProperty(
-      "og:image:alt",
-      cleanSEOText(imageAlt),
-    );
-
-    setMetaProperty(
-      "og:type",
-      type,
-    );
-
-    setMetaProperty(
-      "og:site_name",
-      SEO_SITE_NAME,
-    );
-
-    setMetaProperty(
-      "og:locale",
-      SEO_DEFAULT_LOCALE,
-    );
-
-    if (publishedTime) {
-      setMetaProperty(
-        "article:published_time",
-        publishedTime,
-      );
+    if (normalizedPublishedTime) {
+      setMetaProperty("article:published_time", normalizedPublishedTime);
     } else {
       removeMetaByProperty("article:published_time");
     }
 
-    if (modifiedTime) {
-      setMetaProperty(
-        "article:modified_time",
-        modifiedTime,
-      );
+    if (normalizedModifiedTime) {
+      setMetaProperty("article:modified_time", normalizedModifiedTime);
     } else {
       removeMetaByProperty("article:modified_time");
     }
 
-    if (section && cleanSEOText(section)) {
-      setMetaProperty(
-        "article:section",
-        cleanSEOText(section),
-      );
+    if (normalizedSection) {
+      setMetaProperty("article:section", normalizedSection);
     } else {
       removeMetaByProperty("article:section");
     }
 
-    /* ---------------------------------------------------------------
-       Twitter / X
-    --------------------------------------------------------------- */
-    setMetaName(
-      "twitter:card",
-      "summary_large_image",
-    );
+    /* Twitter / X */
+    setMetaName("twitter:card", "summary_large_image");
+    setMetaName("twitter:title", normalizedTitle);
+    setMetaName("twitter:description", normalizedDescription);
+    setMetaName("twitter:image", absoluteImage);
+    setMetaName("twitter:image:alt", normalizedImageAlt);
 
-    setMetaName(
-      "twitter:title",
-      normalizedTitle,
-    );
-
-    setMetaName(
-      "twitter:description",
-      normalizedDescription,
-    );
-
-    setMetaName(
-      "twitter:image",
-      absoluteImage,
-    );
-
-    setMetaName(
-      "twitter:image:alt",
-      cleanSEOText(imageAlt),
-    );
-
-    /* ---------------------------------------------------------------
-       Alternate language URLs
-    --------------------------------------------------------------- */
+    /* Alternate language URLs */
+    const parsedAlternates = safeJSONParse<SEOAlternate[]>(serializedAlternates);
     upsertAlternateLinks(
-      alternates,
+      Array.isArray(parsedAlternates) ? parsedAlternates : [],
     );
 
-    /* ---------------------------------------------------------------
-       JSON-LD
-    --------------------------------------------------------------- */
+    /* JSON-LD: only scripts owned by this helper are replaced. */
     removeManagedSchema();
 
     if (serializedSchema) {
-      const parsed =
-        safeJSONParse<
-          Record<string, unknown> |
-          Record<string, unknown>[]
-        >(
-          serializedSchema,
-        );
+      const parsedSchema = safeJSONParse<
+        Record<string, unknown> | Record<string, unknown>[]
+      >(serializedSchema);
 
-      if (parsed) {
-        addSchemaScript(
-          parsed,
-        );
+      if (parsedSchema) {
+        addSchemaScript(parsedSchema);
       }
     }
 
     /*
-     * Deliberately no automatic window.scrollTo().
-     *
-     * SEO metadata should not change user scroll position. Route-level scroll
-     * restoration belongs to the router/layout layer, not the SEO utility.
+     * Deliberately do not auto-scroll. Page scroll restoration belongs to the
+     * router/layout, not SEO metadata management.
      */
   }, [
     normalizedTitle,
     normalizedDescription,
     canonical,
     absoluteImage,
-    imageAlt,
+    normalizedImageAlt,
     type,
-    language,
-    robots,
-    author,
-    publishedTime,
-    modifiedTime,
-    section,
+    normalizedLanguage,
+    normalizedRobots,
+    normalizedAuthor,
+    normalizedPublishedTime,
+    normalizedModifiedTime,
+    normalizedSection,
+    serializedAlternates,
     serializedSchema,
-    alternates,
   ]);
 }
 
@@ -873,13 +787,10 @@ export function organizationSchema(
   const sameAs = (
     options.sameAs ?? []
   )
-    .map((item) =>
-      cleanSEOText(item),
-    )
-    .filter(Boolean)
-    .map((item) =>
-      absoluteUrlIfNeeded(item),
-    );
+    .map((item) => cleanSEOText(item))
+    .filter((item) => Boolean(item))
+    .map((item) => absoluteUrlIfNeeded(item))
+    .filter((item) => /^https?:\/\//i.test(item));
 
   const schema: Record<
     string,
@@ -1315,7 +1226,7 @@ export function serviceSchema(
       name: string;
       url?: string;
     };
-    areaServed?: string | string[];
+    areaServed?: SEOAreaServed | SEOAreaServed[];
     image?: string;
   },
 ): Record<string, unknown> {
@@ -1361,26 +1272,29 @@ export function serviceSchema(
   }
 
   if (options.areaServed) {
-    const areas = Array.isArray(
-      options.areaServed,
-    )
+    const areas: SEOAreaServed[] = Array.isArray(options.areaServed)
       ? options.areaServed
       : [options.areaServed];
 
-    schema.areaServed =
-      areas
-        .map((area) => ({
-          "@type":
-            "AdministrativeArea",
-          name:
-            cleanSEOText(area),
-        }))
-        .filter(
-          (area) =>
-            Boolean(
-              area.name,
-            ),
-        );
+    schema.areaServed = areas
+      .map((area) => {
+        if (typeof area === "string") {
+          return {
+            "@type": "AdministrativeArea",
+            name: cleanSEOText(area),
+          };
+        }
+
+        return {
+          "@type": area.type || "AdministrativeArea",
+          name: cleanSEOText(area.name),
+        };
+      })
+      .filter((area) => Boolean(area.name));
+
+    if ((schema.areaServed as unknown[]).length === 0) {
+      delete schema.areaServed;
+    }
   }
 
   if (options.image) {
@@ -1608,6 +1522,10 @@ export function profilePageSchema(
       image?: string;
       url?: string;
       telephone?: string;
+      areaServed?: SEOAreaServed | SEOAreaServed[];
+      knowsLanguage?: string[];
+      knowsAbout?: string[];
+      sameAs?: string[];
     };
   },
 ): Record<string, unknown> {
@@ -1641,6 +1559,27 @@ export function profilePageSchema(
   }
 
   if (options.person?.name) {
+    const personLanguages = (options.person.knowsLanguage ?? [])
+      .map(cleanSEOText)
+      .filter(Boolean);
+    const personKnowsAbout = (options.person.knowsAbout ?? [])
+      .map(cleanSEOText)
+      .filter(Boolean);
+    const personSameAs = (options.person.sameAs ?? [])
+      .map(cleanSEOText)
+      .filter((item) => /^https?:\/\//i.test(item));
+    const rawAreas = options.person.areaServed
+      ? Array.isArray(options.person.areaServed)
+        ? options.person.areaServed
+        : [options.person.areaServed]
+      : [];
+    const personAreas = rawAreas
+      .map((area) => typeof area === "string"
+        ? { "@type": "AdministrativeArea", name: cleanSEOText(area) }
+        : { "@type": area.type || "AdministrativeArea", name: cleanSEOText(area.name) }
+      )
+      .filter((area) => Boolean(area.name));
+
     schema.mainEntity = {
       "@type":
         "Person",
@@ -1675,13 +1614,13 @@ export function profilePageSchema(
         : {}),
       ...(options.person.telephone
         ? {
-            telephone:
-              cleanSEOText(
-                options.person
-                  .telephone,
-              ),
+            telephone: cleanSEOText(options.person.telephone),
           }
         : {}),
+      ...(personLanguages.length ? { knowsLanguage: personLanguages } : {}),
+      ...(personKnowsAbout.length ? { knowsAbout: personKnowsAbout } : {}),
+      ...(personSameAs.length ? { sameAs: personSameAs } : {}),
+      ...(personAreas.length ? { areaServed: personAreas } : {}),
     };
   }
 

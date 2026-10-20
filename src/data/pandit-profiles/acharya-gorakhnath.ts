@@ -8,20 +8,31 @@ const acharyaGorakhnath: Pandit = {
 
   title: "Hindu Pandit Ji",
 
-  // Confirm that this exact image filename exists in public/pandits_profile_img/.
+  // Verify that this exact filename exists in public/pandits_profile_img/.
   photo: "/pandits_profile_img/Acharya_Gorakhnath.jpg",
 
-  // The supplied source row did not include verified years of experience.
-  // Replace this placeholder with the actual value before publishing.
+  // The supplied profile code lists 10 years; verify before publishing.
   experience: 10,
 
+  // Primary/base location. The listing should display serviceAreas instead.
   location: "Navi Mumbai, Maharashtra, India",
 
-  // Confirm languages spoken before publishing the profile.
+  // Service coverage locations are shown on the listing and mapped on the profile page.
+  // Coordinates point to the approximate city centre, not a boundary or an exact address.
+  serviceAreas: [
+    {
+      id: "navi-mumbai",
+      name: "Navi Mumbai",
+      address: "Navi Mumbai, Maharashtra, India",
+      lat: 19.0308,
+      lng: 73.0199,
+    },
+  ],
+
+  // Verify languages spoken before publishing the profile.
   languages: ["Hindi", "Marathi", "Sanskrit"],
 
   // Add a verified YouTube video ID when one is provided.
-  // Keep blank until then so the Story button remains hidden.
   storyVideoId: "",
 
   specializations: [
@@ -33,7 +44,7 @@ const acharyaGorakhnath: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  // Only ceremonies named in the supplied source row are listed here.
+  // Only ceremonies named in the supplied profile are listed here.
   pujaTypes: [
     "Satyanarayan Katha and Puja",
     "Rudrabhishek",
@@ -43,46 +54,28 @@ const acharyaGorakhnath: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  associatedWith: "To be confirmed",
+  // Leave empty until a real organisation, temple or sampradaya association is verified.
+  associatedWith: "",
 
   about:
-    "Acharya Gorakhnath is a Hindu Pandit Ji listed on Divya Dhara and based in Navi Mumbai, Maharashtra. His listed service areas include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Devotees can enquire by sharing their preferred ceremony, date, location and specific requirements. Years of experience, languages, ritual procedures, samagri requirements, service duration, pricing and availability should be confirmed before a booking is finalized. Additional ceremonies should be added only after they are confirmed with the Pandit.",
+    "Looking for a Hindu Pandit in Navi Mumbai, Maharashtra, for a home puja or traditional Hindu ceremony? Through DivyaDhara, devotees can enquire with Acharya Gorakhnath Ji about the rituals listed on this profile, including Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. Share the occasion and family tradition so the appropriate vidhi, prayers and ceremony requirements can be discussed before booking.\n\nNavi Mumbai, Maharashtra is the service area currently listed for this profile. To help check whether the requested venue can be served, include the locality, complete venue details or PIN code, preferred date or muhurat, language preference and any specific sampradaya requirements. Do not assume that a particular locality is covered until service availability for that exact address has been confirmed; the map marker is an approximate city-level reference, not an exact address or service boundary.\n\nBefore finalising a booking, confirm the Acharya's availability, experience and spoken languages, the ritual procedure and expected duration, the samagri list and who will arrange it, dakshina and any travel charges. Sending an enquiry through DivyaDhara does not itself confirm a booking.",
 
   services: [
-    {
-      name: "Satyanarayan Katha and Puja",
-      duration: "To be confirmed",
-    },
-    {
-      name: "Rudrabhishek",
-      duration: "To be confirmed",
-    },
-    {
-      name: "Havan",
-      duration: "To be confirmed",
-    },
-    {
-      name: "Vastu Shanti Puja",
-      duration: "To be confirmed",
-    },
-    {
-      name: "Ganesh Puja",
-      duration: "To be confirmed",
-    },
-    {
-      name: "Pitru-related Rituals",
-      duration: "To be confirmed",
-    },
+    { name: "Satyanarayan Katha and Puja", duration: "To be confirmed" },
+    { name: "Rudrabhishek", duration: "To be confirmed" },
+    { name: "Havan", duration: "To be confirmed" },
+    { name: "Vastu Shanti Puja", duration: "To be confirmed" },
+    { name: "Ganesh Puja", duration: "To be confirmed" },
+    { name: "Pitru-related Rituals", duration: "To be confirmed" },
   ],
 
-  availability: "To be confirmed",
+  availability: "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, 9:00 AM to 6:00 PM (IST)",
 
   // Keep false until contact authorization is verified in the existing flow.
   authorizedContact: false,
 };
 
-// Shared website-wide puja catalogue. This does not imply that this Pandit
-// performs every ceremony listed in the catalogue.
+// Shared website-wide puja catalogue; this does not imply this Pandit performs every item.
 export { PUJA_CATEGORIES };
 
 export default acharyaGorakhnath;

@@ -8,26 +8,33 @@ const gauravDwivediGuruji: Pandit = {
 
   title: "Hindu Pandit Ji",
 
+  // Confirm that this exact image filename exists in public/pandits_profile_img/.
   photo: "/pandits_profile_img/Gaurav Dwivedi Guruji.jpeg",
 
+  // The profile source lists 9 years; verify this value before publishing.
   experience: 9,
 
+  // Primary/base location; service coverage is listed separately below.
   location: "Mumbai, Maharashtra, India",
 
+  // The listed city marker is approximate and does not describe an exact
+  // address or a verified boundary for the full service area.
+  serviceAreas: [
+    {
+      id: "mumbai",
+      name: "Mumbai",
+      address: "Mumbai, Maharashtra, India",
+      lat: 19.076,
+      lng: 72.8777,
+    },
+  ],
+
+  // Confirm the languages spoken before publishing the profile.
   languages: ["Hindi", "Sanskrit", "Marathi"],
 
-  /*
-   * PANDIT STORY VIDEO
-   *
-   * Actual YouTube video ID milne par property uncomment karein.
-   *
-   * Example:
-   * storyVideoId: "AbCd1234567",
-   *
-   * Sirf valid video ID use karein.
-   */
-
-  // storyVideoId: "YOUR_YOUTUBE_VIDEO_ID",
+  // Add a verified YouTube video ID only when the video belongs to this Pandit
+  // and permission to use it has been confirmed.
+  storyVideoId: "",
 
   specializations: [
     "Satyanarayan Puja",
@@ -38,11 +45,7 @@ const gauravDwivediGuruji: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  /*
-   * Currently listed services.
-   * Additional services should be added only after
-   * confirming the Pandit's relevant experience.
-   */
+  // Only currently listed ceremonies are included. Confirm before adding more.
   pujaTypes: [
     "Satyanarayan Katha and Puja",
     "Rudrabhishek",
@@ -52,10 +55,11 @@ const gauravDwivediGuruji: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  associatedWith: "To be confirmed",
+  // Keep blank until an organization/association is confirmed.
+  associatedWith: "",
 
   about:
-    "Gaurav Dwivedi Guruji is a Hindu priest with 9 years of listed experience in traditional Hindu puja and Vedic rituals. His listed areas of service include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Visitors can share their preferred ceremony, date, city or PIN code, language and specific requirements when making an enquiry. His detailed biography, service availability, ritual procedures and pricing should be confirmed before a booking is finalized.",
+    "Gaurav Dwivedi Guruji is listed on DivyaDhara as a Hindu Pandit Ji based in Mumbai, Maharashtra. Devotees looking for a Pandit in Mumbai for a traditional Hindu puja can enquire about the ceremonies listed on this profile, including Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. The profile lists Mumbai as the service area, with an approximate city-centre map marker for orientation; the marker is not an exact address or a verified service boundary.\n\nTo help assess the enquiry, share the ceremony or occasion, preferred date and muhurat if applicable, venue locality or PIN code, language preference and any family or sampradaya requirements. This information can help clarify whether the requested ceremony and location fit the listed services. Locality-level coverage should be confirmed before making travel or booking arrangements; no additional Mumbai neighbourhoods are assumed to be covered unless confirmed.\n\nBefore finalising a booking, confirm the required vidhi or paath, samagri list and who will arrange the items, expected duration, dakshina, any travel charges and the appointment date and timing. The profile lists 9 years of experience and Hindi, Sanskrit and Marathi; these details should be verified directly before publication or booking. An enquiry does not itself confirm availability or complete a booking.",
 
   services: [
     {
@@ -84,17 +88,14 @@ const gauravDwivediGuruji: Pandit = {
     },
   ],
 
-  availability: "To be confirmed",
+  availability: "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, 9:00 AM to 6:00 PM (IST)",
 
-  /*
-   * Keep false until the contact details and authorization
-   * have been checked and approved.
-   */
+  // Keep false until contact details and authorization are checked and approved.
   authorizedContact: false,
 };
 
-// Shared website-wide puja catalogue.
-// This does not mean that this Pandit performs every listed puja.
+// Shared website-wide puja catalogue. This does not mean that this Pandit
+// performs every puja listed in the catalogue.
 export { PUJA_CATEGORIES };
 
 export default gauravDwivediGuruji;

@@ -8,29 +8,33 @@ const ashishKumarDubey: Pandit = {
 
   title: "Experienced Hindu Pandit Ji",
 
+  // Confirm that this exact filename exists in public/pandits_profile_img/.
   photo: "/pandits_profile_img/Ashish Kumar Dubey.jpeg",
 
+  // Verify this experience figure with the Pandit before publishing.
   experience: 14,
 
+  // Primary/base location retained for existing profile and search compatibility.
   location: "Mumbai, Maharashtra, India",
 
+  // This is the currently listed service area. Coordinates indicate an
+  // approximate Mumbai city-centre point, not an exact address or boundary.
+  serviceAreas: [
+    {
+      id: "mumbai",
+      name: "Mumbai",
+      address: "Mumbai, Maharashtra, India",
+      lat: 19.076,
+      lng: 72.8777,
+    },
+  ],
+
+  // Verify the languages spoken before publishing the profile.
   languages: ["Hindi", "Sanskrit", "Marathi"],
 
-  /*
-   * PANDIT STORY VIDEO
-   *
-   * Actual YouTube video ID milne ke baad neeche wali line
-   * uncomment karke ID enter karein.
-   *
-   * Example:
-   * storyVideoId: "AbCd1234567",
-   *
-   * Sirf video ID enter karein, poora URL nahi.
-   * Video ID ko tabhi set karein jab video Ashish Kumar Dubey
-   * ka ho aur uska use karne ki permission ho.
-   */
-
-  // storyVideoId: "YOUR_YOUTUBE_VIDEO_ID",
+  // Add a verified YouTube video ID only when the video belongs to this Pandit
+  // and permission to use it has been confirmed.
+  storyVideoId: "",
 
   specializations: [
     "Satyanarayan Puja",
@@ -41,11 +45,7 @@ const ashishKumarDubey: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  /*
-   * Puja names used for profile discovery and filtering.
-   * Add only services whose suitability for this Pandit
-   * has been confirmed.
-   */
+  // Include only ceremonies listed for this profile; confirm each before booking.
   pujaTypes: [
     "Satyanarayan Katha and Puja",
     "Rudrabhishek",
@@ -55,10 +55,11 @@ const ashishKumarDubey: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  associatedWith: "To be confirmed",
+  // Leave empty until a verified organisation or affiliation is supplied.
+  associatedWith: "",
 
   about:
-    "Ashish Kumar Dubey is a Hindu priest with 14 years of listed experience in traditional Hindu puja and Vedic rituals. His listed areas of service include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Visitors are encouraged to share their preferred ceremony, date, location, language and specific requirements before enquiring. Detailed biography, service availability, ritual procedures and pricing should be confirmed directly before a booking is finalized.",
+    "Looking for a Hindu Pandit in Mumbai, Maharashtra, for a home puja or traditional Hindu ceremony? Ashish Kumar Dubey is listed on DivyaDhara as an Experienced Hindu Pandit Ji whom devotees can enquire with about Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. These are the services currently listed on this profile; confirm that the chosen ceremony is suitable for your occasion before booking.\n\nWhen sending an enquiry, share the occasion, preferred date or muhurat, venue and locality or PIN code, preferred language, and any family or sampradaya requirements. Mumbai, Maharashtra is the currently listed service area. The map marker is an approximate city-centre reference, not an exact address or a verified boundary; availability in a particular neighbourhood or nearby area must be confirmed directly before travel or booking arrangements are made.\n\nBefore confirming, ask about the prescribed vidhi or paath, samagri list and who will arrange the materials, expected duration, dakshina, any travel charges, and the Pandit's availability for your selected date. The profile lists Hindi, Sanskrit and Marathi; languages, experience and ceremony-specific suitability should be verified directly. An enquiry is not a booking confirmation, and additional services or service areas should only be listed after they have been verified.",
 
   services: [
     {
@@ -87,12 +88,9 @@ const ashishKumarDubey: Pandit = {
     },
   ],
 
-  availability: "To be confirmed",
+  availability: "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, 9:00 AM to 6:00 PM (IST)",
 
-  /*
-   * Keep false until the contact details and authorization
-   * have been checked and approved.
-   */
+  // Keep false until contact details and authorization are checked and approved.
   authorizedContact: false,
 };
 

@@ -8,24 +8,32 @@ const rohitShukla: Pandit = {
 
   title: "Hindu Pandit Ji",
 
+  // Verify that this exact filename exists in public/pandits_profile_img/.
   photo: "/pandits_profile_img/Rohit Shukla.jpeg",
 
+  // Listed experience supplied in the profile; verify before publishing.
   experience: 5,
 
+  // Primary/base location retained for legacy display and compatibility.
   location: "Mumbai, Maharashtra, India",
 
+  // Mumbai is the currently listed service area. Coordinates are an approximate
+  // city-centre marker, not an exact address or a boundary for all areas served.
+  serviceAreas: [
+    {
+      id: "mumbai",
+      name: "Mumbai",
+      address: "Mumbai, Maharashtra, India",
+      lat: 19.076,
+      lng: 72.8777,
+    },
+  ],
+
+  // Confirm languages spoken before publishing the profile.
   languages: ["Hindi", "Sanskrit", "Marathi"],
 
-  /*
-   * PANDIT STORY VIDEO
-   *
-   * Actual YouTube video ID milne par yahan set karein.
-   *
-   * Example:
-   * storyVideoId: "AbCd1234567",
-   *
-   * Abhi ID blank hai, isliye video button hidden rehna chahiye.
-   */
+  // Add a verified YouTube video ID only when the video belongs to this Pandit
+  // and permission to use it has been confirmed.
   storyVideoId: "",
 
   specializations: [
@@ -37,8 +45,7 @@ const rohitShukla: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  // Currently listed services for this Pandit.
-  // Confirm expertise before adding more ceremonies.
+  // Keep only the services currently listed for this profile.
   pujaTypes: [
     "Satyanarayan Katha and Puja",
     "Rudrabhishek",
@@ -48,10 +55,11 @@ const rohitShukla: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  associatedWith: "Divya Dhara — association to be confirmed",
+  // Leave empty until an organisation association is verified.
+  associatedWith: "",
 
   about:
-    "Rohit Shukla is a Hindu Pandit Ji listed on Divya Dhara with 5 years of listed experience in traditional Hindu puja and Vedic rituals. His currently listed areas of service include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. Devotees can enquire about their preferred ceremony, date, city or PIN code, language and specific requirements. Service eligibility, language preferences, pricing, ceremony duration, samagri requirements and availability should be confirmed before a booking is finalized.",
+    "Looking for a Hindu Pandit in Mumbai, Maharashtra, for a traditional puja or Hindu ritual? Rohit Shukla is listed on DivyaDhara as a Hindu Pandit Ji, with Mumbai as his currently listed service area. Devotees can enquire about the ceremonies listed on this profile: Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related Rituals.\n\nTo help assess the arrangements for your ceremony, share the occasion, preferred date or muhurat, venue locality or PIN code, language preference and any family or sampradaya requirements. The map marker indicates an approximate Mumbai city-centre location for orientation only; it does not confirm coverage in every Mumbai neighbourhood or nearby locality. Please confirm the exact service location before proceeding.\n\nBefore confirming a booking, ask about the prescribed vidhi or paath, samagri list and who will arrange it, expected duration, dakshina and any travel charges. Appointment availability, languages, exact service coverage and the listed experience should be confirmed directly. Sending an enquiry does not itself confirm availability or complete a booking.",
 
   services: [
     {
@@ -80,15 +88,14 @@ const rohitShukla: Pandit = {
     },
   ],
 
-  availability: "To be confirmed",
+  availability: "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, 9:00 AM to 6:00 PM (IST)",
 
   // Keep false until contact authorization is verified.
   authorizedContact: false,
 };
 
 // Shared website-wide puja catalogue.
-// This does not imply that Rohit Shukla performs every
-// ceremony listed in the catalogue.
+// This does not imply that Rohit Shukla performs every ceremony listed here.
 export { PUJA_CATEGORIES };
 
 export default rohitShukla;

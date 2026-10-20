@@ -1,32 +1,39 @@
 import type { Pandit } from "../types/pandit";
 import { PUJA_CATEGORIES } from "../common/puja-catalogue";
 
-const santoshAnandaPujariGuruji: Pandit = {
-  slug: "santosh-ananda-pujari-guruji",
+const saiprasadKulkarniGuruji: Pandit = {
+  slug: "saiprasad-kulkarni-guruji",
 
-  name: "Santosh Ananda Pujari Guruji",
+  name: "Saiprasad Kulkarni Guruji",
 
-  title: "Experienced Hindu Pandit Ji",
+  title: "Hindu Pandit Ji",
 
-  photo: "/pandits_profile_img/Santosh ananda pujari.jpeg",
+  // Confirm that this exact filename exists in public/pandits_profile_img/.
+  // The supplied source row indicates that the photo was provided by the Pandit.
+  photo: "/pandits_profile_img/Saiprasad_Kulkarni_Guruji.jpg",
 
+  // Verify the listed experience before publishing.
   experience: 20,
 
-  location: "Navi Mumbai, Maharashtra",
+  // Primary/base location retained for compatibility with existing filters.
+  location: "Kalyan East, Kalyan, Maharashtra, India",
 
-  languages: ["Hindi", "Sanskrit", "Marathi"],
+  // The listed service area is Kalyan East, Kalyan. Coordinates are approximate
+  // locality-centre markers, not exact addresses or service-boundary polygons.
+  serviceAreas: [
+    {
+      id: "kalyan-east-kalyan",
+      name: "Kalyan East, Kalyan",
+      address: "Kalyan East, Kalyan, Maharashtra, India",
+      lat: 19.2409,
+      lng: 73.1450,
+    },
+  ],
 
-  /*
-   * PANDIT STORY VIDEO
-   *
-   * Actual YouTube video ID milne par yahan set karein.
-   *
-   * Example:
-   * storyVideoId: "AbCd1234567",
-   *
-   * Abhi video ID available nahi hai.
-   * Blank ID par Story button hidden rehna chahiye.
-   */
+  // Confirm languages spoken before publishing the profile.
+  languages: ["Hindi", "Marathi", "Sanskrit"],
+
+  // Keep blank until a verified YouTube video ID is provided.
   storyVideoId: "",
 
   specializations: [
@@ -38,8 +45,7 @@ const santoshAnandaPujariGuruji: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  // Currently listed services for this Pandit.
-  // Additional services should be confirmed before being added.
+  // Only services stated in the supplied source row are listed here.
   pujaTypes: [
     "Satyanarayan Katha and Puja",
     "Rudrabhishek",
@@ -49,10 +55,11 @@ const santoshAnandaPujariGuruji: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  associatedWith: "To be confirmed",
+  // Do not show an unverified association placeholder on the public profile.
+  associatedWith: "",
 
   about:
-    "Santosh Ananda Pujari Guruji is a Hindu priest with 20 years of listed experience in traditional Hindu puja and Vedic rituals. His currently listed areas of service include Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. Devotees can enquire by sharing their preferred ceremony, date, city or PIN code, language and specific requirements. Ritual procedures, samagri requirements, service duration, pricing and availability should be confirmed before a booking is finalized.",
+    "Looking for a Hindu Pandit in Kalyan East, Kalyan, Maharashtra, for a traditional puja or family ritual? Saiprasad Kulkarni Guruji is listed on DivyaDhara as a Hindu Pandit Ji whose profile currently lists Kalyan East, Kalyan as the service area. The map marker is an approximate locality-centre reference and should not be interpreted as an exact address or a guaranteed service boundary.\n\nThe puja services listed on this profile include Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related Rituals. When making an enquiry, share the ceremony you need, preferred date or muhurat, venue locality or PIN code, language preference and any family or sampradaya requirements. This helps clarify whether the requested ritual and location are suitable before arrangements are made.\n\nBefore confirming a booking, ask Guruji to confirm the exact vidhi or paath, expected duration, samagri list and who will arrange it, dakshina, any travel charges, and appointment availability. Additional localities or services should be displayed only after they are confirmed. The listed experience and languages should also be verified directly; submitting an enquiry does not itself confirm a booking.",
 
   services: [
     {
@@ -81,14 +88,14 @@ const santoshAnandaPujariGuruji: Pandit = {
     },
   ],
 
-  availability: "To be confirmed",
+  availability: "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, 9:00 AM to 6:00 PM (IST)",
 
-  // Keep false until contact details and authorization are verified.
+  // Keep false until direct-contact authorization is verified through the existing flow.
   authorizedContact: false,
 };
 
-// Shared website-wide puja catalogue.
-// This does not imply that this Pandit performs every listed ceremony.
+// Shared website-wide puja catalogue; this does not imply that this Pandit
+// performs every ceremony listed in the catalogue.
 export { PUJA_CATEGORIES };
 
-export default santoshAnandaPujariGuruji;
+export default saiprasadKulkarniGuruji;

@@ -11,17 +11,28 @@ const devendraGoswamiGuruji: Pandit = {
   // Confirm that this exact image filename exists in public/pandits_profile_img/.
   photo: "/pandits_profile_img/Devendra_Goswami_Guruji.jpg",
 
-  // The supplied source row did not include years of experience.
-  // Replace this placeholder with a verified value before publishing.
+  // The supplied source did not establish verified experience; confirm before publishing.
   experience: 16,
 
+  // Primary/base location retained for existing profile and search compatibility.
   location: "Navi Mumbai, Maharashtra, India",
 
-  // Confirm the languages spoken before publishing the profile.
+  // Only the currently listed service area is included. Coordinates are an
+  // approximate city-centre marker, not an exact address or service boundary.
+  serviceAreas: [
+    {
+      id: "navi-mumbai",
+      name: "Navi Mumbai",
+      address: "Navi Mumbai, Maharashtra, India",
+      lat: 19.0308,
+      lng: 73.0199,
+    },
+  ],
+
+  // Confirm languages spoken before publishing the profile.
   languages: ["Hindi", "Sanskrit", "Marathi"],
 
-  // Add a verified YouTube video ID when one is provided.
-  // Leave blank until then so the Story button remains hidden.
+  // Add only a verified YouTube video ID for this Pandit and an approved video.
   storyVideoId: "",
 
   specializations: [
@@ -33,7 +44,7 @@ const devendraGoswamiGuruji: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  // Only ceremonies included in the supplied source information are listed.
+  // Retain only the ceremonies present in the supplied profile information.
   pujaTypes: [
     "Satyanarayan Katha and Puja",
     "Rudrabhishek",
@@ -43,10 +54,11 @@ const devendraGoswamiGuruji: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  associatedWith: "To be confirmed",
+  // Leave blank until a verified association is provided, so a placeholder is not shown.
+  associatedWith: "",
 
   about:
-    "Devendra Goswami Guruji is listed on Divya Dhara as a Hindu Pandit based in Navi Mumbai, Maharashtra. His listed service areas include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Years of experience, language preferences, ritual procedures, samagri requirements, service duration, pricing and availability should be confirmed before a booking is finalized. Additional ceremonies should be added only after they are confirmed with the Pandit.",
+    "Looking for a Hindu Pandit in Navi Mumbai, Maharashtra, for a traditional puja or family ritual? Devendra Goswami Guruji is listed on DivyaDhara with services including Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. Devotees can enquire about the ceremony that suits their occasion and share their preferred date or muhurat, venue or locality, PIN code, language preference and family or sampradaya requirements.\n\nNavi Mumbai is the currently listed service area. The map marker represents an approximate city-level location and is not an exact address or a verified service boundary. Coverage in a specific locality or a nearby area should be confirmed directly before making arrangements. The profile should only be updated with additional localities or ceremonies after they have been confirmed.\n\nBefore finalising a booking, confirm the required vidhi or paath, samagri list and who will arrange the materials, expected duration, dakshina, any travel charges and appointment availability. The listed experience and languages should also be verified with the Pandit. Sending an enquiry does not automatically confirm a booking; final details should be agreed before the ceremony.",
 
   services: [
     {
@@ -75,7 +87,7 @@ const devendraGoswamiGuruji: Pandit = {
     },
   ],
 
-  availability: "To be confirmed",
+  availability: "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, 9:00 AM to 6:00 PM (IST)",
 
   // Keep false until contact details and authorization are verified in the existing flow.
   authorizedContact: false,

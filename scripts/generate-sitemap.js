@@ -2,14 +2,19 @@
  * DivyaDhara static sitemap generator.
  * File: scripts/generate-sitemap.js
  *
- * Reads static exports from src/data/content.ts.
- * No SQLite/database access.
+ * Combines static routes, listing records from src/data/content.ts, public
+ * internal paths referenced in src code, and by default live same-origin
+ * HTML links discovered from SITE_URL. No SQLite/database access.
  *
  * Run: node scripts/generate-sitemap.js
  *
  * .env:
  * SITE_URL=https://divya-dhara.in
  * SITEMAP_OUTPUT=public/sitemap.xml
+ * SITEMAP_CRAWL=true
+ * SITEMAP_CRAWL_MAX_PAGES=1000
+ *
+ * Set SITEMAP_CRAWL=false for offline generation.
  */
 
 import fs from "node:fs";
@@ -188,6 +193,13 @@ const BLOCKED = [
   /^\/ashram\/dashboard(?:\/|$)/i,
   /^\/sales(?:\/|$)/i,
   /^\/super[-_]?admin(?:\/|$)/i,
+  /^\/auth(?:\/|$)/i,
+  /^\/verify(?:-email|-mobile)?(?:\/|$)/i,
+  /^\/notifications?(?:\/|$)/i,
+  /^\/settings(?:\/|$)/i,
+  /^\/profile(?:\/edit|\/settings)(?:\/|$)/i,
+  /^\/404\/?$/i,
+  /^\/not-found\/?$/i,
 ];
 
 const diagnostic = {
@@ -197,6 +209,18 @@ const diagnostic = {
   invalid: 0,
   noindex: 0,
 };
+
+// Source scanning is always enabled. Live same-origin HTML crawling is enabled
+// by default; use SITEMAP_CRAWL=false when generating offline.
+const LIVE_CRAWL_ENABLED = !/^(?:0|false|no|off)$/i.test(
+  String(process.env.SITEMAP_CRAWL ?? "true").trim(),
+);
+const CRAWL_MAX_PAGES = Math.max(1, Math.min(10_000,
+  Number.parseInt(process.env.SITEMAP_CRAWL_MAX_PAGES || "1000", 10) || 1000));
+const CRAWL_CONCURRENCY = Math.max(1, Math.min(16,
+  Number.parseInt(process.env.SITEMAP_CRAWL_CONCURRENCY || "6", 10) || 6));
+const CRAWL_TIMEOUT_MS = Math.max(1_000, Math.min(30_000,
+  Number.parseInt(process.env.SITEMAP_CRAWL_TIMEOUT_MS || "7000", 10) || 7000));
 
 /* =========================================================
    XML AND URL HELPERS
@@ -741,6 +765,195 @@ function addListingRoutes(map) {
 }
 
 /* =========================================================
+   DISCOVER PUBLIC INTERNAL ROUTES FROM SOURCE CODE
+
+   Finds literal public routes referenced by Link/NavLink, anchors, route
+   declarations and common navigation calls. Dynamic patterns such as
+   /temples/:slug are excluded; detail URLs must come from data or link crawling.
+========================================================= */
+
+const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+const SKIP_SOURCE_DIRS = new Set([
+  ".git", ".next", ".turbo", "dist", "build", "coverage", "node_modules",
+]);
+
+function walkSourceFiles(directory, output = []) {
+  if (!fs.existsSync(directory)) return output;
+  let entries;
+  try {
+    entries = fs.readdirSync(directory, { withFileTypes: true });
+  } catch {
+    return output;
+  }
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of entries) {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (!SKIP_SOURCE_DIRS.has(entry.name) && !entry.name.startsWith(".")) {
+        walkSourceFiles(absolute, output);
+      }
+      continue;
+    }
+    if (!entry.isFile() || !SOURCE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
+    if (/\.(?:test|spec|stories)\.[^.]+$/i.test(entry.name)) continue;
+    output.push(absolute);
+  }
+  return output;
+}
+
+function isLikelyPagePath(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return false;
+  if (/[?#]/.test(raw) || raw.includes("${") || raw.includes("\\") || raw.includes("*")) return false;
+  const segments = raw.split("/").filter(Boolean);
+  if (segments.some((segment) => /^:[A-Za-z_$]/.test(segment) || segment === "." || segment === "..")) return false;
+  let pathname;
+  try { pathname = new URL(raw, `${SITE}/`).pathname; } catch { return false; }
+  // Keep the sitemap focused on crawlable page URLs, not imported assets/files.
+  if (/\.(?:avif|bmp|css|csv|eot|gif|ico|jpe?g|js|json|map|mjs|mp3|mp4|otf|pdf|png|svg|ttf|txt|wasm|wav|webm|webmanifest|webp|woff2?)$/i.test(pathname)) return false;
+  return true;
+}
+
+function extractSourceRouteCandidates(source) {
+  const candidates = new Set();
+  const patterns = [
+    /\b(?:to|href|path)\s*=\s*["'`]([^"'`\s<>]+)["'`]/g,
+    /\b(?:to|href|path)\s*=\s*\{\s*["'`]([^"'`\s<>]+)["'`]\s*\}/g,
+    /\b(?:to|href|path)\s*:\s*["'`]([^"'`\s<>]+)["'`]/g,
+    /\b(?:navigate|redirect|push|replace)\s*\(\s*["'`]([^"'`\s<>]+)["'`]/g,
+    /\b(?:window\.)?location\.href\s*=\s*["'`]([^"'`\s<>]+)["'`]/g,
+  ];
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(source)) !== null) {
+      if (isLikelyPagePath(match[1])) candidates.add(match[1]);
+    }
+  }
+  return candidates;
+}
+
+function addSourceRoutes(map) {
+  const files = walkSourceFiles(path.join(ROOT, "src"));
+  const candidates = new Set();
+  let readErrors = 0;
+  for (const file of files) {
+    try {
+      if (fs.statSync(file).size > 5 * 1024 * 1024) continue;
+      for (const route of extractSourceRouteCandidates(fs.readFileSync(file, "utf8"))) candidates.add(route);
+    } catch {
+      readErrors++;
+    }
+  }
+  let added = 0;
+  for (const route of candidates) {
+    const normalized = `${SITE}${route === "/" ? "/" : route.replace(/\/+$/, "")}`;
+    const existed = map.has(normalized);
+    if (addUrl(map, { loc: route, changefreq: "weekly", priority: 0.5 }) && !existed) added++;
+  }
+  return { filesScanned: files.length, candidateRoutes: candidates.size, added, readErrors, routes: [...candidates] };
+}
+
+function decodeHtmlAttribute(value) {
+  return String(value)
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function extractHtmlLinks(html, pageUrl) {
+  const links = new Set();
+  const pattern = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi;
+  let match;
+  while ((match = pattern.exec(html)) !== null) {
+    const href = decodeHtmlAttribute(match[1] ?? match[2] ?? match[3] ?? "").trim();
+    if (!href || href.startsWith("#") || /^(?:mailto:|tel:|javascript:|data:)/i.test(href)) continue;
+    let url;
+    try { url = new URL(href, pageUrl); } catch { continue; }
+    if (url.origin !== SITE || !isLikelyPagePath(url.pathname) || url.search || url.hash) continue;
+    links.add(url.href);
+  }
+  return links;
+}
+
+async function fetchCrawlPage(pageUrl) {
+  try {
+    const response = await fetch(pageUrl, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(CRAWL_TIMEOUT_MS),
+      headers: {
+        "user-agent": "DivyaDharaSitemapBot/1.0 (+https://divya-dhara.in)",
+        accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
+      },
+    });
+    let finalUrl;
+    try { finalUrl = new URL(response.url || pageUrl); }
+    catch { return { links: [], failed: true, noindex: false }; }
+    if (finalUrl.origin !== SITE || !response.ok) return { links: [], failed: true, noindex: false };
+    const contentType = response.headers.get("content-type") || "";
+    if (!/text\/html|application\/xhtml\+xml/i.test(contentType)) return { links: [], failed: false, skipped: true, noindex: false };
+    const html = await response.text();
+    const headerRobots = response.headers.get("x-robots-tag") || "";
+    const metaRobots = html.match(/<meta\b[^>]*\bname\s*=\s*["']robots["'][^>]*\bcontent\s*=\s*["']([^"']*)["'][^>]*>/i)?.[1] || "";
+    const noindex = /\bnoindex\b|\bnone\b/i.test(`${headerRobots} ${metaRobots}`);
+    return { links: noindex ? [] : [...extractHtmlLinks(html, finalUrl.href)], noindex, failed: false, canonicalUrl: cleanUrl(finalUrl.href) };
+  } catch (error) {
+    return { links: [], noindex: false, failed: true, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function crawlInternalLinks(map, seeds) {
+  const queue = [];
+  const queued = new Set();
+  const visited = new Set();
+  let discovered = 0;
+  let added = 0;
+  let failed = 0;
+  let noindex = 0;
+  for (const seed of seeds) {
+    const loc = cleanUrl(seed);
+    if (loc && !queued.has(loc)) { queued.add(loc); queue.push(loc); }
+  }
+
+  while (queue.length && visited.size < CRAWL_MAX_PAGES) {
+    const batch = [];
+    while (batch.length < CRAWL_CONCURRENCY && queue.length && visited.size + batch.length < CRAWL_MAX_PAGES) {
+      const next = queue.shift();
+      if (!next || visited.has(next)) continue;
+      visited.add(next);
+      batch.push(next);
+    }
+    if (!batch.length) break;
+    const results = await Promise.all(batch.map(fetchCrawlPage));
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result.failed) { failed++; continue; }
+      if (result.noindex) {
+        noindex++;
+        if (result.canonicalUrl) map.delete(result.canonicalUrl);
+        diagnostic.noindex++;
+        continue;
+      }
+      if (result.canonicalUrl) {
+        const existed = map.has(result.canonicalUrl);
+        addUrl(map, { loc: result.canonicalUrl, changefreq: "weekly", priority: 0.5 });
+        if (!existed && map.has(result.canonicalUrl)) added++;
+      }
+      for (const link of result.links) {
+        const loc = cleanUrl(link);
+        if (!loc) continue;
+        const existed = map.has(loc);
+        addUrl(map, { loc, changefreq: "weekly", priority: 0.5 });
+        if (!existed && map.has(loc)) { added++; discovered++; }
+        if (!queued.has(loc) && !visited.has(loc)) { queued.add(loc); queue.push(loc); }
+      }
+    }
+  }
+  return { enabled: true, pagesVisited: visited.size, linksDiscovered: discovered, urlsAdded: added, failedPages: failed, noindexSkipped: noindex, maxPages: CRAWL_MAX_PAGES };
+}
+
+/* =========================================================
    SITEMAP XML GENERATION
 ========================================================= */
 
@@ -802,58 +1015,47 @@ function buildXml(map) {
    MAIN
 ========================================================= */
 
-function main() {
+async function main() {
   const map = new Map();
-
   addStaticRoutes(map);
+  const listingReport = addListingRoutes(map);
+  const sourceReport = addSourceRoutes(map);
 
-  const report = addListingRoutes(map);
+  let crawlReport = { enabled: false, pagesVisited: 0, linksDiscovered: 0, urlsAdded: 0, failedPages: 0, noindexSkipped: 0, maxPages: CRAWL_MAX_PAGES };
+  if (LIVE_CRAWL_ENABLED) {
+    const seeds = [
+      ...STATIC_ROUTES.map(([route]) => `${SITE}${route === "/" ? "/" : route}`),
+      ...sourceReport.routes.map((route) => `${SITE}${route}`),
+    ];
+    crawlReport = await crawlInternalLinks(map, seeds);
+  }
+
   const xml = buildXml(map);
-
-  fs.mkdirSync(path.dirname(OUTPUT), {
-    recursive: true,
-  });
-
+  fs.mkdirSync(path.dirname(OUTPUT), { recursive: true });
   fs.writeFileSync(OUTPUT, xml, "utf8");
 
   console.log("[sitemap] Generated successfully.");
   console.log(`[sitemap] Site origin: ${SITE}`);
   console.log(`[sitemap] Output file: ${OUTPUT}`);
-  console.log(
-    `[sitemap] Static routes configured: ${STATIC_ROUTES.length}`,
-  );
-
+  console.log(`[sitemap] Static routes configured: ${STATIC_ROUTES.length}`);
   console.log("[sitemap] Static listing summary:");
+  for (const item of listingReport) {
+    console.log(`[sitemap]   ${item.name}: ${item.total} records, ${item.added} URLs added, ${item.invalid} invalid skipped, ${item.skipped} non-indexable skipped`);
+  }
+  console.log(`[sitemap] Source scan: ${sourceReport.filesScanned} files scanned, ${sourceReport.candidateRoutes} route candidates, ${sourceReport.added} additional URLs, ${sourceReport.readErrors} read errors`);
 
-  for (const item of report) {
-    console.log(
-      `[sitemap]   ${item.name}: ${item.total} records, ` +
-        `${item.added} URLs added, ` +
-        `${item.invalid} invalid skipped, ` +
-        `${item.skipped} non-indexable skipped`,
-    );
+  if (crawlReport.enabled) {
+    console.log(`[sitemap] Live internal-link crawl: ${crawlReport.pagesVisited} pages visited, ${crawlReport.linksDiscovered} new links discovered, ${crawlReport.urlsAdded} URLs added, ${crawlReport.failedPages} pages unavailable, ${crawlReport.noindexSkipped} noindex pages skipped (limit ${crawlReport.maxPages})`);
+    if (crawlReport.failedPages) console.warn("[sitemap] Some live pages could not be fetched. Static/data/source discovery still completed; check network/site availability or set SITEMAP_CRAWL=false for offline generation.");
+  } else {
+    console.log("[sitemap] Live crawl disabled (SITEMAP_CRAWL=false).");
   }
 
   console.log(`[sitemap] Unique URLs written: ${map.size}`);
   console.log(`[sitemap] Public URL after deployment: ${SITE}/sitemap.xml`);
-  console.log(
-    "[sitemap] Database access: disabled (static TypeScript data only).",
-  );
-
-  if (
-    diagnostic.foreign ||
-    diagnostic.query ||
-    diagnostic.blocked ||
-    diagnostic.invalid ||
-    diagnostic.noindex
-  ) {
-    console.log(
-      `[sitemap] Filter counts: other-domain=${diagnostic.foreign}, ` +
-        `query/fragment=${diagnostic.query}, ` +
-        `blocked=${diagnostic.blocked}, ` +
-        `invalid=${diagnostic.invalid}, ` +
-        `non-indexable=${diagnostic.noindex}`,
-    );
+  console.log("[sitemap] Database access: disabled (static TypeScript data only).");
+  if (diagnostic.foreign || diagnostic.query || diagnostic.blocked || diagnostic.invalid || diagnostic.noindex) {
+    console.log(`[sitemap] Filter counts: other-domain=${diagnostic.foreign}, query/fragment=${diagnostic.query}, blocked=${diagnostic.blocked}, invalid=${diagnostic.invalid}, non-indexable=${diagnostic.noindex}`);
   }
 }
 
@@ -872,15 +1074,12 @@ if (process.env[EXPORT_MODE] === "true") {
   }
 } else {
   try {
-    main();
+    await main();
   } catch (error) {
     console.error(
       "[sitemap] Failed:",
-      error instanceof Error
-        ? error.message
-        : error,
+      error instanceof Error ? error.stack || error.message : error,
     );
-
     process.exitCode = 1;
   }
 }

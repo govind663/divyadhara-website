@@ -397,14 +397,27 @@ export function PanditCard({
   p: Pandit;
   i?: number;
 }) {
+  // Read the optional service-area extension without assuming that every
+  // legacy content record has already migrated to the shared Pandit type.
+  // Do not treat a Pandit's base location as confirmed service coverage.
+  const serviceAreaRecord = p as Pandit & {
+    serviceAreas?: Array<{ name: string }>;
+  };
+  const serviceAreaNames = (serviceAreaRecord.serviceAreas ?? [])
+    .map((area) => area.name.trim())
+    .filter(Boolean);
+  const serviceAreaText = serviceAreaNames.length
+    ? serviceAreaNames.join(", ")
+    : "Please enquire to confirm coverage";
+
   const whatsappHref = waLink(
     `Namaste DivyaDhara! 🙏
 
 I want to enquire about Pandit ${p.name}.
 Specializations: ${p.specializations.slice(0, 3).join(", ")}
-Location: ${p.location}
+Service Area: ${serviceAreaNames.length ? serviceAreaText : "To be confirmed"}
 
-Please share availability, booking process, dakshina/fees and suitable dates.`,
+Please share confirmed service coverage, availability, booking process, dakshina/fees and suitable dates.`,
   );
 
   return (
@@ -440,7 +453,10 @@ Please share availability, booking process, dakshina/fees and suitable dates.`,
 
           <p className="mt-2 flex items-start gap-1 text-xs leading-relaxed text-stone-600">
             <MapPin size={13} className="mt-0.5 shrink-0 text-orange-700" aria-hidden="true" />
-            <span>{p.location}</span>
+            <span className="min-w-0">
+              <span className="font-semibold text-stone-700">Service Area:</span>{" "}
+              {serviceAreaText}
+            </span>
           </p>
 
           <p className="mt-1 text-xs text-stone-500">

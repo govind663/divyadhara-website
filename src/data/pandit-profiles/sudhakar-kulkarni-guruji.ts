@@ -8,16 +8,29 @@ const sudhakarKulkarniGuruji: Pandit = {
 
   title: "Hindu Pandit Ji",
 
-  // Confirm that this exact filename exists in public/pandits_profile_img/.
+  // Verify that this exact filename exists in public/pandits_profile_img/.
   photo: "/pandits_profile_img/Sudhakar_Kulkarni_Guruji.jpg",
 
-  // Years of experience were not included in the supplied source row.
-  // Replace this placeholder with a verified value before publishing.
+  // Supplied profile value; verify before presenting it as a factual claim.
   experience: 40,
 
+  // Primary/base location retained for existing profile and location filters.
   location: "Ghansoli, Navi Mumbai, Maharashtra, India",
 
-  // Confirm the languages spoken before publishing this profile.
+  // Ghansoli is the only area listed in this profile.
+  // Coordinates are an approximate locality-centre marker, not an exact address
+  // or a boundary for the full service area.
+  serviceAreas: [
+    {
+      id: "ghansoli-navi-mumbai",
+      name: "Ghansoli, Navi Mumbai",
+      address: "Ghansoli, Navi Mumbai, Maharashtra, India",
+      lat: 19.1255,
+      lng: 73.0058,
+    },
+  ],
+
+  // Confirm the languages spoken before publishing the profile.
   languages: ["Hindi", "Marathi", "Sanskrit"],
 
   // Keep blank until a verified YouTube video ID is provided.
@@ -32,6 +45,7 @@ const sudhakarKulkarniGuruji: Pandit = {
     "Pitru-related Rituals",
   ],
 
+  // Only ceremonies listed in the supplied profile are included here.
   pujaTypes: [
     "Satyanarayan Katha and Puja",
     "Rudrabhishek",
@@ -41,10 +55,14 @@ const sudhakarKulkarniGuruji: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  associatedWith: "To be confirmed",
+  // Leave blank until a specific association is verified.
+  associatedWith: "",
 
-  about:
-    "Sudhakar Kulkarni Guruji is listed on Divya Dhara as a Hindu Pandit based in Ghansoli, Navi Mumbai, Maharashtra. His listed service areas include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Devotees can enquire by sharing their preferred ceremony, date, location and specific requirements. Years of experience, languages, ritual procedures, samagri requirements, service duration, pricing and availability should be confirmed before a booking is finalized. Additional ceremonies should be added only after they are confirmed with the Pandit.",
+  about: `Sudhakar Kulkarni Guruji is listed on DivyaDhara as a Hindu Pandit based in Ghansoli, Navi Mumbai, Maharashtra. Ghansoli, Navi Mumbai is the service area currently listed on this profile; the map marker is an approximate locality-centre reference and should not be treated as an exact address or a guaranteed service boundary.
+
+Devotees can enquire about the puja services listed on this profile, including Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. When sending an enquiry, share the ceremony you need, preferred date or muhurat, venue locality or PIN code, language preference and any family or sampradaya requirements so the request can be assessed clearly.
+
+Before confirming a booking, ask Guruji to confirm the applicable vidhi or paath, samagri list and who will arrange it, expected duration, dakshina, any travel charges, and appointment availability. The listed experience and languages should be verified directly, and any additional localities or ceremonies should be added to this profile only after they are confirmed. An enquiry does not itself confirm availability or complete a booking.`,
 
   services: [
     {
@@ -73,16 +91,11 @@ const sudhakarKulkarniGuruji: Pandit = {
     },
   ],
 
-  availability: "To be confirmed",
+  availability: "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, 9:00 AM to 6:00 PM (IST)",
 
   // Keep false until direct-contact authorization is verified through the existing flow.
   authorizedContact: false,
 };
-
-// Business onboarding note: the supplied row lists the "Basic 99" plan.
-// Plan/subscription details are intentionally kept outside the public Pandit
-// object because they are not part of the existing Pandit type. Configure the
-// plan through the platform's subscription/business workflow instead.
 
 // Shared website-wide puja catalogue; this does not imply that this Pandit
 // performs every ceremony listed in the catalogue.

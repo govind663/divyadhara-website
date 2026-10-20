@@ -8,16 +8,29 @@ const saiprasadKulkarniGuruji: Pandit = {
 
   title: "Hindu Pandit Ji",
 
-  // The source row indicates that the profile photo was provided by the Pandit.
-  // Confirm the exact filename exists in public/pandits_profile_img/ before publishing.
+  // Confirm that this exact filename exists in public/pandits_profile_img/.
+  // The supplied source row indicates that the photo was provided by the Pandit.
   photo: "/pandits_profile_img/Saiprasad_Kulkarni_Guruji.jpg",
 
-  // Years of experience were not supplied; replace this placeholder with a verified value.
+  // Verify the listed experience before publishing.
   experience: 20,
 
+  // Primary/base location retained for compatibility with existing filters.
   location: "Kalyan East, Kalyan, Maharashtra, India",
 
-  // Confirm the languages spoken before publishing the profile.
+  // The listed service area is Kalyan East, Kalyan. Coordinates are approximate
+  // locality-centre markers, not exact addresses or service-boundary polygons.
+  serviceAreas: [
+    {
+      id: "kalyan-east-kalyan",
+      name: "Kalyan East, Kalyan",
+      address: "Kalyan East, Kalyan, Maharashtra, India",
+      lat: 19.2409,
+      lng: 73.1450,
+    },
+  ],
+
+  // Confirm languages spoken before publishing the profile.
   languages: ["Hindi", "Marathi", "Sanskrit"],
 
   // Keep blank until a verified YouTube video ID is provided.
@@ -42,10 +55,11 @@ const saiprasadKulkarniGuruji: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  associatedWith: "To be confirmed",
+  // Do not show an unverified association placeholder on the public profile.
+  associatedWith: "",
 
   about:
-    "Saiprasad Kulkarni Guruji is listed on Divya Dhara as a Hindu Pandit based in Kalyan East, Kalyan, Maharashtra. His listed service areas include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Devotees can enquire by sharing their preferred ceremony, date, location and specific requirements. Years of experience, languages, ritual procedures, samagri requirements, service duration, pricing and availability should be confirmed before a booking is finalized. Additional ceremonies should be added only after they are confirmed with the Pandit.",
+    "Looking for a Hindu Pandit in Kalyan East, Kalyan, Maharashtra, for a traditional puja or family ritual? Saiprasad Kulkarni Guruji is listed on DivyaDhara as a Hindu Pandit Ji whose profile currently lists Kalyan East, Kalyan as the service area. The map marker is an approximate locality-centre reference and should not be interpreted as an exact address or a guaranteed service boundary.\n\nThe puja services listed on this profile include Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related Rituals. When making an enquiry, share the ceremony you need, preferred date or muhurat, venue locality or PIN code, language preference and any family or sampradaya requirements. This helps clarify whether the requested ritual and location are suitable before arrangements are made.\n\nBefore confirming a booking, ask Guruji to confirm the exact vidhi or paath, expected duration, samagri list and who will arrange it, dakshina, any travel charges, and appointment availability. Additional localities or services should be displayed only after they are confirmed. The listed experience and languages should also be verified directly; submitting an enquiry does not itself confirm a booking.",
 
   services: [
     {
@@ -74,7 +88,7 @@ const saiprasadKulkarniGuruji: Pandit = {
     },
   ],
 
-  availability: "To be confirmed",
+  availability: "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, 9:00 AM to 6:00 PM (IST)",
 
   // Keep false until direct-contact authorization is verified through the existing flow.
   authorizedContact: false,

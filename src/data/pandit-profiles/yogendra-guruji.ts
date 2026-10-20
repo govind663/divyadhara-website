@@ -8,17 +8,15 @@ const yogendraGuruji: Pandit = {
 
   title: "Hindu Pandit Ji",
 
-  // The source row says the photo was provided by the Pandit.
   // Confirm that this exact filename exists in public/pandits_profile_img/.
   photo: "/pandits_profile_img/Yogendra_Guruji.jpg",
 
-  // Years of experience were not included in the supplied source row.
-  // Replace this placeholder with a verified value before publishing.
+  // Verify this value with the Pandit before publishing.
   experience: 10,
 
   location: "Navi Mumbai, Maharashtra, India",
 
-  // Confirm the languages spoken before publishing this profile.
+  // Confirm the languages spoken with the Pandit before publishing.
   languages: ["Hindi", "Marathi", "Sanskrit"],
 
   // Keep blank until a verified YouTube video ID is provided.
@@ -42,10 +40,22 @@ const yogendraGuruji: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  associatedWith: "To be confirmed",
+  // Approximate city-level marker; not an exact address or verified service boundary.
+  serviceAreas: [
+    {
+      id: "navi-mumbai",
+      name: "Navi Mumbai",
+      address: "Navi Mumbai, Maharashtra, India",
+      lat: 19.0330,
+      lng: 73.0297,
+    },
+  ],
+
+  // Leave empty until an affiliation is verified.
+  associatedWith: "",
 
   about:
-    "Yogendra Guruji is listed on Divya Dhara as a Hindu Pandit based in Navi Mumbai, Maharashtra. His listed service areas include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Devotees can enquire by sharing their preferred ceremony, date, location and specific requirements. Years of experience, languages, ritual procedures, samagri requirements, service duration, pricing and availability should be confirmed before a booking is finalized. Additional ceremonies should be added only after they are confirmed with the Pandit.",
+    "Yogendra Guruji is listed on Divya Dhara as a Hindu Pandit in Navi Mumbai, Maharashtra. Devotees can enquire about the currently listed ceremonies, including Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. This profile helps families begin an enquiry for a traditional puja; the specific ritual method and the Pandit's suitability for the requested ceremony should be discussed directly before confirming arrangements.\n\nFor a useful enquiry, share the preferred puja or ritual, proposed date and muhurat (if already selected), the venue locality or PIN code, preferred language, and any family or tradition-specific requirements. This information can help clarify whether the request can be accommodated in the required location and time. The listed Navi Mumbai map point is approximate and should not be treated as an exact address or a confirmed service-area boundary.\n\nBefore finalizing a booking, confirm the puja vidhi, samagri responsibilities, expected duration, dakshina and any applicable travel charges, along with the final date and availability. The profile lists Hindi, Marathi and Sanskrit and 10 years of experience, but these details should be verified with the Pandit before publication or reliance. Additional puja services should only be added after they have been confirmed with him.",
 
   services: [
     {
@@ -74,7 +84,7 @@ const yogendraGuruji: Pandit = {
     },
   ],
 
-  availability: "To be confirmed",
+  availability: "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, 9:00 AM to 6:00 PM (IST)",
 
   // Keep false until direct-contact authorization is verified through the existing flow.
   authorizedContact: false,

@@ -30,7 +30,7 @@ import {
   SERVICES,
 } from "../data/content";
 
-import { useSEO } from "../lib/seo";
+import { absoluteUrl, useSEO } from "../lib/seo";
 
 import {
   Breadcrumbs,
@@ -41,15 +41,26 @@ import {
   ServiceCard,
 } from "../components/cards";
 
+import ServiceAreaMap from "../components/pandits/ServiceAreaMap";
+
 import {
   EnquiryForm,
   WhatsAppBand,
 } from "../components/blocks";
 
 import { waLink } from "../lib/utils";
+import type { PanditServiceArea } from "../data/types/pandit";
+
+type PanditPujaVideo = {
+  title: string;
+  videoId: string;
+  description?: string;
+};
 
 type PanditDetailRecord = (typeof PANDITS)[number] & {
   storyVideoId?: string;
+  pujaVideos?: PanditPujaVideo[];
+  serviceAreas?: PanditServiceArea[];
 };
 
 
@@ -226,6 +237,15 @@ export default function PanditDetail() {
     (x) => x.slug === slug,
   ) as PanditDetailRecord | undefined;
 
+  // Expand the weekday range into an explicit day-by-day sequence for visitors.
+  // Sunday is intentionally not added when the profile states Monday to Saturday.
+  const availabilityText = p?.availability
+    ? p.availability.replace(
+        /^Monday to Saturday(?=,)/i,
+        "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday",
+      )
+    : "Availability to be confirmed";
+
   // ========================================================
   // PANDIT STORY MODAL
   // ========================================================
@@ -300,34 +320,54 @@ export default function PanditDetail() {
     ? `/pandits/${p.slug}`
     : `/pandits/${slug ?? ""}`;
 
-  const profileUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}${profilePath}`
-      : profilePath;
+  // Build canonical production URLs from the site's configured source of truth.
+  // Do not use window.location.origin here: local development would emit localhost
+  // URLs in JSON-LD and make the structured data inconsistent with the canonical.
+  const profileUrl = absoluteUrl(profilePath);
 
-  // Schema.org image URLs should be absolute. Keep external image URLs as-is.
-  const profileImageUrl = p?.photo
-    ? /^https?:\/\//i.test(p.photo)
-      ? p.photo
-      : `${typeof window !== "undefined" ? window.location.origin : "https://divya-dhara.in"}${p.photo.startsWith("/") ? p.photo : `/${p.photo}`}`
-    : undefined;
+  // `absoluteUrl` preserves valid external image URLs and resolves site-relative ones.
+  const profileImageUrl = p?.photo ? absoluteUrl(p.photo) : undefined;
 
   const storyVideoId = p?.storyVideoId?.trim() || undefined;
+  // Add YouTube IDs to each profile's `pujaVideos` array to show actual puja demonstrations.
+  const pujaVideos = (p?.pujaVideos ?? []).filter((video) => /^[a-zA-Z0-9_-]{11}$/.test(video.videoId.trim()));
 
-  // Keep the title branded and readable; the SEO helper applies a safe length limit.
+  // Only explicitly configured service areas count as confirmed coverage.
+  // The profile's base location is shown separately and is never promoted into
+  // `areaServed` merely because a location string exists.
+  const serviceAreas = (p?.serviceAreas ?? []).filter(
+    (area) => Boolean(area?.id && area.name?.trim() && area.address?.trim()),
+  );
+  const serviceAreaNames = Array.from(
+    new Set(serviceAreas.map((area) => area.name.trim()).filter(Boolean)),
+  );
+  const primaryServiceArea = serviceAreaNames[0] || "";
+  const serviceAreaText = serviceAreaNames.length > 0
+    ? serviceAreaNames.join(", ")
+    : "To be confirmed";
+
+  const pujaNames = (p?.pujaTypes ?? []).map((value) => value.trim()).filter(Boolean);
+  const specializationNames = (p?.specializations ?? []).map((value) => value.trim()).filter(Boolean);
+  const primaryPuja = pujaNames[0] || specializationNames[0] || "puja services";
+  const pujaSummary = pujaNames.slice(0, 3).join(", ") || "puja and ritual services";
+  const specializationSummary = specializationNames.slice(0, 2).join(", ");
+
+  // Prioritise a genuine local service phrase when a confirmed service area is
+  // available; otherwise avoid claiming service coverage from the base location.
   const seoTitle = p
-    ? `${p.name} | ${p.title} | DivyaDhara`
+    ? primaryServiceArea
+      ? `${p.name} | Pandit in ${primaryServiceArea} | DivyaDhara`
+      : `${p.name} | ${p.title} | DivyaDhara`
     : "Pandit Profile Not Found | DivyaDhara";
 
-  const pujaSummary = p?.pujaTypes.slice(0, 3).join(", ") || "puja and ritual services";
-  const specializationSummary = p?.specializations.slice(0, 2).join(", ");
-
   const seoDescription = p
-    ? `Enquire with ${p.name}, ${p.title} in ${p.location}. Explore ${pujaSummary}${specializationSummary ? `. Specializations include ${specializationSummary}` : ""}. Check date, language, samagri and availability before confirming your booking.`
+    ? primaryServiceArea
+      ? `Enquire with ${p.name} for ${primaryPuja} in ${primaryServiceArea}. Confirm service coverage, date, samagri, dakshina and availability on DivyaDhara.`
+      : `Explore ${p.name}'s ${p.title} profile for ${pujaSummary}. Listed location: ${p.location}. Confirm service coverage, date and availability before booking.`
     : "The requested Pandit profile could not be found. Browse DivyaDhara to explore Pandits and puja services.";
 
   const profileDescription = p
-    ? `${p.name} is listed on DivyaDhara as ${p.title} in ${p.location}. Visitors can enquire about ${specializationSummary || "puja and ritual services"}, including ${pujaSummary}. Availability and arrangements are confirmed before booking.`
+    ? `${p.name} is listed on DivyaDhara as ${p.title}. ${serviceAreaNames.length ? `Confirmed service area${serviceAreaNames.length > 1 ? "s" : ""}: ${serviceAreaNames.join(", ")}.` : "Service coverage should be confirmed before booking."} Listed location: ${p.location}. Visitors can enquire about ${specializationSummary || "puja and ritual services"}, including ${pujaSummary}. Availability, ritual arrangements and charges are confirmed during enquiry.`
     : "";
 
   useSEO({
@@ -335,7 +375,7 @@ export default function PanditDetail() {
     description: seoDescription,
     path: profilePath,
     image: profileImageUrl,
-    imageAlt: p ? `${p.name}, ${p.title} in ${p.location} — DivyaDhara Pandit profile` : undefined,
+    imageAlt: p ? `${p.name}, ${p.title}${primaryServiceArea ? `; confirmed service area: ${primaryServiceArea}` : `; listed location: ${p.location}`} — DivyaDhara Pandit profile` : undefined,
     robots: p ? undefined : "noindex,follow",
 
     schema: p
@@ -372,7 +412,15 @@ export default function PanditDetail() {
                   ...p.pujaTypes,
                 ]),
               ),
-              areaServed: p.location,
+              ...(serviceAreas.length > 0
+                ? {
+                    areaServed: serviceAreas.map((area) => ({
+                      "@type": "Place",
+                      name: area.name.trim(),
+                      address: area.address.trim(),
+                    })),
+                  }
+                : {}),
             },
             {
               "@type": "BreadcrumbList",
@@ -382,19 +430,13 @@ export default function PanditDetail() {
                   "@type": "ListItem",
                   position: 1,
                   name: "Home",
-                  item:
-                    typeof window !== "undefined"
-                      ? window.location.origin
-                      : "/",
+                  item: absoluteUrl("/"),
                 },
                 {
                   "@type": "ListItem",
                   position: 2,
                   name: "Pandits",
-                  item:
-                    typeof window !== "undefined"
-                      ? `${window.location.origin}/pandits`
-                      : "/pandits",
+                  item: absoluteUrl("/pandits"),
                 },
                 {
                   "@type": "ListItem",
@@ -441,6 +483,7 @@ export default function PanditDetail() {
       `Namaste! I want to enquire about ${p.name} (${p.title}).`,
       `Pandit profile: ${profileUrl}`,
       `Listed specialization: ${p.specializations[0] ?? "Puja enquiry"}`,
+      `Service area: ${serviceAreaText}`,
       selectedServices.length ? `Selected pujas / services: ${selectedServices.join(", ")}` : "",
       "I will share my preferred date, city/PIN code, language and requirements.",
     ].filter(Boolean).join("\n"),
@@ -533,9 +576,9 @@ export default function PanditDetail() {
                   {p.experience} years anubhav
                 </span>
 
-                <span className="flex items-center gap-1.5">
-                  <MapPin size={15} />
-                  {p.location}
+                <span className="flex items-start gap-1.5">
+                  <MapPin size={15} className="mt-0.5 shrink-0" />
+                  <span>Service Area: {serviceAreaText}</span>
                 </span>
 
                 <span className="flex items-center gap-1.5">
@@ -543,18 +586,12 @@ export default function PanditDetail() {
                   {p.languages.join(" · ")}
                 </span>
 
-                <span className="flex items-center gap-1.5">
-                  <Clock size={15} />
-                  {p.availability || "Availability to be confirmed"}
-                </span>
 
               </div>
 
               <p className="mt-4 max-w-3xl text-sm leading-6 text-orange-100/90">
-                Book {p.name} for {p.pujaTypes.slice(0, 4).join(", ")} in{" "}
-                {p.location}. Specializations include{" "}
-                {p.specializations.slice(0, 4).join(", ")}. Available in{" "}
-                {p.languages.join(", ")}.
+                Enquire with {p.name} for {p.pujaTypes.slice(0, 4).join(", ")}. Service area: {serviceAreaText}. Specializations include{" "}
+                {p.specializations.slice(0, 4).join(", ")}. Languages: {p.languages.join(", ")}.
               </p>
 
               {/* ==================================================
@@ -637,24 +674,70 @@ export default function PanditDetail() {
               ABOUT
           ================================================== */}
 
-          <Reveal>
+          <Reveal className="rounded-3xl border border-orange-900/10 bg-white p-5 sm:p-6">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-700">
+                Know your Acharya
+              </p>
+              <h2 className="font-display mt-1 text-2xl font-semibold text-[#2a1a10]">
+                About the Acharya
+              </h2>
+            </div>
 
-            <h2 className="font-display text-2xl font-semibold text-[#2a1a10]">
-              About the Acharya
-            </h2>
-
-            <p className="mt-3 leading-relaxed text-stone-600">
+            <p className="mt-3 text-justify leading-relaxed text-stone-600">
               {p.about}
             </p>
-
-            {p.associatedWith?.trim() && (
-              <p className="mt-3 rounded-2xl bg-orange-50 p-4 text-sm text-stone-600 ring-1 ring-orange-200">
-                <strong className="text-orange-900">Associated with:</strong>{" "}
-                {p.associatedWith}
-              </p>
-            )}
-
           </Reveal>
+
+          {/* ==================================================
+              PUJA VIDEOS / GALLERY
+          ================================================== */}
+          {(pujaVideos.length > 0 || storyVideoId) && (
+            <Reveal className="mt-8 rounded-3xl border border-orange-900/10 bg-white p-5 sm:p-6">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-700">Watch and understand</p>
+              <h2 className="font-display mt-1 text-2xl font-semibold text-[#2a1a10]">Puja Videos & Darshan</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
+                Watch videos shared for this Pandit profile to understand the puja style and ceremony. Confirm the exact ritual and arrangements directly before booking.
+              </p>
+              <div className="mt-5 grid gap-5 md:grid-cols-2">
+                {pujaVideos.map((video) => (
+                  <article key={video.videoId} className="overflow-hidden rounded-2xl border border-orange-900/10 bg-[#fffaf3]">
+                    <div className="aspect-video bg-black">
+                      <iframe
+                        src={`https://www.youtube-nocookie.com/embed/${video.videoId.trim()}?rel=0&playsinline=1`}
+                        title={`${video.title} — ${p.name}`}
+                        loading="lazy"
+                        referrerPolicy="strict-origin-when-cross-origin"
+                        className="h-full w-full border-0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowFullScreen
+                      />
+                    </div>
+                    <div className="p-4">
+                      <h3 className="font-bold text-stone-900">{video.title}</h3>
+                      {video.description && <p className="mt-1 text-sm leading-6 text-stone-600">{video.description}</p>}
+                    </div>
+                  </article>
+                ))}
+                {storyVideoId && (
+                  <article className="overflow-hidden rounded-2xl border border-orange-900/10 bg-[#fffaf3]">
+                    <div className="aspect-video bg-black">
+                      <iframe
+                        src={`https://www.youtube-nocookie.com/embed/${storyVideoId}?rel=0&playsinline=1`}
+                        title={`Pandit Story — ${p.name}`}
+                        loading="lazy"
+                        referrerPolicy="strict-origin-when-cross-origin"
+                        className="h-full w-full border-0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowFullScreen
+                      />
+                    </div>
+                    <div className="p-4"><h3 className="font-bold text-stone-900">Pandit Story</h3><p className="mt-1 text-sm text-stone-600">About {p.name} and their spiritual services.</p></div>
+                  </article>
+                )}
+              </div>
+            </Reveal>
+          )}
 
           {/* ==================================================
               SPECIALIZATIONS
@@ -773,24 +856,30 @@ export default function PanditDetail() {
               SEVAS
           ================================================== */}
 
-          <Reveal className="mt-8">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-700">
-                  Understand the service before you book
-                </p>
-                <h2 className="font-display mt-1 text-2xl font-semibold text-[#2a1a10]">
-                  Sevas & Dakshina
-                </h2>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
-                  Review the available seva options and expected duration. Ask for a complete quote before confirming your booking.
-                </p>
+          <Reveal className="mt-8 overflow-hidden rounded-3xl border border-orange-200/80 bg-white shadow-sm">
+            <div className="bg-gradient-to-r from-orange-50 via-amber-50 to-white p-5 sm:p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-4">
+                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-orange-100 text-orange-800 ring-1 ring-orange-200" aria-hidden="true">
+                    <BookOpen size={23} />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-700">
+                      Understand the service before you book
+                    </p>
+                    <h2 className="font-display mt-1 text-2xl font-semibold text-[#2a1a10]">
+                      Sevas & Dakshina
+                    </h2>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
+                      Review the available seva options and expected duration. Ask for a complete quote before confirming your booking.
+                    </p>
+                  </div>
+                </div>
+                <span className="inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">
+                  <ShieldCheck size={14} />
+                  Confirm quote before booking
+                </span>
               </div>
-              <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">
-                <ShieldCheck size={14} />
-                Confirm quote before booking
-              </span>
-            </div>
 
             {p.services.length > 0 ? (
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -875,6 +964,7 @@ export default function PanditDetail() {
                 No price is assumed on this profile. Confirm the final quote, samagri inclusions and any travel charges before approving the booking.
               </p>
             </div>
+            </div>
           </Reveal>
 
           {/* ==================================================
@@ -902,6 +992,96 @@ export default function PanditDetail() {
 
             </p>
 
+          </Reveal>
+
+          {/* ==================================================
+              AVAILABILITY
+              Dedicated schedule section placed after Contact & Privacy.
+          ================================================== */}
+
+          <Reveal className="mt-8 overflow-hidden rounded-3xl border border-orange-200/80 bg-white shadow-sm">
+            <div className="bg-gradient-to-r from-orange-50 via-amber-50 to-white p-5 sm:p-6">
+              <div className="flex items-start gap-4">
+                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-orange-100 text-orange-800 ring-1 ring-orange-200" aria-hidden="true">
+                  <CalendarDays size={23} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-700">Plan your visit or puja</p>
+                  <h2 className="font-display mt-1 text-2xl font-semibold text-[#2a1a10]">Availability</h2>
+                  <p className="mt-2 text-sm leading-6 text-stone-600">Review the listed schedule below, then confirm your preferred date and time before making arrangements.</p>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                <div className="rounded-2xl border border-orange-200/80 bg-white p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="mt-0.5 text-orange-700" aria-hidden="true"><Clock size={19} /></span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">Listed days and hours</p>
+                      <p className="mt-1 text-base font-bold leading-7 text-stone-900">{availabilityText}</p>
+                      <p className="mt-1 text-xs leading-5 text-stone-500">Times are shown in the profile’s stated time zone, where specified.</p>
+                    </div>
+                  </div>
+                </div>
+                <a
+                  href="#book"
+                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-orange-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-orange-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2"
+                  aria-label={`Check availability and send an enquiry for ${p.name}`}
+                >
+                  <CalendarDays size={17} aria-hidden="true" />
+                  Check Availability
+                  <ChevronRight size={16} aria-hidden="true" />
+                </a>
+              </div>
+
+              <p className="mt-4 flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-3 text-xs leading-5 text-amber-950 ring-1 ring-amber-200/70">
+                <ShieldCheck size={15} className="mt-0.5 shrink-0 text-amber-700" aria-hidden="true" />
+                <span>Listed hours do not guarantee an open appointment. Availability may vary by puja, travel, muhurat and prior bookings. Please confirm the exact slot with the team before finalising your booking.</span>
+              </p>
+            </div>
+          </Reveal>
+
+          {/* ==================================================
+              SERVICE AREA & MAP
+          ================================================== */}
+
+          <Reveal className="mt-8 rounded-3xl border border-orange-900/10 bg-white p-5 sm:p-6">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-700">
+                Service coverage
+              </p>
+              <h2 className="font-display mt-1 text-2xl font-semibold text-[#2a1a10]">
+                Service Area & Map
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
+                Areas below are shown only when they have been added to this Pandit’s profile. Confirm exact coverage, travel arrangements and availability before booking.
+              </p>
+            </div>
+
+            {serviceAreas.length > 0 ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {serviceAreas.map((area) => (
+                  <span
+                    key={area.id}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-950"
+                  >
+                    <MapPin size={14} aria-hidden="true" />
+                    {area.name}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-4 rounded-2xl border border-dashed border-orange-200 bg-orange-50/60 p-4 text-sm text-stone-600">
+                Service areas have not been confirmed for this profile yet. Please enquire before assuming coverage in a particular city or locality.
+              </p>
+            )}
+
+            <div className="mt-5">
+              <ServiceAreaMap
+                serviceAreas={serviceAreas}
+                title="Coverage Map"
+              />
+            </div>
           </Reveal>
 
           {/* ==================================================
@@ -1018,13 +1198,9 @@ export default function PanditDetail() {
                     {p.title} · {p.experience} years listed experience
                   </p>
                   <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
-                    <span className="inline-flex items-center gap-2 text-[#ffdfa0]">
-                      <ShieldCheck size={15} aria-hidden="true" />
-                      {p.location}
-                    </span>
-                    <span className="inline-flex items-center gap-2 text-white/75">
-                      <CalendarDays size={15} aria-hidden="true" />
-                      {p.availability || "Availability to be confirmed"}
+                    <span className="inline-flex items-start gap-2 text-[#ffdfa0]">
+                      <MapPin size={15} aria-hidden="true" className="mt-0.5 shrink-0" />
+                      <span>Service Area: {serviceAreaText}</span>
                     </span>
                   </div>
                   <p className="mt-3 text-xs leading-5 text-white/65">
@@ -1045,7 +1221,7 @@ export default function PanditDetail() {
 
               <div className="w-full min-w-0">
                 <EnquiryForm
-                  context={`DivyaDhara Pandit profile booking enquiry for ${p.name}. The visitor started this enquiry from this specific Pandit profile.`}
+                  context={`DivyaDhara Pandit profile booking enquiry for ${p.name}. The visitor started this enquiry from this specific Pandit profile. Service area: ${serviceAreaText}. Listed location: ${p.location}. Confirm service coverage before finalising the booking.`}
                   title={`Enquiry for ${p.name}`}
                   compact={false}
                   leadType="contact"
@@ -1112,7 +1288,7 @@ export default function PanditDetail() {
         <WhatsAppBand
           title={`Want ${p.name.split(" ")[0]} ji for your sanskar?`}
           sub="Share your city, language and date — we'll confirm availability and muhurat within hours."
-          message={`Namaste! I want to book ${p.name} for ${p.specializations[0]}.`}
+          message={`Namaste! I want to enquire about ${p.name} for ${p.specializations[0]}. Service area shown on profile: ${serviceAreaText}. Please confirm availability and coverage.`}
         />
 
       </div>

@@ -8,24 +8,32 @@ const badriPrasadGuruji: Pandit = {
 
   title: "Hindu Pandit Ji",
 
-  // Confirm that this exact image filename exists in public/pandits_profile_img/.
+  // Confirm this exact filename exists in public/pandits_profile_img/ before publishing.
   photo: "/pandits_profile_img/Badri_Prasad_Guruji.jpg",
 
-  // The source row did not include years of experience.
-  // Replace this placeholder with a verified value before publishing.
+  // The source profile lists 21 years; verify this value before publishing.
   experience: 21,
 
+  // Primary/base location retained for existing profile and search compatibility.
   location: "Ghansoli, Navi Mumbai, Maharashtra, India",
 
-  // Confirm languages spoken before publishing the profile.
+  // Only the currently listed service area is included.
+  // Coordinates mark an approximate locality centre, not an exact address or boundary.
+  serviceAreas: [
+    {
+      id: "ghansoli",
+      name: "Ghansoli",
+      address: "Ghansoli, Navi Mumbai, Maharashtra, India",
+      lat: 19.1255,
+      lng: 73.0059,
+    },
+  ],
+
+  // Confirm the spoken languages directly before publishing.
   languages: ["Hindi", "Sanskrit", "Marathi"],
 
-  /*
-   * PANDIT STORY VIDEO
-   *
-   * Add a verified YouTube video ID when one is provided.
-   * Leave blank until then so the Story button remains hidden.
-   */
+  // Add a verified YouTube video ID only when the video belongs to this Pandit
+  // and permission to display it has been confirmed.
   storyVideoId: "",
 
   specializations: [
@@ -37,7 +45,7 @@ const badriPrasadGuruji: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  // Only ceremonies named in the supplied source row are listed here.
+  // Retain only the ceremony types listed in the supplied profile.
   pujaTypes: [
     "Satyanarayan Katha and Puja",
     "Rudrabhishek",
@@ -47,10 +55,11 @@ const badriPrasadGuruji: Pandit = {
     "Pitru-related Rituals",
   ],
 
-  associatedWith: "To be confirmed",
+  // Leave blank until a specific, verifiable affiliation is supplied.
+  associatedWith: "",
 
   about:
-    "Badri Prasad Guruji is a Hindu Pandit Ji listed on Divya Dhara and based in Ghansoli, Navi Mumbai, Maharashtra. His listed service areas include Satyanarayan Puja, Rudrabhishek, Havan, Vastu Shanti, Ganesh Puja and Pitru-related rituals. Devotees can enquire by sharing their preferred ceremony, date, location and specific requirements. Years of experience, languages, ritual procedures, samagri requirements, service duration, pricing and availability should be confirmed before a booking is finalized. Additional ceremonies should be added only after they are confirmed with the Pandit.",
+    "Badri Prasad Guruji is listed on DivyaDhara as a Hindu Pandit Ji based in Ghansoli, Navi Mumbai, Maharashtra. Devotees looking for a Pandit for a home puja or traditional Hindu ceremony can enquire about the rituals listed on this profile, including Satyanarayan Katha and Puja, Rudrabhishek, Havan, Vastu Shanti Puja, Ganesh Puja and Pitru-related rituals. The exact vidhi, mantra or paath, and suitability for a particular occasion should be discussed with the Pandit before the ceremony is arranged.\n\nGhansoli, Navi Mumbai is the currently listed service area. The map marker is an approximate locality-centre reference for orientation; it is not an exact address or a verified service boundary. Do not assume that nearby localities are covered unless Badri Prasad Guruji confirms the venue or PIN code. When enquiring, share the ceremony you need, preferred date or muhurat, full locality or PIN code, language preference and any family or sampradaya requirements.\n\nBefore confirming a booking, ask about the ceremony sequence, expected duration, samagri list and who will arrange the materials, dakshina, any travel charges and the Pandit’s availability for the requested date. The profile currently lists Hindi, Sanskrit and Marathi, and 21 years of experience; these details should be confirmed directly before relying on them. An enquiry does not itself confirm availability or finalise a booking.",
 
   services: [
     {
@@ -79,7 +88,7 @@ const badriPrasadGuruji: Pandit = {
     },
   ],
 
-  availability: "To be confirmed",
+  availability: "Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, 9:00 AM to 6:00 PM (IST)",
 
   // Keep false until contact details and authorization are verified in the existing flow.
   authorizedContact: false,
